@@ -374,8 +374,8 @@ impl BimApp {
         self.raise_context();
     }
 
-    /// Revit's Edit Boundary on the floor, ceiling, roof or shaft selected: its outline and holes as lines to edit, those it
-    /// kept from its last sketch with their ids.
+    /// Revit's Edit Boundary on the floor, ceiling, roof, shaft or toposolid selected: its outline and holes as lines to edit,
+    /// those it kept from its last sketch with their ids.
     pub(crate) fn edit_boundary(&mut self) {
         let &[id] = self.selection.as_slice() else { return };
         if let Some(r) = self.run("edit_boundary", json!({"id": id}))
@@ -389,7 +389,9 @@ impl BimApp {
     pub(crate) fn boundary_selected(&self) -> bool {
         match self.selection.as_slice() {
             [id] => match self.session.model.elements.get(*id) {
-                Some(Element::Floor(_) | Element::Ceiling(_) | Element::Shaft(_) | Element::FilledRegion(_)) => true,
+                Some(Element::Floor(_) | Element::Ceiling(_) | Element::Shaft(_) | Element::Toposolid(_) | Element::FilledRegion(_)) => {
+                    true
+                }
                 Some(Element::Roof(r)) => r.extrusion.is_none(),
                 _ => false,
             },

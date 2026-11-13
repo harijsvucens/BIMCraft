@@ -39,6 +39,11 @@ for a flat roof. So `add_point`, `edit_shape`, `add_split_line` and `reset_shape
 the desktop's Add Point and Modify Sub Elements (Elevation Base, Along Surface or Absolute, the height labels and the 3D
 grips) do too. `reset_shape` leaves it flat at its offset, its perimeter kept.
 
+`edit_boundary` redraws its outline as a sketch, as a floor's; its elevation points stay where the new outline still holds
+them, a point outside it goes (said in `dropped`), and a point is added at each new corner and where a split line meets the
+new edge, at the height the top had there. Its outline has no holes, so a second loop is refused. In the desktop, one
+toposolid selected offers the same Edit Boundary a floor does.
+
 ## Geometry
 
 - `toposolid_faces`: its top in convex pieces, each with its plane (`floor_faces` of its view): one plane without a shape,
@@ -91,7 +96,6 @@ The triangulation is the floor shape editor's (`triangulation::constrained`), no
 - **Excavate**: a floor, roof or toposolid cutting it; hosting site components, parking, railings; slab edge.
 - **An Options Bar at creation**: the command uses the default type (300 mm) and interval 1000; Properties changes them
   afterwards.
-- **Editing the outline**: `edit_boundary` refuses a toposolid yet; delete it and make it again.
 - **Snaps, picking and tags**: snaps and alignment guides don't know its points, only its lines pick it in plan (no fill),
   and a tag can't be hosted on it.
 - **IFC import**: a `.BASESLAB.` comes in as a floor, not yet as a toposolid.
