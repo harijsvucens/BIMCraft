@@ -11014,7 +11014,7 @@ fn edit_boundary(s: &mut Session, p: &Value) -> R {
             new.gables = new.edges().enumerate().filter(|(_, e)| kept.iter().any(|k| same(*k, *e))).map(|(i, _)| i).collect();
             Element::Roof(new)
         }
-        _ => return Err(bad(c, format!("{id} isn't a floor, a ceiling, a roof's footprint or a shaft"))),
+        _ => return Err(bad(c, format!("{id} isn't a floor, a ceiling, a roof's footprint, a shaft, a toposolid or a filled region"))),
     };
     let id = m.elements.id(id).ok_or_else(|| bad(c, "no such element"))?;
     s.model_mut().elements.insert(id, e);

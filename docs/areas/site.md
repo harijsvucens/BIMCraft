@@ -39,10 +39,12 @@ for a flat roof. So `add_point`, `edit_shape`, `add_split_line` and `reset_shape
 the desktop's Add Point and Modify Sub Elements (Elevation Base, Along Surface or Absolute, the height labels and the 3D
 grips) do too. `reset_shape` leaves it flat at its offset, its perimeter kept.
 
-`edit_boundary` redraws its outline as a sketch, as a floor's; its elevation points stay where the new outline still holds
-them, a point outside it goes (said in `dropped`), and a point is added at each new corner and where a split line meets the
-new edge, at the height the top had there. Its outline has no holes, so a second loop is refused. In the desktop, one
-toposolid selected offers the same Edit Boundary a floor does.
+`edit_boundary` redraws its outline as a sketch; its elevation points stay where the new outline still holds them, a point
+outside it goes (said in `dropped`), and a point is added at each new corner and where a split line meets the new edge, at
+the height the top had there. Its outline has no holes, so a second loop is refused. A toposolid keeps no sketch of its own,
+so the lines it hands back are its edges, made afresh each time: nothing is lost, its outline being straight segments, but
+a line's id does not survive as a floor's does. In the desktop, one toposolid selected in a plan offers the same Edit
+Boundary a floor does; the 3D view does not, having no plane for an outline that lies in plan.
 
 ## Geometry
 

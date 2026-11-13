@@ -7408,6 +7408,8 @@ fn edit_boundary_redraws_a_toposolid_and_keeps_the_points_inside_it() {
     let v = run(&mut s, "elements", json!({"category": "toposolid"}));
     assert_eq!(v["elements"][0]["area_m2"], 100.0);
     assert_eq!(v["elements"][0]["top"], json!([100.0, 500.0]));
+    let Some(Element::Toposolid(back)) = s.model.elements.get(id.as_u64().unwrap_or_default()) else { panic!() };
+    assert!(back.shape.points.iter().any(|p| p.at == P2(8000.0, 8000.0)), "the point the new outline dropped is back");
 }
 
 #[test]

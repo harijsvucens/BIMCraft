@@ -3625,6 +3625,18 @@ fn edit_boundary_opens_on_a_toposolid() {
 }
 
 #[test]
+fn edit_boundary_is_not_offered_on_a_toposolid_in_the_3d_view() {
+    let mut h = app(r#"toposolid {"boundary": [[0,0],[10000,0],[10000,10000],[0,10000]]}"#);
+    let t = ids(&h, "toposolid")[0];
+    h.state_mut().selection = vec![t];
+    h.state_mut().sheet = Sheet::View3D;
+    h.run();
+    // Its outline lies in plan and `Model::sketch_plane` has no plane in 3D for it, so a sketch there would have none.
+    assert!(!h.state().boundary_selected());
+    assert!(h.query_by_label("Edit Boundary").is_none());
+}
+
+#[test]
 fn shape_editing_raises_points_draws_split_lines_and_resets_a_floor() {
     let mut h = app(BOX);
     tool(&mut h, "Floor");
