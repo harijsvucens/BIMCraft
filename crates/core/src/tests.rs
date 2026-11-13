@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use crate::engine::{Session, commands};
 use crate::geom::P2;
-use crate::model::{Facing, Model};
+use crate::model::{Element, Facing, Model};
 
 fn run(s: &mut Session, id: &str, p: Value) -> Value {
     s.execute(id, &p).unwrap_or_else(|e| panic!("{id} {p}: {e}"))
@@ -7357,6 +7357,57 @@ fn the_shape_commands_shape_a_toposolid_as_a_floor() {
     assert_eq!(v["elements"][0]["top"], json!([0.0, 0.0]));
     // Flat, its solid is still a solid: 100 m2 through 300 mm.
     assert_eq!(v["elements"][0]["volume_m3"], 30.0);
+}
+
+#[test]
+fn edit_boundary_redraws_a_toposolid_and_keeps_the_points_inside_it() {
+    let mut s = Session::new();
+    // A 10 m plot 100 mm over its level, contoured every 500: a point off its middle 500 over the level (400 over the
+    // top's base), one on its southern edge 400 over the level, and one that the new outline will leave outside.
+    let id = run(
+        &mut s,
+        "toposolid",
+        json!({"boundary": plot(), "offset": 100, "interval": 500,
+               "points": [[2000, 2000, 500], [5000, 0, 400], [8000, 8000, 300]]}),
+    )["id"]
+        .clone();
+    // What it is now, as the lines an Edit Boundary session draws.
+    let now = run(&mut s, "edit_boundary", json!({"id": id}));
+    assert_eq!(now["sketch"].as_array().map(Vec::len), Some(4));
+    // Halved: the point inside keeps its height, the one on an edge stays, the one outside goes and is named.
+    let r = run(
+        &mut s,
+        "edit_boundary",
+        json!({"id": id, "sketch": [{"points": [[0, 0], [6000, 0], [6000, 6000], [0, 6000]], "closed": true}]}),
+    );
+    assert_eq!(r["area_m2"], 36.0);
+    assert_eq!(r["dropped"]["points"], json!([[8000.0, 8000.0]]));
+    let Some(Element::Toposolid(t)) = s.model.elements.get(id.as_u64().unwrap_or_default()).cloned() else { panic!() };
+    let height = |q: (f64, f64)| t.shape.points.iter().find(|p| p.at == P2(q.0, q.1)).map(|p| p.z);
+    assert_eq!(height((2000.0, 2000.0)), Some(400.0), "the point inside keeps its height");
+    assert_eq!(height((5000.0, 0.0)), Some(300.0), "a point on the new edge is still on the top");
+    // A point at each new corner, at the height the old top had there: the one the outline is cut through halfway down
+    // its fall is not back down to the level.
+    assert!(r["added"].as_array().is_some_and(|a| !a.is_empty()), "the new corners get their heights: {}", r["added"]);
+    assert!(height((6000.0, 0.0)).is_some_and(|z| z > 0.0), "the new corner keeps the fall the old top met there");
+    assert_eq!(t.boundary.len(), 4);
+    // Its offset, contour interval and type are its own still: 36 m2 through the type's 300 mm.
+    assert_eq!((t.offset, t.interval, t.type_name.as_str()), (100.0, 500.0, "Generic - 300mm"));
+    let v = run(&mut s, "elements", json!({"category": "toposolid"}));
+    assert_eq!((v["elements"][0]["volume_m3"].clone(), v["elements"][0]["top"].clone()), (json!(10.8), json!([100.0, 500.0])));
+    // A loop inside its outline is a hole, which a toposolid has none of.
+    let holed = json!([
+        {"points": [[0, 0], [6000, 0], [6000, 6000], [0, 6000]], "closed": true},
+        {"points": [[2000, 2000], [3000, 2000], [3000, 3000]], "closed": true},
+    ]);
+    let e = s.execute("edit_boundary", &json!({"id": id, "sketch": holed})).unwrap_err();
+    assert!(e.contains("one ring"), "{e}");
+    // One step back is the whole plot again, its dropped point with it.
+    assert_eq!(s.history().last(), Some(&"Edit Boundary"));
+    run(&mut s, "undo", json!({}));
+    let v = run(&mut s, "elements", json!({"category": "toposolid"}));
+    assert_eq!(v["elements"][0]["area_m2"], 100.0);
+    assert_eq!(v["elements"][0]["top"], json!([100.0, 500.0]));
 }
 
 #[test]

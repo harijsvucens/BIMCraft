@@ -3611,6 +3611,20 @@ fn floors_go_under_the_walls_and_a_slope_arrow_slopes_them() {
 }
 
 #[test]
+fn edit_boundary_opens_on_a_toposolid() {
+    let mut h = app(r#"toposolid {"boundary": [[0,0],[10000,0],[10000,10000],[0,10000]]}"#);
+    let t = ids(&h, "toposolid")[0];
+    h.state_mut().selection = vec![t];
+    h.run();
+    // Its contextual tab, then the Mode panel's Edit Boundary, as a floor's; it draws its four edges again.
+    press(&mut h, "Modify | Toposolids");
+    press(&mut h, "Edit Boundary");
+    let sketch = h.state().sketch.as_ref();
+    assert_eq!(sketch.map(|s| s.lines.len()), Some(4), "its four edges, to edit");
+    assert!(matches!(sketch.map(|s| &s.of), Some(crate::sketch::Of::Edit(id)) if *id == t));
+}
+
+#[test]
 fn shape_editing_raises_points_draws_split_lines_and_resets_a_floor() {
     let mut h = app(BOX);
     tool(&mut h, "Floor");

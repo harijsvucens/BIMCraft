@@ -395,11 +395,12 @@ other_files(
         "edit_boundary",
         "Edit Boundary",
         &[],
-        "{id, sketch?: [[[x,y],[x,y]],…]} redraws a floor's, a ceiling's, a roof's footprint's or a shaft's outline and its \
-         holes (a floor's or a ceiling's openings, a roof's courtyards; a shaft has none) as a sketch, all at once (see \
-         `sketch`); a roof's gable edges stay gables where the new footprint has the same edge. Without `sketch`, gives the \
-         outline and holes it has now, as the lines to edit. The outline must be simple, as `floor` says; a line that \
-         crosses itself is found as two that cross are",
+        "{id, sketch?: [[[x,y],[x,y]],…]} redraws a floor's, a ceiling's, a roof's footprint's, a shaft's or a toposolid's \
+         outline and its holes (a floor's or a ceiling's openings, a roof's courtyards; a shaft and a toposolid have none) \
+         as a sketch, all at once (see `sketch`); a roof's gable edges stay gables where the new footprint has the same \
+         edge, and a toposolid keeps the elevation points of its top that the new outline still holds, adding the ones its \
+         new corners and the fall there need. Without `sketch`, gives the outline and holes it has now, as the lines to \
+         edit. The outline must be simple, as `floor` says; a line that crosses itself is found as two that cross are",
         edit_boundary,
     ),
     edit(
@@ -10929,6 +10930,7 @@ fn boundary_now(e: &Element) -> Option<Vec<SketchLine>> {
         Element::Ceiling(x) => (x.boundary.clone(), x.openings.clone()),
         Element::Roof(r) if r.extrusion.is_none() => (r.boundary.clone(), r.courtyards.clone()),
         Element::Shaft(sh) => (sh.boundary.clone(), Vec::new()),
+        Element::Toposolid(t) => (t.boundary.clone(), Vec::new()),
         _ => return None,
     };
     let kept = e.sketch().filter(|ls| sketch::draws(ls, &outline, &holes)).cloned();
@@ -10956,7 +10958,7 @@ fn boundary_now(e: &Element) -> Option<Vec<SketchLine>> {
 fn edit_boundary(s: &mut Session, p: &Value) -> R {
     let c = "edit_boundary";
     let m = &s.model;
-    let id = id_opt(c, p, "id")?.ok_or_else(|| bad(c, "`id`, the floor, ceiling, roof or shaft to edit, is required"))?;
+    let id = id_opt(c, p, "id")?.ok_or_else(|| bad(c, "`id`, the floor, ceiling, roof, shaft or toposolid to edit, is required"))?;
     let e = m.elements.get(id).cloned().ok_or_else(|| bad(c, format!("no element {id}")))?;
     if let Some(lid) = m.elements.id(id) {
         refuse_pinned(c, m, &[lid], "change")?;
@@ -10973,8 +10975,8 @@ fn edit_boundary(s: &mut Session, p: &Value) -> R {
         s.model_mut().elements.insert(id, Element::FilledRegion(FilledRegion { sketch: lines, ..r }));
         return Ok(json!({"id": id, "area_m2": m2(profile.area())}));
     }
-    let now =
-        boundary_now(&e).ok_or_else(|| bad(c, format!("{id} isn't a floor, a ceiling, a roof's footprint, a shaft or a filled region")))?;
+    let now = boundary_now(&e)
+        .ok_or_else(|| bad(c, format!("{id} isn't a floor, a ceiling, a roof's footprint, a shaft, a toposolid or a filled region")))?;
     let Some((r, lines)) = sketched(c, p, "", &now)? else {
         return Ok(json!({"id": id, "sketch": now}));
     };
@@ -10989,6 +10991,14 @@ fn edit_boundary(s: &mut Session, p: &Value) -> R {
         Element::Ceiling(x) => Element::Ceiling(Ceiling { boundary: r.outer, openings: r.holes, sketch: lines, ..x }),
         Element::Shaft(_) if !r.holes.is_empty() => return Err(bad(c, "a shaft is one outline with no holes in it")),
         Element::Shaft(sh) => Element::Shaft(Shaft { boundary: r.outer, sketch: lines, ..sh }),
+        Element::Toposolid(_) if !r.holes.is_empty() => {
+            return Err(bad(c, "a toposolid is one outline with no holes in it: draw one ring"));
+        }
+        Element::Toposolid(t) => {
+            let shape;
+            (shape, said) = shape_within(m, &m.toposolid_as_floor(&t), &r.outer, &[]);
+            Element::Toposolid(Toposolid { boundary: r.outer, shape, ..t })
+        }
         Element::Roof(old) => {
             let mut new = Roof { boundary: r.outer, courtyards: r.holes, gables: Vec::new(), sketch: unslope(&lines), ..old.clone() };
             // A slope stays with its edge too, where the edge stays or is cut in two; the lines may say it instead.
