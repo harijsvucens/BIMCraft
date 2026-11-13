@@ -553,6 +553,7 @@ impl BimApp {
             Tool::Ceiling => Of::Ceiling(level),
             Tool::Roof => Of::Roof(level),
             Tool::Shaft(_) => Of::Shaft(level),
+            Tool::Toposolid => Of::Toposolid(level),
             _ => return,
         };
         self.start_sketch(of, Vec::new());

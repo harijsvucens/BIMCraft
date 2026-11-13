@@ -6227,6 +6227,42 @@ fn masses_are_clicked_out_as_a_footprint_previewed_and_finished_with_enter_or_th
 }
 
 #[test]
+fn a_toposolid_is_sketched_with_the_draw_panels_shapes_and_selected_ready_for_add_point() {
+    let mut h = app(BOX);
+    // Picking the tool opens the Sketch Editor at once, so its Draw panel is there as the Floor tool's is.
+    massing(&mut h, "Toposolid");
+    assert!(h.state().sketch.is_some());
+    // A narrow ribbon folds the Draw panel into its name: click it open, as a user does.
+    if h.query_by_label("Rectangle").is_none() {
+        press(&mut h, "Draw");
+    }
+    assert!(h.query_by_label("Rectangle").is_some(), "the Draw panel's shapes");
+    press(&mut h, "Rectangle");
+    click(&mut h, P2(1000.0, 1000.0));
+    click(&mut h, P2(5000.0, 4000.0));
+    press(&mut h, "Finish Edit Mode");
+    let id = ids(&h, "toposolid");
+    assert_eq!(id.len(), 1);
+    assert_eq!((field(&h, id[0], "area_m2"), field(&h, id[0], "level")), (json!(12.0), json!(100000)));
+    // Selected when it is made, so Add Point and Modify Sub Elements are on it; the tool is ready for the next.
+    assert_eq!(h.state().selection, id);
+    assert_eq!(h.state().tool, Tool::Modify);
+    assert!(h.state().session.model.shapeable(id[0]).is_ok());
+    // Add Point, an offset typed, lifts its top: a shape point, and the plan's contours follow.
+    press(&mut h, "Add Point");
+    type_into(&mut h, "Offset from Surface:", "500");
+    click(&mut h, P2(3000.0, 2500.0));
+    assert_eq!(field(&h, id[0], "shape")["points"][0]["z"], json!(500.0));
+    assert_eq!(field(&h, id[0], "top"), json!([0.0, 500.0]));
+    // Edit Type is the toposolid's own type: what it is made of, the thickness its layers add up to.
+    press(&mut h, "Edit Type");
+    type_into(&mut h, "Default Thickness", "500");
+    press(&mut h, "OK");
+    assert_eq!(h.state().session.model.types.toposolid.get("Generic - 300mm").map(|t| t.thickness), Some(500.0));
+    assert_eq!((field(&h, id[0], "thickness"), field(&h, id[0], "volume_m3")), (json!(500.0), json!(6.0)), "12 m2 through 500 mm");
+}
+
+#[test]
 fn the_massing_tab_makes_floors_walls_a_floor_and_a_roof_from_the_selected_mass() {
     let mut h =
         app("level {\"elevation\": 6000}\nmass {\"boundary\": [[0, 0], [10000, 0], [10000, 6000], [0, 6000]], \"top_level\": \"Level 3\"}");

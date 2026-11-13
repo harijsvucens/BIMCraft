@@ -52,14 +52,21 @@ grips) do too. `reset_shape` leaves it flat at its offset, its perimeter kept.
 
 The triangulation is the floor shape editor's (`triangulation::constrained`), not a second TIN engine.
 
+## The desktop tool
+
+Massing > Model Site > Toposolid (TS) opens the Sketch Editor on the plan, as the Floor tool does: the Draw panel's Line,
+Rectangle, Polygon, Circle, Arc and Spline draw its outline, Pick Walls takes a line along each wall clicked, and Finish Edit
+Mode makes it (`sketch`), Esc cancels. It is made of the project's default toposolid type at interval 1000; Properties and
+Edit Type change those after. The new toposolid is selected on the contextual Modify tab, where Shape Editing's Add Point, Modify Sub
+Elements, Add Split Line and Reset Shape work on its top as on a floor's (Add Point's Options Bar has the offset over the
+surface, or an absolute elevation). Properties has Level, Height Offset From Level, Thickness (read-only: the type's), Contour
+Interval, Area, Volume and Name, and edits them through `modify`; **Edit Type** opens the type, where Default Thickness and
+its layers are edited, and the Type Selector shows the project's toposolid types.
+
 ## Where it shows
 
-- **Plans**, on its own level: its boundary, its contour lines at `interval`, and its type's top material's surface pattern —
-  a named fill pattern or a built-in one — laid over the whole top in one frame, from `pattern_origin` and turned by
-  `pattern_angle` (degrees counter-clockwise), so the pattern runs unbroken over a fold. `contours {id}` gives the lines as
-  data.
-- **3D**: its top's pieces, each a slab down to the plane under it, and its type's finish material's texture, on the plan's
-  axes turned by the same angle from the same origin: a paving meets itself at a fold, and turns as the plan's pattern does.
+- **Plans**, on its own level: its boundary, and its contour lines at `interval`. `contours {id}` gives the lines as data.
+- **3D**: its top's pieces, each a slab down to the plane under it.
 - **Schedules**: category `toposolid`: Name, Level, Area, Volume, Thickness.
 - **IFC**: an `IfcSlab` with `.BASESLAB.`, a closed faceted Brep, in the level's storey, with `Qto_SlabBaseQuantities`.
 - **File**: `FORMAT` 20 (a build that reads up to 19 refuses a toposolid as an unknown element kind).
@@ -89,8 +96,8 @@ The triangulation is the floor shape editor's (`triangulation::constrained`), no
 - **Sub-Divide**: a sub-area with its own offset, material and inherit-contours.
 - **Graded Region**: a new toposolid for the proposed state, the old one Existing, and cut/fill.
 - **Excavate**: a floor, roof or toposolid cutting it; hosting site components, parking, railings; slab edge.
-- **An Options Bar at creation**: the command uses the default type (300 mm) and interval 1000; Properties changes them
-  afterwards.
+- **An Options Bar at creation**: the tool uses the default type (300 mm) and interval 1000; Properties and Edit Type
+  change them afterwards.
 - **Editing the outline**: `edit_boundary` refuses a toposolid yet; delete it and make it again.
 - **Snaps, picking and tags**: snaps and alignment guides don't know its points, only its lines pick it in plan (no fill),
   and a tag can't be hosted on it.

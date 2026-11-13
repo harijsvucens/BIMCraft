@@ -298,6 +298,8 @@ pub enum Tool {
     Shaft(Option<P2>),
     /// A mass: the corners of its footprint, as clicked so far.
     Mass(Vec<P2>),
+    /// A toposolid: its boundary sketched, as a floor's (`sketch::Of::Toposolid`).
+    Toposolid,
     /// A detail line in the Options Bar's line style: its points, as clicked so far.
     DetailLine(Vec<P2>),
     /// The selected floor's slope arrow: its tail, once clicked.
@@ -1886,6 +1888,7 @@ impl BimApp {
             Tool::Ceiling => Some(msg!("Place Ceiling")),
             Tool::Shaft(_) => Some(msg!("Create Shaft Opening")),
             Tool::Mass(_) => Some(msg!("Create Mass")),
+            Tool::Toposolid => Some(msg!("Create Toposolid")),
         };
         if let Some(what) = place {
             return Some(format!("{} | {}", t("Modify"), t(what)));
@@ -2748,6 +2751,7 @@ impl BimApp {
                 Some("column") => Tool::Column,
                 Some("footing") => Tool::Stand("footing"),
                 Some("mass") => Tool::Mass(Vec::new()),
+                Some("toposolid") => Tool::Toposolid,
                 Some("show_mass") => {
                     self.show_mass();
                     return true;
@@ -2841,6 +2845,7 @@ impl BimApp {
             Some(Element::Ceiling(_)) => Tool::Ceiling,
             Some(Element::Shaft(_)) => Tool::Shaft(None),
             Some(Element::Mass(_)) => Tool::Mass(Vec::new()),
+            Some(Element::Toposolid(_)) => Tool::Toposolid,
             Some(Element::Roof(r)) if r.extrusion.is_some() => Tool::ExtrusionRoof(Vec::new()),
             Some(Element::Roof(_)) => Tool::Roof,
             Some(Element::Column(_)) => Tool::Column,
@@ -3064,19 +3069,21 @@ impl BimApp {
         self.snap_once = None;
         self.door_flip_hand = false;
         self.tool = tool;
-        // Floor sketches its outline at once, as Revit's does (Walls' Outline puts the walls' in the sketch).
-        if self.tool == Tool::Floor
+        // Floor sketches its outline at once, as Revit's does (Walls' Outline puts the walls' in the sketch), and so does a
+        // toposolid, whose Draw panel is then the shapes it may be drawn with.
+        if matches!(self.tool, Tool::Floor | Tool::Toposolid)
             && self.sketch.is_none()
             && matches!(self.sheet, Sheet::Plan(_) | Sheet::Ceiling(_))
             && let Some(level) = self.plan_level()
         {
-            self.start_sketch(crate::sketch::Of::Floor(level), Vec::new());
+            let of = if self.tool == Tool::Floor { crate::sketch::Of::Floor(level) } else { crate::sketch::Of::Toposolid(level) };
+            self.start_sketch(of, Vec::new());
             return;
         }
         // In the 3D view the tools that sketch an outline sketch it on the work plane at once.
         if self.sheet == Sheet::View3D
             && self.sketch.is_none()
-            && matches!(self.tool, Tool::Floor | Tool::Ceiling | Tool::Roof | Tool::Shaft(_))
+            && matches!(self.tool, Tool::Floor | Tool::Ceiling | Tool::Roof | Tool::Shaft(_) | Tool::Toposolid)
         {
             self.sketch_on_work_plane();
         }
@@ -3201,6 +3208,14 @@ impl BimApp {
     pub(crate) fn selected_floor(&self) -> Option<Id> {
         match self.selection.as_slice() {
             &[id] if matches!(self.session.model.elements.get(id), Some(Element::Floor(_))) => Some(id),
+            _ => None,
+        }
+    }
+
+    /// The toposolid selected, when one is all that is: its top takes the Shape Editing tools as a floor's does.
+    pub(crate) fn selected_toposolid(&self) -> Option<Id> {
+        match self.selection.as_slice() {
+            &[id] if matches!(self.session.model.elements.get(id), Some(Element::Toposolid(_))) => Some(id),
             _ => None,
         }
     }
@@ -4401,6 +4416,14 @@ impl BimApp {
                 self.show_mass();
             }
         });
+        panel(ui, msg!("Model Site"), |ui| {
+            let tip = msg!(
+                "Toposolid (TS): sketch its boundary in the Draw panel, or draw it line by line; Finish Edit Mode makes it, then Add Point shapes its top"
+            );
+            if big_button(ui, Icon::Mass, "Toposolid", structure::same_tool(&self.tool, &Tool::Toposolid), tip).clicked() {
+                self.set_tool(Tool::Toposolid);
+            }
+        });
         let selected = !self.selected_masses().is_empty();
         panel(ui, msg!("Model by Face"), |ui| {
             ui.add_enabled_ui(selected, |ui| {
@@ -5332,6 +5355,12 @@ impl BimApp {
                 self.shape_tools(ui, floor);
             });
         }
+        // A toposolid selected: its shape's points and split lines, as a floor's (no slope arrow: its top is shaped).
+        if let Some(toposolid) = self.selected_toposolid()
+            && matches!(self.tool, Tool::Modify | Tool::ModifySubElements | Tool::AddPoint | Tool::AddSplitLine(_))
+        {
+            panel(ui, msg!("Shape Editing"), |ui| self.shape_tools(ui, toposolid));
+        }
         panel(ui, "Modify", |ui| {
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 2.0;
@@ -5476,6 +5505,8 @@ impl BimApp {
                         height_options(ui, &self.session.model, level, &mut self.mass_top, &mut self.mass_height, "mass-top");
                     }
                 }
+                // Its level is the plan's; the sketch puts it there, and Properties changes offset and interval.
+                Tool::Toposolid => {}
                 Tool::Ceiling => {
                     let l = ui.label(t("Height Offset:"));
                     let hint = self.session.model.units.name();
@@ -6022,6 +6053,9 @@ impl BimApp {
             Tool::Mass(pts) if pts.is_empty() => msg!("Click the first corner of the mass's footprint."),
             Tool::Mass(pts) if pts.len() < 3 => msg!("Click the footprint's next corner. Esc cancels."),
             Tool::Mass(_) => msg!("Click the next corner; Enter, or the first corner again, finishes the mass. Esc cancels."),
+            Tool::Toposolid => {
+                msg!("Sketch the toposolid's boundary: the Draw panel's shapes, or line by line. Finish Edit Mode makes it.")
+            }
             Tool::DetailLine(pts) if pts.is_empty() => msg!("Click where the detail line starts."),
             Tool::DetailLine(_) => "Click its next point; Enter finishes it, the first point again closes it. Esc cancels.",
             Tool::SlopeArrow(None) => msg!("Click the slope arrow's tail: where the floor's top stays at its height offset."),

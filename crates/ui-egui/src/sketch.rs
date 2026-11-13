@@ -33,6 +33,8 @@ pub enum Of {
     Roof(Id),
     /// A new shaft opening from the level.
     Shaft(Id),
+    /// A new toposolid on the level.
+    Toposolid(Id),
     /// A new filled region in the view (a plan's key), or a masking region: any number of outlines.
     Region { view: Id, masking: bool },
     /// The element's outline and holes, redrawn.
@@ -89,6 +91,7 @@ impl Sketch {
             Of::Ceiling(_) => msg!("Create Ceiling Boundary"),
             Of::Roof(_) => "Create Roof Footprint",
             Of::Shaft(_) => msg!("Create Shaft Opening Sketch"),
+            Of::Toposolid(_) => msg!("Create Toposolid Boundary"),
             Of::Region { masking: false, .. } => msg!("Create Filled Region Boundary"),
             Of::Region { masking: true, .. } => msg!("Create Masking Region Boundary"),
             Of::Edit(_) => "Edit Boundary",
@@ -429,6 +432,7 @@ impl BimApp {
                     ("roof", self.typed("roof", json!({"level": level, "offset": offset, "slope": slope, "sketch": lines})))
                 }
                 Of::Shaft(_) => ("shaft", json!({"level": level, "base_offset": offset, "sketch": lines})),
+                Of::Toposolid(_) => ("toposolid", json!({"level": level, "offset": offset, "sketch": lines})),
                 _ => return,
             };
             if let Some(made) = self.run(id, p) {
@@ -456,6 +460,7 @@ impl BimApp {
                 ("roof", self.typed("roof", json!({"level": on, "slope": slope, "sketch": lines})))
             }
             Of::Shaft(level) => ("shaft", json!({"level": level, "sketch": lines})),
+            Of::Toposolid(level) => ("toposolid", json!({"level": level, "sketch": lines})),
             Of::Region { view, .. } => {
                 ("filled_region", json!({"view": view, "sketch": lines, "type": sk.region.0, "line_style": sk.region.1}))
             }
@@ -882,6 +887,11 @@ impl BimApp {
                 msg!("Boundary Line: sketch the roof's footprint, on the level above, and any courtyards in it"),
             ),
             Tool::Shaft(_) => (Of::Shaft(level), "Boundary Line", msg!("Boundary Line: sketch the shaft opening's outline")),
+            Tool::Toposolid => (
+                Of::Toposolid(level),
+                msg!("Boundary Line"),
+                msg!("Boundary Line: sketch the toposolid's outline, or draw it with the Draw panel's shapes"),
+            ),
             _ => return,
         };
         panel(ui, "Draw", |ui| {

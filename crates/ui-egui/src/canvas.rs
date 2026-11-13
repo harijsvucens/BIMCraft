@@ -2211,6 +2211,8 @@ impl BimApp {
             }
             // A sketch tool with the sketch gone: nothing to draw into.
             Tool::SketchLine(_) | Tool::SketchPick => self.tool = Tool::Modify,
+            // The toposolid's sketch starts with the tool; where none could (a sheet), a click does nothing.
+            Tool::Toposolid => {}
             Tool::Modify => self.pick_up(hovered.into_iter().collect(), mods),
             Tool::Door | Tool::Window => {
                 let door = matches!(self.tool, Tool::Door);

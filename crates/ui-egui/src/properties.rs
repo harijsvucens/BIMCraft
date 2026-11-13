@@ -226,6 +226,15 @@ fn rows(category: &str) -> &'static [Row] {
             ("Dimensions", "points", msg!("Boundary"), Outline),
             ("Dimensions", "area_m2", "Area", AreaShown),
         ],
+        "toposolid" => &[
+            ("Constraints", "level", "Level", Level),
+            ("Constraints", "offset", "Height Offset From Level", Length),
+            ("Dimensions", "thickness", "Thickness", LengthShown),
+            ("Dimensions", "interval", msg!("Contour Interval"), Length),
+            ("Dimensions", "area_m2", "Area", AreaShown),
+            ("Dimensions", "volume_m3", msg!("Volume (m³)"), Shown),
+            ("Identity Data", "name", "Name", Text),
+        ],
         "grid" => &[("Identity Data", "name", "Name", Text), ("Other", "start", "Start", Point), ("Other", "end", "End", Point)],
         "dimension" => &[
             ("Dimensions", "values", "Value", Values),
@@ -542,6 +551,7 @@ fn type_rows(category: &str) -> &'static [(&'static str, &'static str, &'static 
     match category {
         "wall" => &[(C, "thickness", msg!("Width"))],
         "floor" => &[(C, "thickness", msg!("Default Thickness"))],
+        "toposolid" => &[(C, "thickness", msg!("Default Thickness"))],
         "door" => &[(D, "width", msg!("Width")), (D, "height", msg!("Height"))],
         "window" => &[(D, "width", msg!("Width")), (D, "height", msg!("Height")), (C, "sill", msg!("Default Sill Height"))],
         "column" | "structuralcolumn" | "footing" => &[(D, "width", msg!("Width")), (D, "depth", msg!("Depth"))],
@@ -588,6 +598,7 @@ fn icon(category: &str) -> Icon {
         "ceiling" | "ceiling plan" => Icon::Ceiling,
         "shaft" => Icon::Shaft,
         "mass" => Icon::Mass,
+        "toposolid" => Icon::Mass,
         "ramp" => Icon::Ramp,
         "railing" => Icon::Railing,
         "text" => Icon::Text,
@@ -797,7 +808,7 @@ enum Subject {
 type LayerRow = (Function, String, String, bool);
 
 /// The categories whose types have layers: a wall's from its exterior in, the others' from the top down.
-const LAYERED: [&str; 4] = ["wall", "floor", "roof", "ceiling"];
+const LAYERED: [&str; 5] = ["wall", "floor", "roof", "ceiling", "toposolid"];
 
 /// Each pattern as the Materials window names it.
 const PATTERNS: [(Pattern, &str); 10] = [
@@ -1262,6 +1273,7 @@ impl BimApp {
             ([], Tool::Ceiling, _) => Subject::New("ceiling"),
             ([], Tool::Shaft(_), _) => Subject::New("shaft"),
             ([], Tool::Mass(_), _) => Subject::New("mass"),
+            ([], Tool::Toposolid, _) => Subject::New("toposolid"),
             // A section's or an elevation's view shows its own parameters.
             ([], _, Sheet::Section(id) | Sheet::Paper(id)) => Subject::Element(id),
             // Modify, and the tools that pick walls rather than place anything: the view.
