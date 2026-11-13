@@ -389,10 +389,10 @@ impl BimApp {
     pub(crate) fn boundary_selected(&self) -> bool {
         match self.selection.as_slice() {
             [id] => match self.session.model.elements.get(*id) {
-                Some(Element::Floor(_) | Element::Ceiling(_) | Element::Shaft(_) | Element::Toposolid(_) | Element::FilledRegion(_)) => {
-                    true
-                }
+                Some(Element::Floor(_) | Element::Ceiling(_) | Element::Shaft(_)) => true,
                 Some(Element::Roof(r)) => r.extrusion.is_none(),
+                // An outline that lies in plan: the 3D view has no plane to redraw one on (`Model::sketch_plane`).
+                Some(Element::Toposolid(_) | Element::FilledRegion(_)) => self.sheet != Sheet::View3D,
                 _ => false,
             },
             _ => false,
