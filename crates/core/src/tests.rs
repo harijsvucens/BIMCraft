@@ -7272,6 +7272,24 @@ fn a_toposolid_is_made_from_a_sketch_and_its_points_shape_its_top() {
 }
 
 #[test]
+fn a_toposolids_surface_area_measures_its_tops_slope_beside_its_plan_area() {
+    let mut s = Session::new();
+    // Flat, its top is its footprint. A 2 m tent in the middle of the 10 m square: each of its four faces rises 2000
+    // over 5000, so its top measures 100 m2 x sqrt(1 + 0.4^2) = 107.70 m2 over the same 100 m2 plan.
+    let flat = run(&mut s, "toposolid", json!({"boundary": plot(), "name": "Flat"}));
+    assert_eq!((flat["area_m2"].clone(), flat["surface_area_m2"].clone()), (json!(100.0), json!(100.0)));
+    let tent = run(&mut s, "toposolid", json!({"boundary": plot(), "points": [[5000, 5000, 2000]], "name": "Tent"}));
+    assert_eq!((tent["area_m2"].clone(), tent["surface_area_m2"].clone()), (json!(100.0), json!(107.7)));
+    // A schedule offers it beside the plan area, so a row says which it means.
+    let r = run(&mut s, "schedule", json!({"name": "Earthwork", "category": "toposolid", "fields": ["Name", "Area", "Surface Area"]}));
+    assert_eq!(r["columns"], json!(["Name", "Area (m\u{b2})", "Surface Area (m\u{b2})"]));
+    assert_eq!(r["rows"], json!([["Flat", 100.0, 100.0], ["Tent", 100.0, 107.7]]));
+    // `elements` gives both on each one, as a schedule's fields read them.
+    let done = run(&mut s, "elements", json!({"category": "toposolid"}))["elements"].clone();
+    assert_eq!((done[1]["area_m2"].clone(), done[1]["surface_area_m2"].clone()), (json!(100.0), json!(107.7)));
+}
+
+#[test]
 fn a_toposolid_shows_its_types_surface_pattern_in_plan_and_its_texture_in_3d() {
     let mut s = Session::new();
     // A paving surface: a model pattern of level courses, and a texture, on the type's one layer.

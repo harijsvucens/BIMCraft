@@ -193,6 +193,8 @@ const TYPE: Own = ("Type", Kind::Text, From::Key("type"));
 const FAMILY: Own = (msg!("Family"), Kind::Text, From::Key("family"));
 const LEVEL: Own = ("Level", Kind::Text, From::Level);
 const AREA: Own = (msg!("Area"), Kind::Area, From::Key("area_m2"));
+/// A toposolid's top's area over its slope, beside the plan area its `Area` holds.
+const SURFACE_AREA: Own = (msg!("Surface Area"), Kind::Area, From::Key("surface_area_m2"));
 const WIDTH: Own = ("Width", Kind::Length, From::Key("width"));
 const HEIGHT: Own = ("Height", Kind::Length, From::Key("height"));
 const LENGTH: Own = ("Length", Kind::Length, From::Key("length"));
@@ -308,7 +310,7 @@ const OWN: &[(&str, usize, &[Own])] = &[
         ],
     ),
     ("ceiling", 5, &[ID, TYPE, LEVEL, OFFSET, AREA, THICKNESS, COUNT, PHASE_CREATED, PHASE_DEMOLISHED, DESIGN_OPTION]),
-    ("toposolid", 5, &[NAME, LEVEL, AREA, VOLUME, THICKNESS, COUNT, PHASE_CREATED, PHASE_DEMOLISHED, DESIGN_OPTION]),
+    ("toposolid", 6, &[NAME, LEVEL, AREA, SURFACE_AREA, VOLUME, THICKNESS, COUNT, PHASE_CREATED, PHASE_DEMOLISHED, DESIGN_OPTION]),
     (
         "roof",
         4,

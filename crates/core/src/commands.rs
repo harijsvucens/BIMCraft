@@ -569,7 +569,8 @@ other_files(
          the flat top; the top is shaped by them and by split lines as a floor's, so `add_point`, `edit_shape`, \
          `add_split_line` and `reset_shape` take it. `interval` is the mm between the contour lines plans draw (1000; 0 \
          for none). Its type's top material's surface pattern lies over the whole top from `pattern_origin` and turned by \
-         `pattern_angle`, as a floor's (`modify` sets both). Returns id, name, area_m2, volume_m3, thickness, top and bottom",
+         `pattern_angle`, as a floor's (`modify` sets both). Returns id, name, area_m2 (the boundary's plan area), \
+         surface_area_m2 (its top's over its slope), volume_m3, thickness, top and bottom",
         toposolid,
     ),
     other(
@@ -2056,7 +2057,7 @@ other_files(
         "{name?, category?, categories?, fields?, filters?, sort?, grouped?, path?} a schedule view, as Revit's View > Schedules makes one, \
          and its table: columns, rows, the `elements` each row lists, and totals (and a .csv file with a path, or an .xlsx workbook for a path ending .xlsx). A new one needs `name` and `category`: rooms, \
          doors, windows, walls, floors, ceilings, roofs, columns, structural columns, footings, beams, strip footings, components, \
-         stairs, ramps, railings, levels or sheets, or `multicategory`, as Revit's Multi-Category Schedule: a row for each element of \
+         stairs, ramps, railings, levels, sheets or toposolids, or `multicategory`, as Revit's Multi-Category Schedule: a row for each element of \
          `categories` ([\"walls\", \"doors\"…]; none, every built one but rooms, levels, masses and sheets), with the fields they share \
          (Category, Family, Type, Level, Count, Width, Height, Length, Thickness, Area: a wall's length by its height, a door's \
          width by its height; Material: its type's structure layer's, a run's type's, a family's), each empty where its \
@@ -3116,6 +3117,7 @@ pub fn element_json_with(m: &Model, id: Id, rooms: &crate::rooms::Rooms) -> Valu
             let (lo, hi) = m.toposolid_range(t);
             let thickness = m.toposolid_thickness(t);
             extra.insert("area_m2".into(), json!(m2(geom::area(&t.boundary).abs())));
+            extra.insert("surface_area_m2".into(), json!(m2(m.toposolid_surface_area(t))));
             extra.insert("volume_m3".into(), json!((m.toposolid_volume(t) / 1e6).round() / 1e3));
             extra.insert("top".into(), json!([hundredth(lo), hundredth(hi)]));
             extra.insert("bottom".into(), json!([hundredth(lo - thickness), hundredth(hi - thickness)]));
@@ -8067,6 +8069,7 @@ fn toposolid(s: &mut Session, p: &Value) -> R {
         "id": id,
         "name": name,
         "area_m2": area,
+        "surface_area_m2": m2(s.model.toposolid_surface_area(t)),
         "volume_m3": volume,
         "thickness": thickness,
         "top": [hundredth(lo), hundredth(hi)],
