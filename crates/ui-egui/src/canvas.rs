@@ -2363,7 +2363,7 @@ impl BimApp {
             },
             Tool::Trim(_) | Tool::TrimTo { .. } => self.trim_click(hovered, v.mm(at)),
             Tool::Split => {
-                if let Some(id) = hovered {
+                if let Some(id) = hovered.filter(|id| matches!(m.elements.get(*id), Some(Element::Wall(_) | Element::DetailLine(_)))) {
                     self.run("split", json!({"id": id, "at": point(self.snap(m, level, v, at, &[], false).at)}));
                 }
             }
