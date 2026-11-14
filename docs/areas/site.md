@@ -67,6 +67,7 @@ The triangulation is the floor shape editor's (`triangulation::constrained`), no
   data.
 - **3D**: its top's pieces, each a slab down to the plane under it, and its type's finish material's texture, on the plan's
   axes turned by the same angle from the same origin: a paving meets itself at a fold, and turns as the plan's pattern does.
+  Its top may be painted (`paint`, face `top`), and the paint shows here as a floor's does, not in the plan's pattern.
 - **Schedules**: category `toposolid`: Name, Level, Area, Volume, Thickness.
 - **IFC**: an `IfcSlab` with `.BASESLAB.`, a closed faceted Brep, in the level's storey, with `Qto_SlabBaseQuantities`.
 - **File**: `FORMAT` 20 (a build that reads up to 19 refuses a toposolid as an unknown element kind).
@@ -98,6 +99,6 @@ The triangulation is the floor shape editor's (`triangulation::constrained`), no
 - **Excavate**: a floor, roof or toposolid cutting it; hosting site components, parking, railings; slab edge.
 - **An Options Bar at creation**: the command uses the default type (300 mm) and interval 1000; Properties changes them
   afterwards.
-- **Snaps, picking and tags**: snaps and alignment guides don't know its points, only its lines pick it in plan (no fill),
-  and a tag can't be hosted on it.
+- **Snaps, picking and tags**: snaps and alignment guides know its outline and its elevation points, as they know a floor's;
+  picking is on its lines (not inside, as a floor's fill picks it), and a tag can't be hosted on it.
 - **IFC import**: a `.BASESLAB.` comes in as a floor, not yet as a toposolid.

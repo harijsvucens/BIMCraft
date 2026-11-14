@@ -422,6 +422,12 @@ impl<'a> Scene<'a> {
                     s.points.extend(ring(&c.boundary));
                     c.openings.iter().for_each(|o| s.points.extend(ring(o)));
                 }
+                Element::Toposolid(t) if t.level == level => {
+                    s.points.extend(ring(&t.boundary));
+                    // Its elevation points, and its split lines to run along, as a floor's.
+                    s.points.extend(t.shape.points.iter().map(|x| (x.at, Kind::Endpoint, of)));
+                    s.lines.extend(t.shape.lines.iter().map(|l| (l.a, l.b, of)));
+                }
                 Element::Roof(r) if r.level == level || Some(r.level) == above => {
                     s.points.extend(ring(&r.boundary));
                     r.courtyards.iter().chain(&r.openings).for_each(|o| s.points.extend(ring(o)));
@@ -1005,6 +1011,16 @@ mod tests {
         assert_eq!(snap(&s.model, *view, p, REACH, &[], false, &Snaps::default()).kind, Kind::Free);
         s.execute("graphics", &serde_json::json!({"view": "Level 1", "hide": ["line"]})).unwrap();
         assert_eq!(at(&s.model, p, &[], &Snaps::default()).kind, Kind::Free);
+    }
+
+    #[test]
+    fn snaps_find_a_toposolids_elevation_points_and_its_edges() {
+        // Its top's points and its outline are what a plan draws, so a click near one lands on it, as a floor's does.
+        let m = model(r#"toposolid {"boundary": [[0,0],[10000,0],[10000,10000],[0,10000]], "points": [[5000,5000,2000]]}"#);
+        let f = at(&m, P2(5030.0, 4980.0), &[], &Snaps::default());
+        assert_eq!((f.kind, f.at), (Kind::Endpoint, P2(5000.0, 5000.0)), "its elevation point");
+        let f = at(&m, P2(30.0, 20.0), &[], &Snaps::default());
+        assert_eq!((f.kind, f.at), (Kind::Endpoint, P2(0.0, 0.0)), "a corner of its outline");
     }
 
     #[test]

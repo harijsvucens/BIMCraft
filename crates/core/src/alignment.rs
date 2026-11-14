@@ -242,7 +242,7 @@ impl AlignmentGuideService {
             }
         }
 
-        // 6. Floors, Roofs, Ceilings, Shafts
+        // 6. Floors, Roofs, Ceilings, Shafts, Toposolids
         for (id, e) in m.elements.iter() {
             let loops: Vec<&[P2]> = match e {
                 Element::Floor(f) if f.level == level_guid => {
@@ -253,6 +253,7 @@ impl AlignmentGuideService {
                 }
                 Element::Ceiling(c) if c.level == level_guid => std::iter::once(c.boundary.as_slice()).collect(),
                 Element::Shaft(s) => std::iter::once(s.boundary.as_slice()).collect(),
+                Element::Toposolid(t) if t.level == level_guid => std::iter::once(t.boundary.as_slice()).collect(),
                 _ => Vec::new(),
             };
             for loop_pts in loops {
@@ -714,5 +715,16 @@ mod why_tests {
         let service = AlignmentGuideService::from_model(&s.model, level, config);
         let found = service.find_alignments(P2(5005.0, 3000.0), Some(P2(0.0, 3000.0)), 50.0);
         assert!(found.first().is_some_and(|a| a.wall_id == Some(wall)), "{found:?}");
+    }
+
+    /// A toposolid's outline is a guide too, as a floor's is.
+    #[test]
+    fn a_toposolids_outline_lines_a_point_up() {
+        let mut s = Session::new();
+        s.script(r#"toposolid {"boundary": [[1000, 1000], [6000, 1000], [6000, 6000], [1000, 6000]]}"#).unwrap();
+        let level = s.model.levels()[0].0;
+        let service = AlignmentGuideService::from_model(&s.model, level, AlignmentConfig::default());
+        let found = service.find_alignments(P2(6004.0, 3000.0), Some(P2(0.0, 3000.0)), 80.0);
+        assert!(found.iter().any(|a| a.axis == AlignmentAxis::X && a.reference_point.0 == 6000.0), "{found:?}");
     }
 }
