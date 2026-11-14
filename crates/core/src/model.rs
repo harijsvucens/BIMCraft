@@ -556,8 +556,8 @@ pub struct Layer {
     pub material: String,
     pub thickness: f64,
     /// A floor's, a roof's or a toposolid's layer that takes up a shaped top's falls (IDEAS MOD-16): its `thickness` where
-    /// the top is where it would be without its shape, more or less elsewhere, the layers above it following the top and
-    /// those below it the level underside. One a type at most.
+    /// the top is where it would be without its shape (a toposolid's: at its lowest point), more or less elsewhere, the
+    /// layers above it following the top and those below it the level underside. One a type at most.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub variable: bool,
 }
@@ -5904,7 +5904,8 @@ impl Model {
             .collect()
     }
 
-    /// A toposolid's pieces in plan, each a bottom face and how far it rises to the top: what the 3D view draws as slabs.
+    /// A toposolid's pieces in plan, each a bottom face and how far it rises to the top: what the 3D view draws as slabs
+    /// where no variable layer makes prisms of them (`toposolid_prisms`).
     pub fn toposolid_slabs(&self, t: &Toposolid) -> Vec<(Vec<[f64; 3]>, f64)> {
         self.toposolid_prisms(t)
             .into_iter()
@@ -8152,6 +8153,7 @@ impl Model {
                         t.interval
                     ));
                 }
+                // No variable check: its underside moves with its top's lowest point, so the layer never thins.
                 shape_ok(&who, &self.toposolid_as_floor(t), None)?;
             }
             Element::RoomSeparator(rs) => {
