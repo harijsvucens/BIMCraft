@@ -67,7 +67,9 @@ The triangulation is the floor shape editor's (`triangulation::constrained`), no
   data.
 - **3D**: its top's pieces, each a slab down to the plane under it, and its type's finish material's texture, on the plan's
   axes turned by the same angle from the same origin: a paving meets itself at a fold, and turns as the plan's pattern does.
-  Its top may be painted (`paint`, face `top`), and the paint shows here as a floor's does, not in the plan's pattern.
+  Its top may be painted (`paint`, face `top`), and the paint shows here as a floor's does, not in the plan's pattern. A
+  facet steeper than 60° from the horizontal is on no face, as a floor's side is not, so paint leaves it on the type's
+  material.
 - **Schedules**: category `toposolid`: Name, Level, Area, Volume, Thickness.
 - **IFC**: an `IfcSlab` with `.BASESLAB.`, a closed faceted Brep, in the level's storey, with `Qto_SlabBaseQuantities`.
 - **File**: `FORMAT` 20 (a build that reads up to 19 refuses a toposolid as an unknown element kind).
@@ -87,8 +89,7 @@ The triangulation is the floor shape editor's (`triangulation::constrained`), no
   its lowest point instead of a slab thinning at every dip.
 - **Its area**: `area_m2` is its boundary's plan area. There is no area of its 3D top, so a schedule has no sloped
   figure beside the plan one to choose between.
-- **Split Element, and paint**: `split` takes walls and detail lines, so a toposolid cannot be sliced; its top has no
-  face, so `paint` refuses it.
+- **Split Element**: `split` takes walls and detail lines, so a toposolid cannot be sliced.
 - **A wall attached to it**: `attach_top` and `attach_base` take a floor or a roof, not a toposolid.
 - **Everywhere but its own plan**: only that level's plan draws it; another plan, or a section, does not, and its
   contours are drawn in plan only, not in 3D.
@@ -99,6 +100,7 @@ The triangulation is the floor shape editor's (`triangulation::constrained`), no
 - **Excavate**: a floor, roof or toposolid cutting it; hosting site components, parking, railings; slab edge.
 - **An Options Bar at creation**: the command uses the default type (300 mm) and interval 1000; Properties changes them
   afterwards.
-- **Snaps, picking and tags**: snaps and alignment guides know its outline and its elevation points, as they know a floor's;
-  picking is on its lines (not inside, as a floor's fill picks it), and a tag can't be hosted on it.
+- **Snaps, picking and tags**: snaps know its outline, its elevation points and its split lines; alignment guides know its
+  outline, as they know a floor's, and neither asks a view's visibility (a hidden floor guides too); picking is on its lines
+  (not inside, as a floor's fill picks it), and a tag can't be hosted on it.
 - **IFC import**: a `.BASESLAB.` comes in as a floor, not yet as a toposolid.

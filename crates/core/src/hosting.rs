@@ -148,8 +148,8 @@ pub fn wall_side(n: P3, left: P2) -> Option<FaceRole> {
     }
 }
 
-/// The face a triangle of a floor, a ceiling or a roof turned `n` is on: its top facing up, its bottom facing down; none
-/// for an edge.
+/// The face a triangle of a floor, a ceiling, a roof or a toposolid turned `n` is on: its top facing up, its bottom facing
+/// down; none for an edge.
 pub fn slab_side(n: P3) -> Option<FaceRole> {
     match n[2] {
         z if z > 0.5 => Some(FaceRole::Top),

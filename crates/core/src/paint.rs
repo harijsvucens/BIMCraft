@@ -14,7 +14,8 @@ pub fn reserved(name: &str) -> bool {
     name == KEY
 }
 
-/// The faces an element of `category` has to paint, by name: a wall's two sides; a floor's, a roof's or a ceiling's top and
+/// The faces an element of `category` has to paint, by name: a wall's two sides; a floor's, a roof's, a ceiling's or a
+/// toposolid's top and
 /// bottom; and of the other things a model is made of that hold values, all of it.
 pub fn faces(category: &str) -> &'static [&'static str] {
     match category {

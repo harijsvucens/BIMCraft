@@ -423,10 +423,14 @@ impl<'a> Scene<'a> {
                     c.openings.iter().for_each(|o| s.points.extend(ring(o)));
                 }
                 Element::Toposolid(t) if t.level == level => {
+                    let inside = near(&t.boundary);
                     s.points.extend(ring(&t.boundary));
-                    // Its elevation points, and its split lines to run along, as a floor's.
-                    s.points.extend(t.shape.points.iter().map(|x| (x.at, Kind::Endpoint, of)));
-                    s.lines.extend(t.shape.lines.iter().map(|l| (l.a, l.b, of)));
+                    // Its elevation points, and its split lines to run along, as a floor's. Its shape lies inside its
+                    // boundary, so a cursor far from it copies none of them (a terrain may hold thousands).
+                    if inside {
+                        s.points.extend(t.shape.points.iter().map(|x| (x.at, Kind::Endpoint, of)));
+                        s.lines.extend(t.shape.lines.iter().map(|l| (l.a, l.b, of)));
+                    }
                 }
                 Element::Roof(r) if r.level == level || Some(r.level) == above => {
                     s.points.extend(ring(&r.boundary));
