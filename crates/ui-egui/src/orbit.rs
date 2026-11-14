@@ -543,9 +543,14 @@ fn dim_ref(scene: &Scene, cam: &Camera, at: (f64, f64), under: Option<Surface>, 
     under.map(|s| Ref3 { at: s.at.map(f64::round), edge: None })
 }
 
-/// Whether Attach Top/Base takes element `id`: a roof or a floor.
+/// Whether Attach Top/Base takes element `id`: a roof, a floor or a toposolid.
 fn attach_target(m: &Model, id: Id) -> bool {
-    matches!(m.elements.get(id), Some(bimcraft_core::model::Element::Roof(_) | bimcraft_core::model::Element::Floor(_)))
+    matches!(
+        m.elements.get(id),
+        Some(
+            bimcraft_core::model::Element::Roof(_) | bimcraft_core::model::Element::Floor(_) | bimcraft_core::model::Element::Toposolid(_)
+        )
+    )
 }
 
 /// A handle of the wall or column selected, as a section box's are drawn: an arrow up or down the screen for its top or base, a
@@ -2473,6 +2478,25 @@ mod edits {
     use super::*;
     use std::sync::mpsc;
     use std::time::Duration;
+
+    #[test]
+    fn attach_top_base_takes_a_floor_or_a_toposolid_but_not_a_wall() {
+        use bimcraft_core::model::Element;
+        let mut s = bimcraft_core::engine::Session::new();
+        s.script(
+            r#"toposolid {"boundary": [[0,0],[4000,0],[4000,4000],[0,4000]]}
+               floor {"boundary": [[0,0],[4000,0],[4000,4000],[0,4000]]}
+               wall {"points": [[0,0],[8000,0]]}"#,
+        )
+        .unwrap();
+        let found = |f: fn(&Element) -> bool| s.model.elements.iter().find(|(_, e)| f(e)).map(|(id, _)| *id);
+        let ground = found(|e| matches!(e, Element::Toposolid(_)));
+        let floor = found(|e| matches!(e, Element::Floor(_)));
+        let wall = found(|e| matches!(e, Element::Wall(_)));
+        assert!(ground.is_some_and(|id| attach_target(&s.model, id)), "a toposolid takes it");
+        assert!(floor.is_some_and(|id| attach_target(&s.model, id)), "a floor takes it");
+        assert!(wall.is_some_and(|id| !attach_target(&s.model, id)), "a wall does not");
+    }
 
     #[test]
     fn after_an_edit_the_worker_brings_the_last_scene_up_to_date_and_draws_the_whole_scene_s_picture() {

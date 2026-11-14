@@ -1,7 +1,7 @@
 //! The handles a selected wall or column has in a 3D view, as a section box's faces have theirs: the wall's two ends, an arrow on
 //! its top and one under its base; a column's place, and its two arrows. Where each stands, what a drag to a new place is as a
-//! command, and how the element would stand meanwhile are here, for any front end; a top or a base attached to a roof or a floor
-//! follows that and has no arrow. Heights land on a level within reach ([`settled`]).
+//! command, and how the element would stand meanwhile are here, for any front end; a top or a base attached to a roof, a
+//! floor or a toposolid follows that and has no arrow. Heights land on a level within reach ([`settled`]).
 
 use serde_json::{Value, json};
 

@@ -5283,7 +5283,8 @@ impl BimApp {
                         self.flip();
                     }
                 }
-                let tip = msg!("Attach Top/Base: pick a roof or a floor for the tops, or bases, of the walls and columns to follow");
+                let tip =
+                    msg!("Attach Top/Base: pick a roof, a floor or a toposolid for the tops, or bases, of the walls and columns to follow");
                 if big_button(ui, Icon::Attach, "Attach Top/Base", self.tool == Tool::Attach, tip).clicked() {
                     self.set_tool(Tool::Attach);
                 }
@@ -5899,8 +5900,8 @@ impl BimApp {
             Tool::Modify => msg!("Click to select, Tab for what's underneath, Ctrl adds, Shift takes away; drag to box or to move."),
             Tool::Wall(chain) if chain.is_empty() => msg!("Click to enter the wall's start point."),
             Tool::Wall(_) => msg!("Click to build the wall to the next point. Enter or Esc ends the chain, Shift keeps it square."),
-            Tool::Attach if self.attach_base => msg!("Pick a roof or a floor: the bases of what's selected stand on it."),
-            Tool::Attach => msg!("Pick a roof or a floor: the tops of what's selected follow its underside."),
+            Tool::Attach if self.attach_base => msg!("Pick a roof, a floor or a toposolid: the bases of what's selected stand on it."),
+            Tool::Attach => msg!("Pick a roof, a floor or a toposolid: the tops of what's selected follow its underside."),
             Tool::Door => msg!("Click a wall to place the door."),
             Tool::Window => msg!("Click a wall to place the window."),
             Tool::Room => msg!("Click inside walls to place a room; the outline shows the room you'd get."),

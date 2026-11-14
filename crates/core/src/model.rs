@@ -4632,7 +4632,7 @@ impl Model {
     }
 
     /// The elements that point at element `k`, by id, as [`Element::refs`] gives what each points at: the doors and windows
-    /// in a wall, the walls attached to a roof or a floor, the dimensions and tags on it.
+    /// in a wall, the walls attached to a roof, a floor or a toposolid, the dimensions and tags on it.
     pub fn referring(&self, k: impl Key) -> Vec<Id> {
         let Some(g) = self.elements.guid(k) else { return Vec::new() };
         // What points at it, as the lookup keeps it, in the order of their ids.
