@@ -2355,7 +2355,7 @@ fn rules_of(m: &Model, owners: impl Iterator<Item = Id>) -> HashMap<Id, Rule> {
         }
         let rule = match m.elements.get(id) {
             Some(Element::Wall(w)) => Some(Rule::Wall(Axis::of(w))),
-            Some(e) if matches!(e.category(), "floor" | "roof" | "ceiling") => Some(Rule::Slab),
+            Some(e) if matches!(e.category(), "floor" | "roof" | "ceiling" | "toposolid") => Some(Rule::Slab),
             Some(e) if paint::faces(e.category()).contains(&"all") => Some(Rule::Whole),
             _ => None,
         };
@@ -5211,6 +5211,43 @@ mod tests {
             }
         }
         assert!(painted > 0 && kept > 0, "{painted} painted, {kept} left of the wall's others");
+    }
+
+    #[test]
+    fn a_toposolid_takes_paint_on_its_top() {
+        use crate::engine::Session;
+        let mut s = Session::new();
+        let t = s
+            .execute("toposolid", &serde_json::json!({"boundary": [[0,0],[10000,0],[10000,10000],[0,10000]], "points": [[5000,5000,2000]]}))
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap_or_default();
+        let before = Scene::new(&s.model);
+        let brick = s.model.materials["Brick"].color;
+        s.execute("paint", &serde_json::json!({"ids": [t], "face": "top", "material": "Brick"})).unwrap();
+        let after = Scene::new(&s.model);
+        let (mut top, mut bottom, mut side) = (0, 0, 0);
+        for (i, a) in after.tris.iter().enumerate().filter(|(_, a)| a.owner == t) {
+            match after.faces[i] {
+                "top" => {
+                    assert_eq!(a.color, Rgb(brick[0], brick[1], brick[2]), "triangle {i} is the top, painted");
+                    top += 1;
+                }
+                "bottom" => {
+                    // The base keeps the type's material; paint names the top alone.
+                    assert_ne!(a.color, Rgb(brick[0], brick[1], brick[2]), "triangle {i} is the base");
+                    bottom += 1;
+                }
+                // A slab's edge, which is on no face: a floor's is not paintable either.
+                "" => {
+                    assert_ne!(a.color, Rgb(brick[0], brick[1], brick[2]), "triangle {i} is a side");
+                    side += 1;
+                }
+                other => panic!("a toposolid's triangle is on an unknown face: {other:?}"),
+            }
+        }
+        assert!(top > 0 && bottom > 0 && side > 0, "{top} top, {bottom} base, {side} side");
+        assert!(before.tris.iter().all(|a| a.color != Rgb(brick[0], brick[1], brick[2]) || a.owner != t));
     }
 
     #[test]

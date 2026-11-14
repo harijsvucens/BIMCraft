@@ -1273,8 +1273,8 @@ other_files(
         &["PT"],
         "{id | ids, face?, material} paints a face of the elements with a material of the library, as Revit's Paint does: its \
          colour and texture show in the 3D view over what their types are made of. `face`: a wall's `exterior` or `interior`, a \
-         floor's, roof's or ceiling's `top` or `bottom`, and `all` for a column, a component, a door, a window, a stair, a ramp or \
-         a railing; without it, every face the elements have. `material` null takes the paint off",
+         floor's, roof's, ceiling's or toposolid's `top` or `bottom`, and `all` for a column, a component, a door, a window, a \
+         stair, a ramp or a railing; without it, every face the elements have. `material` null takes the paint off",
         paint,
     ),
     edit(
