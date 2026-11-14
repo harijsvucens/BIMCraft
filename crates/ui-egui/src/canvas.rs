@@ -2524,7 +2524,7 @@ impl BimApp {
                     self.run("tag", json!({"ids": [id], "leader": self.tag_leader, "label": (!label.is_empty()).then_some(label)}));
                 }
             }
-            // The selected walls, onto the roof or floor picked; then Modify, the walls still selected.
+            // The selected walls, onto the roof, floor or toposolid picked; then Modify, the walls still selected.
             Tool::Attach => {
                 if let Some(id) = hovered {
                     self.attach_to(id);
