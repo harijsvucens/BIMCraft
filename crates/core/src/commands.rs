@@ -1651,9 +1651,12 @@ other_files(
         "{id, at?: [x, y], line?: [[x, y], [x, y]]} splits a wall or a detail line in two at `at`: a wall's doors and windows go with their part; a \
          detail line of any shape splits where it passes nearest `at` (a spline by its control points exactly, one through \
          points into two through points within 0.05 mm of it), and a closed one (a circle, a whole ellipse, a closed \
-         polyline) opens there instead, into one that starts and ends at `at`. A toposolid is cut along `line`, across its \
-         outline, into two that keep its type, level and contours: each keeps the elevation points on its side (a point on \
-         the line goes to both) and the split lines, cut where the line crosses them; the first keeps the id",
+         polyline) opens there instead, into one that starts and ends at `at`. A toposolid is cut along `line`, which \
+         runs on both ways from its two points and must cross the outline, into two that keep its type, level, contours \
+         and pattern frame: each keeps the elevation points on its side (one on the line goes to both) and the split \
+         lines on its side or along the cut, and a split line that would cross the cut is refused. A point off the cut \
+         is not shared, so each piece's top is its own ground. The first keeps the id and the name, the second takes a \
+         free name",
         split,
     ),
     edit(
@@ -8039,18 +8042,7 @@ fn toposolid(s: &mut Session, p: &Value) -> R {
         survey.into_iter().map(|[x, y, z]| crate::model::ShapePoint { at: P2(x, y), z: z - base, ..Default::default() }).collect();
     let name = match string(c, p, "name")? {
         Some(n) => n,
-        None => {
-            let word = m.language.word(bimcraft_i18n::msg!("Toposolid"));
-            let taken: BTreeSet<&str> = m
-                .elements
-                .values()
-                .filter_map(|e| match e {
-                    Element::Toposolid(t) => Some(t.name.as_str()),
-                    _ => None,
-                })
-                .collect();
-            (1..).map(|k| format!("{word} {k}")).find(|n| !taken.contains(n.as_str())).unwrap_or_default()
-        }
+        None => toposolid_name(m),
     };
     let area = m2(geom::area(&boundary).abs());
     let solid = Toposolid {
@@ -8084,6 +8076,20 @@ fn toposolid(s: &mut Session, p: &Value) -> R {
         "top": [hundredth(lo), hundredth(hi)],
         "bottom": bottom,
     }))
+}
+
+/// A name no toposolid has yet: `Toposolid 1`, `Toposolid 2`, … in the project's language.
+fn toposolid_name(m: &Model) -> String {
+    let word = m.language.word(bimcraft_i18n::msg!("Toposolid"));
+    let taken: BTreeSet<&str> = m
+        .elements
+        .values()
+        .filter_map(|e| match e {
+            Element::Toposolid(t) => Some(t.name.as_str()),
+            _ => None,
+        })
+        .collect();
+    (1..).map(|k| format!("{word} {k}")).find(|n| !taken.contains(n.as_str())).unwrap_or_default()
 }
 
 fn contours(s: &mut Session, p: &Value) -> R {
@@ -16428,8 +16434,9 @@ fn corner(s: &mut Session, p: &Value) -> R {
 
 fn split(s: &mut Session, p: &Value) -> R {
     let c = "split";
+    only(c, p, &["id", "at", "line"])?;
     let m = &s.model;
-    let id = id_opt(c, p, "id")?.ok_or_else(|| bad(c, "`id`, a wall or a detail line, is required"))?;
+    let id = id_opt(c, p, "id")?.ok_or_else(|| bad(c, "`id`, a wall, a detail line or a toposolid, is required"))?;
     if let Some(lid) = m.elements.id(id) {
         refuse_pinned(c, m, &[lid], "split")?;
     }
@@ -16447,9 +16454,10 @@ fn split(s: &mut Session, p: &Value) -> R {
         if line.len() != 2 {
             return Err(bad(c, "`line` is two points, the split line's start and its end"));
         }
-        let (first, second) = m.toposolid_split(t, line[0], line[1]).map_err(|e| bad(c, e))?;
+        let (first, mut second) = m.toposolid_split(t, line[0], line[1]).map_err(|e| bad(c, e))?;
         let m = s.model_mut();
         m.elements.insert(lid, Element::Toposolid(first));
+        second.name = toposolid_name(m);
         let new = m.insert(Element::Toposolid(second));
         return Ok(json!({"ids": [lid, new]}));
     }

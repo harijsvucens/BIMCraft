@@ -141,7 +141,7 @@ pub const CIRCUIT_SET: &str = "BIMCraft_Circuit";
 /// a closed face set that doesn't say): `Loft`, JSON `{bottom, top}`.
 pub const LOFT: &str = "BIMCraft_Mass";
 
-/// A wall's authored location line (`Location`), and the GlobalIds of the roof or floor its top and base follow
+/// A wall's authored location line (`Location`), and the GlobalIds of the roof, floor or toposolid its top and base follow
 /// (`AttachTop`, `AttachBase`). Its Axis representation lies on that location line.
 pub const WALL: &str = "BIMCraft_Wall";
 
@@ -1133,7 +1133,7 @@ pub(crate) fn export_with(m: &Model, reference_rooms: bool) -> String {
                 let line = w.add(format!("IFCPOLYLINE(({}))", refs(&pts)));
                 let axis_rep = w.add(format!("IFCSHAPEREPRESENTATION(#{axis},'Axis','Curve2D',(#{line}))"));
                 // Its outline swept up, mitred where it joins others as the plan's is; attached to a
-                // roof or a floor, a closed shell for each piece under (or over) a plane of it.
+                // roof, a floor or a toposolid, a closed shell for each piece under (or over) a plane of it.
                 let shape = if wl.attach_top.is_none() && wl.attach_base.is_none() {
                     let outline: Vec<P2> = walls::outline(m, id).into_iter().map(local).collect();
                     let profile = w.profile(&outline, &[]);

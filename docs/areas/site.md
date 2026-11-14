@@ -81,6 +81,9 @@ The triangulation is the floor shape editor's (`triangulation::constrained`), no
   material.
 - **Schedules**: category `toposolid`: Name, Level, Area (its boundary's plan area), Surface Area (its top's over its
   slope), Volume, Thickness.
+- **Split Element**: `split {id, line}` cuts it along a line across its outline into two, each with its type, level,
+  contours and pattern frame and the elevation points on its side (a point on the cut goes to both); the first keeps
+  its id and name, the second takes a free name.
 - **Walls on it**: `attach_top` and `attach_base` take a toposolid as they take a roof or a floor, so a wall's base may
   stand on the terrain (its bottom follows the rise, bending where the top does) and its top keep under it; `modify`'s and
   the desktop's Attach Top/Base both offer it.
@@ -97,7 +100,10 @@ The triangulation is the floor shape editor's (`triangulation::constrained`), no
   fill pattern and colour, a structural material, and the function. The interval is the instance's for now.
 - **Its layers in 3D**: a toposolid is not split by its compound structure as a floor is, so its sides take its top
   layer's material and its lower layers show no colour there.
-- **Split Element**: `split` takes walls and detail lines, so a toposolid cannot be sliced.
+- **Split's edges**: a split line that crosses the cut is refused (its end would land on the new edge with no point or
+  corner to hold it), and a point off the cut is not shared, so each piece's top is its own ground and the seam can
+  step - cutting the line and pinning the cut's profile is the next slice. The desktop's Split tool clicks a wall or a
+  line (point-based), so a toposolid is cut by the command.
 - **Everywhere but its own plan**: only that level's plan draws it; another plan, or a section, does not, and its
   contours are drawn in plan only, not in 3D.
 - **Smooth shading**: a shaped top is drawn faceted; there is no `Toposolid Smooth Shading` toggle.

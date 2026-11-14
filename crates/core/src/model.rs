@@ -5342,10 +5342,11 @@ impl Model {
     }
 
     /// A toposolid cut in two along the line through `a` and `b` (its ends are just the line's direction): each piece's
-    /// outline, and the shape points on its side - a point on the line goes to both - and split lines, cut where the line
-    /// crosses them. The first piece keeps the element's own id and GUID when it is put back; the second's parts are left
-    /// for the model to give theirs. Refused when the line does not cross the outline, or a piece would be under a square
-    /// metre.
+    /// outline, and the shape points on its side - a point on the line goes to both - and split lines that lie on its side
+    /// or along the cut; one that crosses the cut is refused, since its end would land there with no point or corner to
+    /// hold it. A point off the cut is not shared, so each piece's top runs over its own points alone. The first piece
+    /// keeps the element's own id and GUID when it is put back; the second's parts are left for the model to give theirs.
+    /// Refused when the line does not cross the outline, or a piece would be under a square metre.
     pub fn toposolid_split(&self, t: &Toposolid, a: P2, b: P2) -> Result<(Toposolid, Toposolid), String> {
         let d = b - a;
         if !(d.0.is_finite() && d.1.is_finite()) || d.dist(P2(0.0, 0.0)) <= TOL {
@@ -5366,8 +5367,11 @@ impl Model {
             out
         };
         let (mut left, mut right) = (ring(&|q| side(q)), ring(&|q| -side(q)));
-        if [&left, &right].iter().any(|r| r.len() < 3 || geom::area(r).abs() < 1e6) {
-            return Err("the line must cut across its outline, leaving a square metre or more each side".into());
+        if [&left, &right].iter().any(|r| r.len() < 3 || geom::area(r).abs() <= 1.0) {
+            return Err("the line doesn't cross its outline, or only touches it".into());
+        }
+        if [&left, &right].iter().any(|r| geom::area(r).abs() < 1e6) {
+            return Err("a cut there leaves a piece under a square metre: cut farther in".into());
         }
         for r in [&mut left, &mut right] {
             if geom::area(r) < 0.0 {
