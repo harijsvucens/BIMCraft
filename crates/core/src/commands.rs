@@ -1201,7 +1201,9 @@ other_files(
          its core from its first structure layer to its last, and a new `thickness` goes to its structure. A ceiling type may \
          have `grid`: its square tiles' width, mm, which reflected ceiling plans draw (0, none); a railing type, `height` (its \
          rail over what it runs along) and `spacing` (its balusters' centres, 0 for none). Floor, roof, ceiling and toposolid \
-         types may have `layers` too, from the top down; a layer's `material` is one of the library's (see `material`). A \
+         types may have `layers` too, from the top down; a layer's `material` is one of the library's (see `material`). A layer \
+         may be `variable`: a shaped floor's, roof's or toposolid's underside is then level, that layer taking up the shape \
+         (a toposolid's under its top's lowest point). A \
          toposolid type's `thickness` is how thick its toposolids are (Revit's Default Thickness)",
         edit_type,
     ),
@@ -3116,11 +3118,14 @@ pub fn element_json_with(m: &Model, id: Id, rooms: &crate::rooms::Rooms) -> Valu
         Element::Toposolid(t) => {
             let (lo, hi) = m.toposolid_range(t);
             let thickness = m.toposolid_thickness(t);
+            let under = m.toposolid_under(t);
             extra.insert("area_m2".into(), json!(m2(geom::area(&t.boundary).abs())));
             extra.insert("surface_area_m2".into(), json!(m2(m.toposolid_surface_area(t))));
             extra.insert("volume_m3".into(), json!((m.toposolid_volume(t) / 1e6).round() / 1e3));
             extra.insert("top".into(), json!([hundredth(lo), hundredth(hi)]));
-            extra.insert("bottom".into(), json!([hundredth(lo - thickness), hundredth(hi - thickness)]));
+            // Its underside: one height under a variable layer, else each point its thickness below the top.
+            let bottom = under.map_or([hundredth(lo - thickness), hundredth(hi - thickness)], |p| [hundredth(p.z), hundredth(p.z)]);
+            extra.insert("bottom".into(), json!(bottom));
             extra.insert("thickness".into(), json!(thickness));
             extra.insert("interval".into(), json!(t.interval));
             // Where its top's model pattern starts and how far it's turned: shown at their defaults too, to be set by modify.
@@ -8065,6 +8070,8 @@ fn toposolid(s: &mut Session, p: &Value) -> R {
     let (lo, hi) = s.model.toposolid_range(t);
     let volume = (s.model.toposolid_volume(t) / 1e6).round() / 1e3;
     let thickness = s.model.toposolid_thickness(t);
+    let under = s.model.toposolid_under(t);
+    let bottom = under.map_or([hundredth(lo - thickness), hundredth(hi - thickness)], |p| [hundredth(p.z), hundredth(p.z)]);
     Ok(json!({
         "id": id,
         "name": name,
@@ -8073,7 +8080,7 @@ fn toposolid(s: &mut Session, p: &Value) -> R {
         "volume_m3": volume,
         "thickness": thickness,
         "top": [hundredth(lo), hundredth(hi)],
-        "bottom": [hundredth(lo - thickness), hundredth(hi - thickness)],
+        "bottom": bottom,
     }))
 }
 

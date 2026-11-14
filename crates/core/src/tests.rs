@@ -7294,6 +7294,45 @@ fn a_toposolids_surface_area_measures_its_tops_slope_beside_its_plan_area() {
 }
 
 #[test]
+fn a_toposolid_variable_layer_keeps_its_base_level_under_its_lowest_point() {
+    let mut s = Session::new();
+    // 100 finish + 300 variable structure + 100 substrate: 500 mm in all, the structure taking up the shape.
+    let layers = |variable: bool| {
+        json!([
+            {"function": "finish", "thickness": 100},
+            {"function": "structure", "thickness": 300, "variable": variable},
+            {"function": "substrate", "thickness": 100},
+        ])
+    };
+    run(&mut s, "type", json!({"category": "toposolid", "name": "Site - Variable", "layers": layers(true)}));
+    // A 1 m mound on the 10 x 10 m plot: the base stays 500 mm under its lowest point (the corners, at 0), not 500 mm
+    // under its peak. Its volume is the 10 x 10 x 0.5 m block plus the mound, a pyramid 10 x 10 m at its base, 1 m high.
+    let r = run(&mut s, "toposolid", json!({"type": "Site - Variable", "boundary": plot(), "points": [[5000, 5000, 1000]]}));
+    assert_eq!(r["top"], json!([0.0, 1000.0]));
+    assert_eq!(r["bottom"], json!([-500.0, -500.0]), "one base, under its lowest point");
+    assert_eq!(r["volume_m3"], 83.333);
+    // A pit 400 mm deep lowers the whole base to 900 under the level, and the solid keeps its thickness there.
+    let pit = run(&mut s, "toposolid", json!({"type": "Site - Variable", "boundary": plot(), "points": [[5000, 5000, -400]]}));
+    assert_eq!((pit["top"].clone(), pit["bottom"].clone()), (json!([-400.0, 0.0]), json!([-900.0, -900.0])));
+    assert_eq!(pit["volume_m3"], 76.667);
+    // In 3D each piece is a prism from that base up (its layers split as a floor's), not a slab under each top piece.
+    let t = r["id"].as_u64().unwrap_or_default();
+    let lowest = crate::view3d::shaded(&s.model)
+        .into_iter()
+        .filter(|x| matches!(x, crate::view3d::Solid::Prism { owner, .. } if *owner == t))
+        .filter_map(|x| match x {
+            crate::view3d::Solid::Prism { bottom, .. } => Some(bottom.z),
+            _ => None,
+        })
+        .fold(f64::INFINITY, f64::min);
+    assert!((lowest + 500.0).abs() < 0.01, "the 3D base is at {lowest}");
+    // Without the flag the type is an ordinary slab again: its base follows the top, its thickness under each point.
+    run(&mut s, "type", json!({"category": "toposolid", "name": "Site - Variable", "layers": layers(false)}));
+    let e = run(&mut s, "elements", json!({"category": "toposolid"}))["elements"][0].clone();
+    assert_eq!(e["bottom"], json!([-500.0, 500.0]));
+}
+
+#[test]
 fn a_toposolid_shows_its_types_surface_pattern_in_plan_and_its_texture_in_3d() {
     let mut s = Session::new();
     // A paving surface: a model pattern of level courses, and a texture, on the type's one layer.

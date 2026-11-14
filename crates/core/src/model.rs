@@ -535,9 +535,9 @@ pub struct Layer {
     #[serde(default)]
     pub material: String,
     pub thickness: f64,
-    /// A floor's or a roof's layer that takes up a shaped top's falls (IDEAS MOD-16): its `thickness` where the top is
-    /// where it would be without its shape, more or less elsewhere, the layers above it following the top and those below
-    /// it the level underside. One a type at most.
+    /// A floor's, a roof's or a toposolid's layer that takes up a shaped top's falls (IDEAS MOD-16): its `thickness` where
+    /// the top is where it would be without its shape, more or less elsewhere, the layers above it following the top and
+    /// those below it the level underside. One a type at most.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub variable: bool,
 }
@@ -5341,22 +5341,43 @@ impl Model {
         self.floor_faces(&self.toposolid_as_floor(t))
     }
 
-    /// A toposolid's pieces in plan, each a bottom face and how far it rises to the top: what the 3D view draws as slabs.
-    pub fn toposolid_slabs(&self, t: &Toposolid) -> Vec<(Vec<[f64; 3]>, f64)> {
+    /// A toposolid's underside, when its type has a variable layer, as Revit's: level at the type's thickness under its
+    /// top's lowest point, so the variable layer takes up the shape above it and a pit lowers the whole base rather than
+    /// thinning the solid. None otherwise: its underside follows its top, its type's thickness plumb.
+    pub fn toposolid_under(&self, t: &Toposolid) -> Option<walls::Plane> {
+        if t.shape.is_empty() || Variable::of(self.type_layers("toposolid", &t.type_name)).is_none() {
+            return None;
+        }
+        let low = t.shape.points.iter().map(|p| p.z).fold(0.0, f64::min);
+        Some(walls::Plane::flat(self.elevation(t.level) + t.offset + low - self.toposolid_thickness(t)))
+    }
+
+    /// A toposolid's pieces in plan, each from the plane under it up to its top: its top's faces, over its underside
+    /// (`toposolid_under`) or its thickness plumb under each face.
+    pub fn toposolid_prisms(&self, t: &Toposolid) -> Vec<(Vec<P2>, walls::Plane, walls::Plane)> {
         let thickness = self.toposolid_thickness(t);
+        let under = self.toposolid_under(t);
         self.toposolid_faces(t)
             .into_iter()
-            .map(|(ring, top)| {
-                let bottom = walls::Plane { z: top.z - thickness, ..top };
-                (bottom.lift(&ring), thickness)
+            .map(|(ring, top)| (ring, under.unwrap_or(walls::Plane { z: top.z - thickness, ..top }), top))
+            .collect()
+    }
+
+    /// A toposolid's pieces in plan, each a bottom face and how far it rises to the top: what the 3D view draws as slabs.
+    pub fn toposolid_slabs(&self, t: &Toposolid) -> Vec<(Vec<[f64; 3]>, f64)> {
+        self.toposolid_prisms(t)
+            .into_iter()
+            .map(|(ring, bottom, top)| {
+                let rise = ring.iter().map(|q| top.at(*q) - bottom.at(*q)).fold(0.0, f64::max);
+                (bottom.lift(&ring), rise)
             })
             .collect()
     }
 
-    /// A toposolid's slab as one closed solid: its top's planes, and its thickness under them plumb, its sides round its
-    /// boundary. None for a boundary that doesn't triangulate.
+    /// A toposolid's slab as one closed solid: its top's planes, and its thickness under them plumb, or its level
+    /// underside under a variable layer. None for a boundary that doesn't triangulate.
     pub fn toposolid_solid(&self, t: &Toposolid) -> Option<Polyhedron> {
-        self.solid_under_shape(&self.toposolid_as_floor(t), &[], self.toposolid_thickness(t), None)
+        self.solid_under_shape(&self.toposolid_as_floor(t), &[], self.toposolid_thickness(t), self.toposolid_under(t))
     }
 
     /// How much a toposolid holds, mm³.
@@ -7022,8 +7043,10 @@ impl Model {
             }
             match layers.iter().filter(|l| l.variable).count() {
                 0 => {}
-                _ if matches!(cat, "wall" | "ceiling" | "toposolid") => {
-                    return Err(format!("{who}: only a floor's or a roof's layer can be variable, to take up a shaped top's falls"));
+                _ if matches!(cat, "wall" | "ceiling") => {
+                    return Err(format!(
+                        "{who}: only a floor's, a roof's or a toposolid's layer can be variable, to take up a shaped top's falls"
+                    ));
                 }
                 1 => {}
                 n => return Err(format!("{who}: {n} variable layers; a type has one variable layer at most")),

@@ -20,6 +20,11 @@ project starts with `Generic - 300mm`, so a toposolid is 300 mm thick until its 
 toposolid, name, thickness? | layers?}` makes or changes one, and every toposolid of it follows. `Model::migrate` gives a file
 from before `FORMAT` 20 that type.
 
+A layer of a toposolid type may be **`variable`**, as a floor's or a roof's: its underside is then level, its type's
+thickness under its top's lowest point, and the variable layer takes up the rest of the shape - a mound thickens it, and a
+pit lowers the whole base rather than thinning the solid. Without one, its underside follows its top, its thickness plumb
+under each point.
+
 A point's `z` is above the flat top, as a floor's shape points are. `toposolid`'s `points` are survey points whose z is in
 project coordinates, and the command stores them relative to `elevation(level) + offset`. `add_point {absolute}` does the same
 conversion.
@@ -51,10 +56,11 @@ Boundary a floor does; the 3D view does not, having no plane for an outline that
 - `toposolid_faces`: its top in convex pieces, each with its plane (`floor_faces` of its view): one plane without a shape,
   its triangulated planes with one.
 - `toposolid_solid`: a closed `Polyhedron`, its top's planes and, `thickness` under them, the same planes plumb (the bottom
-  follows the top, so its volume is its plan area times its thickness).
+  follows the top, so its volume is its plan area times its thickness) - or under a variable layer, a level underside
+  (`toposolid_under`) and a body of earth whose thinnest point is its type's thickness.
 - `toposolid_range`, `toposolid_volume`, `toposolid_surface_area` (its top's area over its slope: each face's plan area
-  times the secant of its slope, `sqrt(1 + |g|²)`, so a hill measures more than its footprint), `toposolid_slabs` (the 3D
-  view's slabs).
+  times the secant of its slope, `sqrt(1 + |g|²)`, so a hill measures more than its footprint), `toposolid_prisms` (each
+  piece from its underside up to its top, what the 3D view draws) and `toposolid_slabs`.
 - `toposolid_contours`: at each multiple of `interval` between its top's lowest and highest, the segments where the top
   crosses that height (at most `MAX_CONTOURS`, 1,000 levels, and `MAX_CONTOUR_SEGMENTS`, 20,000 segments in all). A corner
   exactly at a height counts as above it.
@@ -67,8 +73,9 @@ The triangulation is the floor shape editor's (`triangulation::constrained`), no
   a named fill pattern or a built-in one — laid over the whole top in one frame, from `pattern_origin` and turned by
   `pattern_angle` (degrees counter-clockwise), so the pattern runs unbroken over a fold. `contours {id}` gives the lines as
   data.
-- **3D**: its top's pieces, each a slab down to the plane under it, and its type's finish material's texture, on the plan's
-  axes turned by the same angle from the same origin: a paving meets itself at a fold, and turns as the plan's pattern does.
+- **3D**: its top's pieces, each a slab down to the plane under it - under a variable layer, a prism from its level base
+  up - and its type's finish material's texture, on the plan's axes turned by the same angle from the same origin: a
+  paving meets itself at a fold, and turns as the plan's pattern does.
   Its top may be painted (`paint`, face `top`), and the paint shows here as a floor's does, not in the plan's pattern. A
   facet steeper than 60° from the horizontal is on no face, as a floor's side is not, so paint leaves it on the type's
   material.
@@ -86,11 +93,6 @@ The triangulation is the floor shape editor's (`triangulation::constrained`), no
   fill pattern and colour, a structural material, and the function. The interval is the instance's for now.
 - **Its layers in 3D**: a toposolid is not split by its compound structure as a floor is, so its sides take its top
   layer's material and its lower layers show no colour there.
-- **A variable layer**: a floor's or a roof's type may mark a layer `variable`, and a shaped one's underside then stays
-  level at its base, that layer taking up the shape. A toposolid type may too (same `Layer`), but a toposolid ignores
-  it: its bottom is always its top plumbed down by its layers' total, so the solid's volume is its plan area times that
-  thickness. Honouring it would give a terrain the flat base Revit's `Variable` layer gives, and a body of earth under
-  its lowest point instead of a slab thinning at every dip.
 - **Split Element**: `split` takes walls and detail lines, so a toposolid cannot be sliced.
 - **A wall attached to it**: `attach_top` and `attach_base` take a floor or a roof, not a toposolid.
 - **Everywhere but its own plan**: only that level's plan draws it; another plan, or a section, does not, and its
