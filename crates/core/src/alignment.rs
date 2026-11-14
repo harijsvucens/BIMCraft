@@ -153,7 +153,7 @@ impl AlignmentGuideService {
     }
 
     /// Extracts reference points from all elements visible/present on `level` in `model`,
-    /// including walls, grids, runs (beams, pipes...), columns, floors, roofs, ceilings, shafts, and sections.
+    /// including walls, grids, runs (beams, pipes...), columns, floors, roofs, ceilings, shafts, toposolids, and sections.
     pub fn from_model(m: &Model, level: Id, config: AlignmentConfig) -> Self {
         let level_guid = m.guid(level);
         let mut refs = Vec::new();

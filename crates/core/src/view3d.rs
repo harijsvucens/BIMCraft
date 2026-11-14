@@ -1768,7 +1768,7 @@ pub(crate) fn every(total: usize) -> usize {
 enum Rule {
     /// A wall's: its exterior is to the left of its start to its end.
     Wall(Axis),
-    /// A floor's, a roof's or a ceiling's: facing up or down.
+    /// A floor's, a roof's, a ceiling's or a toposolid's: facing up or down.
     Slab,
     /// Any other: all of it is one face.
     Whole,
@@ -4277,7 +4277,7 @@ impl Image {
     }
 
     /// The face of the element the pixel at `(x, y)` shows, as paint names it: `exterior` or `interior` for a wall's, `top` or
-    /// `bottom` for a floor's, a roof's or a ceiling's, `all` for another's; none where it's on no face that can be painted.
+    /// `bottom` for a floor's, a roof's, a ceiling's or a toposolid's, `all` for another's; none where it's on no face that can be painted.
     pub fn face(&self, x: f64, y: f64) -> Option<&'static str> {
         let t = *self.hit.get(self.index(x, y)?)?;
         self.faces.get(t as usize).copied().filter(|f| !f.is_empty())
@@ -5231,6 +5231,7 @@ mod tests {
             match after.faces[i] {
                 "top" => {
                     assert_eq!(a.color, Rgb(brick[0], brick[1], brick[2]), "triangle {i} is the top, painted");
+                    assert_ne!(before.tris[i].color, Rgb(brick[0], brick[1], brick[2]), "triangle {i} was not painted before");
                     top += 1;
                 }
                 "bottom" => {
@@ -5247,7 +5248,6 @@ mod tests {
             }
         }
         assert!(top > 0 && bottom > 0 && side > 0, "{top} top, {bottom} base, {side} side");
-        assert!(before.tris.iter().all(|a| a.color != Rgb(brick[0], brick[1], brick[2]) || a.owner != t));
     }
 
     #[test]

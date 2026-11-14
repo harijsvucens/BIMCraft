@@ -6011,6 +6011,20 @@ fn paint_lays_a_material_on_the_face_clicked_in_3d_and_remove_paint_takes_it_off
 }
 
 #[test]
+fn paint_lays_a_material_on_a_toposolids_top_in_3d() {
+    let mut h = app(r#"toposolid {"boundary": [[0,0],[10000,0],[10000,10000],[0,10000]]}"#);
+    press(&mut h, "Default 3D View");
+    topmost(&mut h, "Modify");
+    h.state_mut().paint_material = "Timber".into();
+    press(&mut h, "Paint");
+    let t = ids(&h, "toposolid")[0];
+    // A point off the middle of its top: the face under the cursor is the top, and the paint names it so.
+    let at = h.state().screen3([5000.0, 5000.0, 0.0]);
+    click_at(&mut h, at);
+    assert_eq!(field(&h, t, "params"), json!({"Paint": {"top": "Timber"}}));
+}
+
+#[test]
 fn pt_picks_the_paint_tool_in_3d_from_any_view_and_ks_lists_it() {
     let mut h = app(BOX);
     assert!(matches!(h.state().sheet, Sheet::Plan(_)));
