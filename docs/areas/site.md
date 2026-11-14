@@ -52,7 +52,8 @@ Boundary a floor does; the 3D view does not, having no plane for an outline that
   its triangulated planes with one.
 - `toposolid_solid`: a closed `Polyhedron`, its top's planes and, `thickness` under them, the same planes plumb (the bottom
   follows the top, so its volume is its plan area times its thickness).
-- `toposolid_range`, `toposolid_volume`, `toposolid_slabs` (the 3D view's slabs).
+- `toposolid_range`, `toposolid_volume`, `toposolid_surface_area` (its top's area over its slope: each face's plan area
+  times the rise across it, so a hill measures more than its footprint), `toposolid_slabs` (the 3D view's slabs).
 - `toposolid_contours`: at each multiple of `interval` between its top's lowest and highest, the segments where the top
   crosses that height (at most `MAX_CONTOURS`, 1,000 levels, and `MAX_CONTOUR_SEGMENTS`, 20,000 segments in all). A corner
   exactly at a height counts as above it.
@@ -70,7 +71,8 @@ The triangulation is the floor shape editor's (`triangulation::constrained`), no
   Its top may be painted (`paint`, face `top`), and the paint shows here as a floor's does, not in the plan's pattern. A
   facet steeper than 60° from the horizontal is on no face, as a floor's side is not, so paint leaves it on the type's
   material.
-- **Schedules**: category `toposolid`: Name, Level, Area, Volume, Thickness.
+- **Schedules**: category `toposolid`: Name, Level, Area (its boundary's plan area), Surface Area (its top's over its
+  slope), Volume, Thickness.
 - **IFC**: an `IfcSlab` with `.BASESLAB.`, a closed faceted Brep, in the level's storey, with `Qto_SlabBaseQuantities`.
 - **File**: `FORMAT` 20 (a build that reads up to 19 refuses a toposolid as an unknown element kind).
 - **Visibility/Graphics and Object Styles**: the `toposolid` category.
@@ -87,8 +89,6 @@ The triangulation is the floor shape editor's (`triangulation::constrained`), no
   it: its bottom is always its top plumbed down by its layers' total, so the solid's volume is its plan area times that
   thickness. Honouring it would give a terrain the flat base Revit's `Variable` layer gives, and a body of earth under
   its lowest point instead of a slab thinning at every dip.
-- **Its area**: `area_m2` is its boundary's plan area. There is no area of its 3D top, so a schedule has no sloped
-  figure beside the plan one to choose between.
 - **Split Element**: `split` takes walls and detail lines, so a toposolid cannot be sliced.
 - **A wall attached to it**: `attach_top` and `attach_base` take a floor or a roof, not a toposolid.
 - **Everywhere but its own plan**: only that level's plan draws it; another plan, or a section, does not, and its
