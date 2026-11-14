@@ -390,7 +390,7 @@ fn split_among(segs: &[(P2, P2)], tol: f64, others: impl Fn(usize) -> Vec<usize>
 
 /// Segments' boxes, grown by a tolerance, in a grid of cells: a segment's others that may touch it are those that share
 /// a cell with it. One whose box isn't in finite numbers, or spans too many cells, is with every other.
-struct SegGrid {
+pub(crate) struct SegGrid {
     cells: std::collections::HashMap<(i64, i64), Vec<usize>>,
     boxes: Vec<Option<[i64; 4]>>,
     wide: Vec<usize>,
@@ -400,7 +400,7 @@ struct SegGrid {
 impl SegGrid {
     const MAX_CELLS: i64 = 1024;
 
-    fn new(segs: &[(P2, P2)], tol: f64) -> SegGrid {
+    pub(crate) fn new(segs: &[(P2, P2)], tol: f64) -> SegGrid {
         // Cells about as big as a segment is long, on average, so each holds a few.
         let grow = tol.abs() + 1e-9;
         let finite: Vec<&(P2, P2)> = segs.iter().filter(|(a, b)| a.is_finite() && b.is_finite()).collect();
@@ -428,7 +428,7 @@ impl SegGrid {
     }
 
     /// Segment `i`'s others that may touch it.
-    fn near(&self, i: usize) -> Vec<usize> {
+    pub(crate) fn near(&self, i: usize) -> Vec<usize> {
         let Some(Some([x0, y0, x1, y1])) = self.boxes.get(i) else { return (0..self.all).collect() };
         let mut out = self.wide.clone();
         for x in *x0..=*x1 {

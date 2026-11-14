@@ -228,167 +228,158 @@ impl AlignmentGuideService {
         Self { config, references, by_x, by_y, lines: Vec::new() }
     }
 
-    /// Extracts reference points from all elements visible/present on `level` in `model`,
-    /// including walls, grids, runs (beams, pipes...), columns, floors, roofs, ceilings, shafts, and sections.
+    /// Extracts reference points from the elements of `level` in `model`: the walls its plan cuts, grids, runs (beams,
+    /// pipes...), columns, floors, roofs, ceilings, shafts, sections and this view's detail lines. The walls are asked of
+    /// the model's lookup, so a tower's other storeys are not each measured against the cut plane.
     pub fn from_model(m: &Model, level: Id, config: AlignmentConfig) -> Self {
         let level_guid = m.guid(level);
+        let lookup = m.lookup();
+        // The plan's cut plane once: `cut_by` asks the view range for it, and for the level above, on every wall.
+        let cut = m.plan_range(level_guid).cut;
         let mut refs = Vec::new();
         let mut straight_lines: Vec<(P2, P2)> = Vec::new();
 
-        // 1. Walls
+        // 1. The walls the plan cuts: the lookup gives those whose heights may reach it, and the model the exact answer.
         let mut walls_info = Vec::new();
-        for (id, e) in m.elements.iter() {
-            if let Element::Wall(w) = e
-                && m.cut_by(w, level_guid)
-            {
-                let axis = Axis::of(w);
-                let (f0, f1) = walls::faces(m, w);
-                walls_info.push((Some(*id), axis, (f0, f1)));
-                if axis.centre().is_none() && axis.length() > TOL {
-                    straight_lines.push((axis.start, axis.end));
-                }
+        for id in lookup.walls_at(cut) {
+            let Some(Element::Wall(w)) = m.elements.get(id) else { continue };
+            if !m.spans(w, cut) {
+                continue;
+            }
+            let axis = Axis::of(w);
+            let (f0, f1) = walls::faces(m, w);
+            walls_info.push((Some(id), axis, (f0, f1)));
+            if axis.centre().is_none() && axis.length() > TOL {
+                straight_lines.push((axis.start, axis.end));
             }
         }
-        refs.extend(Self::extract_references(&walls_info, &config));
+        refs.extend(Self::wall_points(&walls_info, &config));
 
-        // 2. Grids (visible across all levels)
-        for (id, e) in m.elements.iter() {
-            if let Element::Grid(g) = e {
-                let len = g.start.dist(g.end);
-                if len > TOL {
-                    if config.endpoints {
-                        refs.push(ReferencePoint { point: g.start, kind: ReferenceType::Endpoint, wall_id: Some(*id) });
-                        refs.push(ReferencePoint { point: g.end, kind: ReferenceType::Endpoint, wall_id: Some(*id) });
-                    }
-                    if config.midpoints {
-                        let mid = (g.start + g.end) * 0.5;
-                        refs.push(ReferencePoint { point: mid, kind: ReferenceType::Midpoint, wall_id: Some(*id) });
-                    }
-                    straight_lines.push((g.start, g.end));
-                }
-            }
-        }
-
-        // 3. Columns, Structural Columns, Footings
-        for (id, e) in m.elements.iter() {
+        // 2 to 7 in one walk: grids (visible across all levels), columns, runs, sections and elevations, floors, roofs,
+        // ceilings, shafts, and this view's detail lines.
+        for (&id, e) in m.elements.iter() {
             match e {
+                Element::Grid(g) => {
+                    let len = g.start.dist(g.end);
+                    if len > TOL {
+                        Self::segment_points(id, (g.start, g.end), &config, &mut refs);
+                        straight_lines.push((g.start, g.end));
+                    }
+                }
                 Element::Column(c) | Element::StructuralColumn(c) | Element::Footing(c) if c.level == level_guid && config.endpoints => {
-                    refs.push(ReferencePoint { point: c.at, kind: ReferenceType::Endpoint, wall_id: Some(*id) });
+                    refs.push(ReferencePoint { point: c.at, kind: ReferenceType::Endpoint, wall_id: Some(id) });
                 }
-                _ => {}
-            }
-        }
-
-        // 4. Runs (Beams, Pipes, Conduits, etc.)
-        for (id, e) in m.elements.iter() {
-            match e {
                 crate::model::run_arm!(r) if r.level == level_guid => {
                     let len = r.start.dist(r.end);
                     if len > TOL {
-                        if config.endpoints {
-                            refs.push(ReferencePoint { point: r.start, kind: ReferenceType::Endpoint, wall_id: Some(*id) });
-                            refs.push(ReferencePoint { point: r.end, kind: ReferenceType::Endpoint, wall_id: Some(*id) });
-                        }
-                        if config.midpoints {
-                            let mid = (r.start + r.end) * 0.5;
-                            refs.push(ReferencePoint { point: mid, kind: ReferenceType::Midpoint, wall_id: Some(*id) });
-                        }
+                        Self::segment_points(id, (r.start, r.end), &config, &mut refs);
                         straight_lines.push((r.start, r.end));
+                    }
+                }
+                Element::Section(s) | Element::Elevation(s) => {
+                    let len = s.start.dist(s.end);
+                    if len > TOL {
+                        Self::segment_points(id, (s.start, s.end), &config, &mut refs);
+                        straight_lines.push((s.start, s.end));
+                    }
+                }
+                Element::Floor(f) if f.level == level_guid => {
+                    let loops = std::iter::once(f.boundary.as_slice()).chain(f.openings.iter().map(|c| c.as_slice()));
+                    Self::outline_points(id, loops, &config, &mut refs);
+                }
+                Element::Roof(r) if r.level == level_guid => {
+                    let loops = std::iter::once(r.boundary.as_slice()).chain(r.courtyards.iter().map(|c| c.as_slice()));
+                    Self::outline_points(id, loops, &config, &mut refs);
+                }
+                Element::Ceiling(c) if c.level == level_guid => {
+                    Self::outline_points(id, std::iter::once(c.boundary.as_slice()), &config, &mut refs);
+                }
+                Element::Shaft(s) => {
+                    Self::outline_points(id, std::iter::once(s.boundary.as_slice()), &config, &mut refs);
+                }
+                // Something to line up with, as a wall is, and a direction to borrow.
+                Element::DetailLine(l) if m.same(l.view, level_guid) => {
+                    for seg in l.curve.segments() {
+                        if seg.centre().is_some() || seg.start.dist(seg.end) <= TOL {
+                            continue;
+                        }
+                        Self::segment_points(id, (seg.start, seg.end), &config, &mut refs);
+                        straight_lines.push((seg.start, seg.end));
                     }
                 }
                 _ => {}
             }
         }
 
-        // 5. Sections and Elevations
-        for (id, e) in m.elements.iter() {
-            if let Element::Section(s) | Element::Elevation(s) = e {
-                let len = s.start.dist(s.end);
-                if len > TOL {
-                    if config.endpoints {
-                        refs.push(ReferencePoint { point: s.start, kind: ReferenceType::Endpoint, wall_id: Some(*id) });
-                        refs.push(ReferencePoint { point: s.end, kind: ReferenceType::Endpoint, wall_id: Some(*id) });
-                    }
-                    if config.midpoints {
-                        let mid = (s.start + s.end) * 0.5;
-                        refs.push(ReferencePoint { point: mid, kind: ReferenceType::Midpoint, wall_id: Some(*id) });
-                    }
-                    straight_lines.push((s.start, s.end));
-                }
-            }
-        }
+        Self::finish(refs, straight_lines, &config)
+    }
 
-        // 6. Floors, Roofs, Ceilings, Shafts
-        for (id, e) in m.elements.iter() {
-            let loops: Vec<&[P2]> = match e {
-                Element::Floor(f) if f.level == level_guid => {
-                    std::iter::once(f.boundary.as_slice()).chain(f.openings.iter().map(|c| c.as_slice())).collect()
-                }
-                Element::Roof(r) if r.level == level_guid => {
-                    std::iter::once(r.boundary.as_slice()).chain(r.courtyards.iter().map(|c| c.as_slice())).collect()
-                }
-                Element::Ceiling(c) if c.level == level_guid => std::iter::once(c.boundary.as_slice()).collect(),
-                Element::Shaft(s) => std::iter::once(s.boundary.as_slice()).collect(),
-                _ => Vec::new(),
-            };
-            for loop_pts in loops {
-                let n = loop_pts.len();
-                for i in 0..n {
-                    let p1 = loop_pts[i];
-                    let p2 = loop_pts[(i + 1) % n];
-                    if config.endpoints {
-                        refs.push(ReferencePoint { point: p1, kind: ReferenceType::Endpoint, wall_id: Some(*id) });
-                    }
-                    if config.midpoints && p1.dist(p2) > TOL {
-                        refs.push(ReferencePoint { point: (p1 + p2) * 0.5, kind: ReferenceType::Midpoint, wall_id: Some(*id) });
-                    }
-                }
-            }
+    /// The points a segment gives: its two ends and its middle, a grid's, a run's, a section's or a detail line's.
+    fn segment_points(id: Id, (a, b): (P2, P2), config: &AlignmentConfig, refs: &mut Vec<ReferencePoint>) {
+        if config.endpoints {
+            refs.push(ReferencePoint { point: a, kind: ReferenceType::Endpoint, wall_id: Some(id) });
+            refs.push(ReferencePoint { point: b, kind: ReferenceType::Endpoint, wall_id: Some(id) });
         }
+        if config.midpoints {
+            refs.push(ReferencePoint { point: (a + b) * 0.5, kind: ReferenceType::Midpoint, wall_id: Some(id) });
+        }
+    }
 
-        // 7. Detail lines in this plan: something to line up with, as a wall is, and a direction to borrow.
-        for (id, e) in m.elements.iter() {
-            let Element::DetailLine(l) = e else { continue };
-            if !m.same(l.view, level_guid) {
-                continue;
-            }
-            for seg in l.curve.segments() {
-                if seg.centre().is_some() || seg.start.dist(seg.end) <= TOL {
-                    continue;
-                }
+    /// Each loop's corners and the middles of its sides, `id`'s: a floor's outline and its openings', a roof's and its
+    /// courtyards', a ceiling's or a shaft's boundary.
+    fn outline_points<'a>(id: Id, loops: impl Iterator<Item = &'a [P2]>, config: &AlignmentConfig, refs: &mut Vec<ReferencePoint>) {
+        for loop_pts in loops {
+            let n = loop_pts.len();
+            for i in 0..n {
+                let (p1, p2) = (loop_pts[i], loop_pts[(i + 1) % n]);
                 if config.endpoints {
-                    refs.push(ReferencePoint { point: seg.start, kind: ReferenceType::Endpoint, wall_id: Some(*id) });
-                    refs.push(ReferencePoint { point: seg.end, kind: ReferenceType::Endpoint, wall_id: Some(*id) });
+                    refs.push(ReferencePoint { point: p1, kind: ReferenceType::Endpoint, wall_id: Some(id) });
                 }
-                if config.midpoints {
-                    refs.push(ReferencePoint { point: (seg.start + seg.end) * 0.5, kind: ReferenceType::Midpoint, wall_id: Some(*id) });
+                if config.midpoints && p1.dist(p2) > TOL {
+                    refs.push(ReferencePoint { point: (p1 + p2) * 0.5, kind: ReferenceType::Midpoint, wall_id: Some(id) });
                 }
-                straight_lines.push((seg.start, seg.end));
             }
         }
+    }
 
+    /// The service from the points the elements gave and the lines drawn: their crossings added, the duplicates taken
+    /// out, and the lines kept for a direction to borrow.
+    fn finish(mut refs: Vec<ReferencePoint>, straight_lines: Vec<(P2, P2)>, config: &AlignmentConfig) -> Self {
         // 8. Intersections between straight lines across all element types
-        if config.intersections && straight_lines.len() >= 2 {
-            for (i, &(a1, b1)) in straight_lines.iter().enumerate() {
-                for &(a2, b2) in straight_lines.iter().skip(i + 1) {
-                    if let Some(q) = geom::line_intersection(a1, b1, a2, b2) {
-                        let on_1 = geom::dist_to_segment(q, a1, b1) <= TOL;
-                        let on_2 = geom::dist_to_segment(q, a2, b2) <= TOL;
-                        if on_1 && on_2 {
-                            let near_end = q.dist(a1) <= TOL || q.dist(b1) <= TOL || q.dist(a2) <= TOL || q.dist(b2) <= TOL;
-                            if !near_end {
-                                refs.push(ReferencePoint { point: q, kind: ReferenceType::Intersection, wall_id: None });
-                            }
-                        }
-                    }
-                }
-            }
+        if config.intersections {
+            let mut crossings = Vec::new();
+            Self::crossings(&straight_lines, &mut crossings);
+            refs.append(&mut crossings);
         }
-
         dedup_references(&mut refs);
-        let mut service = Self::new(refs, config);
+        let mut service = Self::new(refs, *config);
         service.lines = straight_lines;
         service
+    }
+
+    /// Where the lines drawn cross one another, away from their ends: a point to line up with, as a wall's corner is.
+    /// The segments' grid ([`geom::SegGrid`]) asks each pair once, not every pair in the plan.
+    fn crossings(lines: &[(P2, P2)], refs: &mut Vec<ReferencePoint>) {
+        if lines.len() < 2 {
+            return;
+        }
+        let grid = geom::SegGrid::new(lines, TOL);
+        for (i, &(a1, b1)) in lines.iter().enumerate() {
+            if a1.dist(b1) <= TOL {
+                continue;
+            }
+            for j in grid.near(i) {
+                if j <= i {
+                    continue;
+                }
+                let (a2, b2) = lines[j];
+                let Some(q) = geom::line_intersection(a1, b1, a2, b2) else { continue };
+                let on = geom::dist_to_segment(q, a1, b1) <= TOL && geom::dist_to_segment(q, a2, b2) <= TOL;
+                if on && q.dist(a1) > TOL && q.dist(b1) > TOL && q.dist(a2) > TOL && q.dist(b2) > TOL {
+                    refs.push(ReferencePoint { point: q, kind: ReferenceType::Intersection, wall_id: None });
+                }
+            }
+        }
     }
 
     /// Extracts reference points from a list of wall tuples (id, axis, faces).
@@ -399,6 +390,16 @@ impl AlignmentGuideService {
 
     /// Extracts reference points (endpoints, midpoints, faces, intersections) from walls.
     pub fn extract_references(walls: &[(Option<Id>, Axis, (f64, f64))], config: &AlignmentConfig) -> Vec<ReferencePoint> {
+        let mut refs = Self::wall_points(walls, config);
+        if config.intersections {
+            let axes: Vec<(P2, P2)> = walls.iter().filter(|(_, a, _)| a.centre().is_none()).map(|(_, a, _)| (a.start, a.end)).collect();
+            Self::crossings(&axes, &mut refs);
+        }
+        refs
+    }
+
+    /// The corners, middles and faces of walls, without their crossings: those are worked out once, over every line.
+    fn wall_points(walls: &[(Option<Id>, Axis, (f64, f64))], config: &AlignmentConfig) -> Vec<ReferencePoint> {
         let mut refs = Vec::new();
 
         for &(id, axis, faces) in walls {
@@ -427,32 +428,6 @@ impl AlignmentGuideService {
                         refs.push(ReferencePoint { point: axis.at(0.0, f), kind: ReferenceType::Face, wall_id: id });
                         refs.push(ReferencePoint { point: axis.at(len, f), kind: ReferenceType::Face, wall_id: id });
                         refs.push(ReferencePoint { point: axis.at(len / 2.0, f), kind: ReferenceType::Face, wall_id: id });
-                    }
-                }
-            }
-        }
-
-        // Intersections between straight wall axes
-        if config.intersections && walls.len() >= 2 {
-            for (i, &(_, a_i, _)) in walls.iter().enumerate() {
-                if a_i.centre().is_some() {
-                    continue; // Skip curved walls for axis intersection
-                }
-                for &(_, a_j, _) in walls.iter().skip(i + 1) {
-                    if a_j.centre().is_some() {
-                        continue;
-                    }
-                    if let Some(q) = geom::line_intersection(a_i.start, a_i.end, a_j.start, a_j.end) {
-                        let on_i = geom::dist_to_segment(q, a_i.start, a_i.end) <= TOL;
-                        let on_j = geom::dist_to_segment(q, a_j.start, a_j.end) <= TOL;
-                        if on_i && on_j {
-                            // Only add if not already coinciding with an endpoint
-                            let near_end =
-                                q.dist(a_i.start) <= TOL || q.dist(a_i.end) <= TOL || q.dist(a_j.start) <= TOL || q.dist(a_j.end) <= TOL;
-                            if !near_end {
-                                refs.push(ReferencePoint { point: q, kind: ReferenceType::Intersection, wall_id: None });
-                            }
-                        }
                     }
                 }
             }
