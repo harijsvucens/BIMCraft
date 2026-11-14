@@ -669,11 +669,12 @@ enum Subject {
     Schedule,
 }
 
-/// A type's layer as typed: what it does, what it's made of, how thick, and whether it's variable (a floor's or a roof's).
+/// A type's layer as typed: what it does, what it's made of, how thick, and whether it's variable (a floor's, a roof's or
+/// a toposolid's).
 type LayerRow = (Function, String, String, bool);
 
 /// The categories whose types have layers: a wall's from its exterior in, the others' from the top down.
-const LAYERED: [&str; 4] = ["wall", "floor", "roof", "ceiling"];
+const LAYERED: [&str; 5] = ["wall", "floor", "roof", "ceiling", "toposolid"];
 
 /// Each pattern as the Materials window names it.
 const PATTERNS: [(Pattern, &str); 10] = [
@@ -2366,7 +2367,7 @@ impl BimApp {
                         }
                         if g == "Construction" && layered {
                             let (out, inward) = if d.category == "wall" { (msg!("Out"), msg!("In")) } else { ("Up", "Down") };
-                            let variable = matches!(d.category, "floor" | "roof");
+                            let variable = matches!(d.category, "floor" | "roof" | "toposolid");
                             tb.full(|ui| layer_editor(ui, &mut d.layers, model.units, &materials, (out, inward), variable));
                         }
                     }

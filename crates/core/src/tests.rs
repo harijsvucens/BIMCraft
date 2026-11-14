@@ -7315,7 +7315,7 @@ fn a_toposolid_variable_layer_keeps_its_base_level_under_its_lowest_point() {
     let pit = run(&mut s, "toposolid", json!({"type": "Site - Variable", "boundary": plot(), "points": [[5000, 5000, -400]]}));
     assert_eq!((pit["top"].clone(), pit["bottom"].clone()), (json!([-400.0, 0.0]), json!([-900.0, -900.0])));
     assert_eq!(pit["volume_m3"], 76.667);
-    // In 3D each piece is a prism from that base up (its layers split as a floor's), not a slab under each top piece.
+    // In 3D each piece is a prism from that base up, not a slab under each top piece.
     let t = r["id"].as_u64().unwrap_or_default();
     let lowest = crate::view3d::shaded(&s.model)
         .into_iter()
@@ -7326,6 +7326,15 @@ fn a_toposolid_variable_layer_keeps_its_base_level_under_its_lowest_point() {
         })
         .fold(f64::INFINITY, f64::min);
     assert!((lowest + 500.0).abs() < 0.01, "the 3D base is at {lowest}");
+    // A shaft through it cuts the 3D prisms as it cuts a slab's: nothing stands at its middle.
+    run(&mut s, "shaft", json!({"boundary": [[2000, 2000], [8000, 2000], [8000, 8000], [2000, 8000]]}));
+    let centre = crate::geom::P2(5000.0, 5000.0);
+    assert!(
+        !crate::view3d::shaded(&s.model)
+            .into_iter()
+            .any(|x| matches!(x, crate::view3d::Solid::Prism { owner, .. } if owner == t) && x.over(centre)),
+        "the shaft is cut out of the terrain"
+    );
     // Without the flag the type is an ordinary slab again: its base follows the top, its thickness under each point.
     run(&mut s, "type", json!({"category": "toposolid", "name": "Site - Variable", "layers": layers(false)}));
     let e = run(&mut s, "elements", json!({"category": "toposolid"}))["elements"][0].clone();

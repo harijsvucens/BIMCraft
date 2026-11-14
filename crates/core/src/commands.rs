@@ -386,7 +386,7 @@ other_files(
         "Shaft Opening",
         &[],
         "{boundary: [[x,y],…] | sketch: [[[x,y],[x,y]],…], level?, top_level?, height?, base_offset?} a hole through the \
-         floors, ceilings and roofs it passes through, from `base_offset` above the level up to the next level, or `height` \
+         floors, ceilings, roofs and toposolids it passes through, from `base_offset` above the level up to the next level, or `height` \
          mm, or up to `top_level`",
         shaft,
     )

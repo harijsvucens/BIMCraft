@@ -15,8 +15,8 @@ design options, project parameters).
 
 A toposolid type (`Model::types.toposolid`, a `FloorType`: `thickness` and `layers`) is a compound structure like a floor's,
 from the top down: each layer a `function`, a `material` and a `thickness`. Its thickness is its layers' total, Revit's
-**Default Thickness**, and that is how thick every toposolid of the type is: the instance's Thickness is read-only. The
-project starts with `Generic - 300mm`, so a toposolid is 300 mm thick until its type says otherwise; `type {category:
+**Default Thickness**, and that is how thick every toposolid of the type is at its lowest point: the instance's Thickness
+is read-only. The project starts with `Generic - 300mm`, so a toposolid is 300 mm thick until its type says otherwise; `type {category:
 toposolid, name, thickness? | layers?}` makes or changes one, and every toposolid of it follows. `Model::migrate` gives a file
 from before `FORMAT` 20 that type.
 
@@ -36,8 +36,8 @@ conversion.
 (the sketch solver: crossings, spikes, zero-length edges), a sketch with a loop inside its outline (a toposolid has no
 holes), a point outside it, fewer than three corners, an interval out of range, and a type nothing has or one whose
 thickness is 0. `Model::check` holds the same rules and checks the shape as a floor's is checked. A point may lie below the
-level: the bottom follows the top, so the solid is its thickness everywhere (a pit is just a dip in the top), where Revit
-refuses a point below its base.
+level: without a variable layer the bottom follows the top, so the solid is its thickness everywhere (a pit is just a dip
+in the top), where Revit refuses a point below its base.
 
 A toposolid is **shapeable**: `Model::shapeable` returns a `Floor` view of it (`toposolid_as_floor`), as `roof_as_floor` does
 for a flat roof. So `add_point`, `edit_shape`, `add_split_line` and `reset_shape` work on it with no code of their own, and
@@ -82,7 +82,8 @@ The triangulation is the floor shape editor's (`triangulation::constrained`), no
 - **Schedules**: category `toposolid`: Name, Level, Area (its boundary's plan area), Surface Area (its top's over its
   slope), Volume, Thickness.
 - **IFC**: an `IfcSlab` with `.BASESLAB.`, a closed faceted Brep, in the level's storey, with `Qto_SlabBaseQuantities`:
-  its `GrossArea` and `NetArea` over its top's slope, its plan area as `ProjectedArea` (a roof's quantities).
+  its `GrossArea` and `NetArea` over its top's slope, its plan area as `ProjectedArea` (a roof's quantities), and its
+  `Width` the type's nominal thickness.
 - **File**: `FORMAT` 20 (a build that reads up to 19 refuses a toposolid as an unknown element kind).
 - **Visibility/Graphics and Object Styles**: the `toposolid` category.
 

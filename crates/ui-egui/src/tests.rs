@@ -6025,6 +6025,28 @@ fn paint_lays_a_material_on_a_toposolids_top_in_3d() {
 }
 
 #[test]
+fn a_toposolid_types_variable_layer_is_ticked_in_edit_type() {
+    use egui_kittest::kittest::{By, NodeT};
+    let mut h = app(r#"toposolid {"boundary": [[0,0],[10000,0],[10000,10000],[0,10000]]}"#);
+    press(&mut h, "Default 3D View");
+    topmost(&mut h, "Modify");
+    let at = h.state().screen3([5000.0, 5000.0, 0.0]);
+    click_at(&mut h, at);
+    press(&mut h, "Edit Type");
+    // The type's layer may be variable, so a shaped terrain's base stays level under its lowest point.
+    let checkbox = h
+        .query_all(By::new().role(Role::CheckBox).label("Variable"))
+        .next()
+        .map(|n| n.accesskit_node().id())
+        .expect("the toposolid type's layer has a Variable checkbox");
+    h.get_by(|n| n.id() == checkbox).click();
+    h.run();
+    press(&mut h, "OK");
+    let t = &h.state().session.model.types.toposolid["Generic - 300mm"];
+    assert!(t.layers.len() == 1 && t.layers[0].variable, "{:?}", t.layers);
+}
+
+#[test]
 fn pt_picks_the_paint_tool_in_3d_from_any_view_and_ks_lists_it() {
     let mut h = app(BOX);
     assert!(matches!(h.state().sheet, Sheet::Plan(_)));

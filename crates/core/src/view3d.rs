@@ -1038,15 +1038,18 @@ fn slab_solids(m: &Model, id: Id, e: &Element) -> Vec<Solid> {
         // Under a variable layer, a toposolid's underside is level under its lowest point: each piece a prism from it up.
         Element::Toposolid(t) if m.toposolid_under(t).is_some() => {
             for (ring, bottom, top) in m.toposolid_prisms(t) {
-                out.push(Solid::Prism {
-                    owner: id,
-                    color: SLAB,
-                    tex: slab_tex(m, "toposolid", &t.type_name),
-                    ring,
-                    bottom,
-                    top,
-                    curve: None,
-                });
+                let rise = ring.iter().map(|q| top.at(*q) - bottom.at(*q)).fold(0.0, f64::max);
+                for piece in m.less_shafts(&bottom.lift(&ring), rise).0 {
+                    out.push(Solid::Prism {
+                        owner: id,
+                        color: SLAB,
+                        tex: slab_tex(m, "toposolid", &t.type_name),
+                        ring: piece,
+                        bottom,
+                        top,
+                        curve: None,
+                    });
+                }
             }
         }
         // The site's ground: its top's pieces, each a slab down to the plane under it.
