@@ -82,7 +82,7 @@ enum Kind {
     RegionLines,
     /// Which line of a run's section its heights are: a drop-down.
     Justification,
-    /// Whether a roof or a floor is there (a wall's attachment), and a link that selects it; read only.
+    /// Whether a roof, a floor or a toposolid is there (a wall's attachment), and a link that selects it; read only.
     Attached,
     /// An element it points at (a door's host wall): a link that selects it; read only.
     Link,
@@ -1801,7 +1801,7 @@ impl BimApp {
     }
 
     /// What else the one element the palette shows is tied to, each a link that selects it: a wall's doors and windows, the
-    /// walls attached to a roof or a floor, the locked or equal dimensions that hold it. Its host and what it's attached to
+    /// walls attached to a roof, a floor or a toposolid, the locked or equal dimensions that hold it. Its host and what it's attached to
     /// are links in its own rows (`Link`, `Attached`).
     fn ties(&mut self, ui: &mut Ui, model: &Model, id: Id) {
         let Some(e) = model.elements.get(id) else { return };

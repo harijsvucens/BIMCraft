@@ -581,9 +581,15 @@ impl Bound {
     fn of(m: &Model, id: Option<Guid>, top: bool, own: f64) -> Bound {
         let regions = match id.and_then(|id| m.elements.get(id)) {
             // The site's ground: its top's pieces for a base to stand on, its thickness under each for a top to keep under.
-            Some(Element::Toposolid(t)) => {
-                m.toposolid_prisms(t).into_iter().map(|(ring, bottom, up)| (ring, if top { up } else { bottom })).collect()
-            }
+            // A plot's outline need not be convex, and `parts` asks for convex pieces, so they are cut as a roof's are.
+            Some(Element::Toposolid(t)) => m
+                .toposolid_prisms(t)
+                .into_iter()
+                .flat_map(|(ring, bottom, up)| {
+                    let plane = if top { up } else { bottom };
+                    convex_pieces(&ring).into_iter().map(move |c| (c, plane))
+                })
+                .collect(),
             // From below its underside (a shaped one's level under a variable layer), from above its top.
             Some(Element::Roof(r)) => m
                 .roof_prisms(r)

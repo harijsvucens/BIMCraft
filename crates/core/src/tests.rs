@@ -4237,7 +4237,7 @@ fn walls_attached_to_a_roof_follow_its_underside() {
     // A roof or floor going takes no wall with it: they come loose.
     run(&mut s, "delete", json!({"ids": [low]}));
     assert_eq!(element(&mut s, part).get("attach_base"), None);
-    assert!(s.execute("modify", &json!({"id": part, "attach_top": ids[0]})).unwrap_err().contains("roof or a floor"));
+    assert!(s.execute("modify", &json!({"id": part, "attach_top": ids[0]})).unwrap_err().contains("roof, a floor or a toposolid"));
 }
 
 #[test]
@@ -7438,6 +7438,30 @@ fn a_wall_stands_on_a_toposolid_and_keeps_under_its_underside() {
     // What a wall is attached to is a roof, a floor or a toposolid: another element is refused, and says so.
     let e = s.execute("modify", &json!({"id": wall, "attach_top": wall})).unwrap_err();
     assert!(e.contains("isn't a roof, a floor or a toposolid"), "{e}");
+}
+
+#[test]
+fn a_walls_base_follows_a_concave_plot_all_across_it() {
+    let mut s = Session::new();
+    // An L-shaped plot a metre over the level: its outline is concave, so its top's pieces must be cut into convex ones
+    // for the wall to follow, or only the middle of the L would touch it.
+    let ell = run(
+        &mut s,
+        "toposolid",
+        json!({"boundary": [[0,0],[10000,0],[10000,4000],[4000,4000],[4000,10000],[0,10000]], "offset": 1000}),
+    )["id"]
+        .as_u64()
+        .unwrap_or_default();
+    let wall = run(&mut s, "wall", json!({"points": [[-1000, 2000], [11000, 2000]]}))["ids"][0].as_u64().unwrap_or_default();
+    run(&mut s, "modify", json!({"id": wall, "attach_base": ell}));
+    // On the ground over the whole L at y = 2000, not only over the middle of it, and its own base beyond the plot.
+    let base_at = |s: &Session, q: crate::geom::P2| {
+        crate::walls::prisms(&s.model, wall, false).into_iter().find(|p| crate::geom::contains(&p.ring, q)).map(|p| p.bottom.at(q))
+    };
+    assert_eq!(base_at(&s, crate::geom::P2(1000.0, 2000.0)), Some(1000.0));
+    assert_eq!(base_at(&s, crate::geom::P2(3000.0, 2000.0)), Some(1000.0));
+    assert_eq!(base_at(&s, crate::geom::P2(8000.0, 2000.0)), Some(1000.0), "the far arm of the L too");
+    assert_eq!(base_at(&s, crate::geom::P2(10500.0, 2000.0)), Some(0.0), "past the plot it is its own base");
 }
 
 #[test]

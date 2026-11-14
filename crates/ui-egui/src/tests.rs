@@ -6012,18 +6012,20 @@ fn paint_lays_a_material_on_the_face_clicked_in_3d_and_remove_paint_takes_it_off
 
 #[test]
 fn a_wall_attaches_to_a_toposolid_in_plan() {
+    use egui_kittest::kittest::NodeT;
     // The wall runs past the terrain at both ends, so the view fits it and the terrain's edge is a click inside the picture.
     let mut h = app(r#"toposolid {"boundary": [[0,0],[10000,0],[10000,10000],[0,10000]]}
 wall {"points": [[-3000,5000],[13000,5000]]}"#);
-    let wall = ids(&h, "wall")[0];
-    h.state_mut().selection = vec![wall];
-    h.run();
-    // Attach Top/Base on the wall's contextual tab, then the terrain by its boundary line: the wall's top follows the ground.
-    press(&mut h, "Modify | Walls");
+    click(&mut h, P2(4000.0, 5000.0));
+    let wall = h.state().selection[0];
+    // Attach Top/Base, then the terrain by its boundary line: the wall's top follows the ground and stays selected.
     press(&mut h, "Attach Top/Base");
     let t = ids(&h, "toposolid")[0];
     click(&mut h, P2(5000.0, 0.0));
     assert_eq!(field(&h, wall, "attach_top"), json!(t));
+    assert_eq!(h.state().selection, [wall], "the wall stays selected");
+    let attached = h.get_by_role_and_label(Role::CheckBox, "Top is Attached").accesskit_node().toggled();
+    assert_eq!(attached, Some(egui::accesskit::Toggled::True));
 }
 
 #[test]

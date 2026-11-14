@@ -98,8 +98,9 @@ courtyards, net also openings and intersecting shafts; extruded and joined roofs
 can't be found (`Model::roof_faces` fails: a gable edge its footprint doesn't have) writes no area quantities, rather than zeros.
 Pad and strip footings carry `Qto_FootingBaseQuantities`: `Length`, `Width`, `Height`, `GrossVolume` and `NetVolume`
 (equal until geometry cuts are supported); a strip also gives its `CrossSectionArea`. Lengths are mm, areas m² and volumes m³.
-An attached top or base follows the roof's or floor's plane
-over each part of the wall (a roof's slopes each over its own part of the plan); a mirrored wall runs back the other way.
+An attached top or base follows the roof's, the floor's or the toposolid's plane
+over each part of the wall (a roof's slopes, or a terrain's pieces, each over its own part of the plan; outside it the
+wall's own); a mirrored wall runs back the other way.
 A wall's top is `Model::own_top`, and 3D, sections, plans, IFC and what a wall is attached to all read it there (`walls::heights`
 takes it, or what the wall is attached to): its `top_level`'s elevation plus its `top_offset` (file format 15, Revit's Top Offset,
 mm, negative below the level), or its base plus its `height` when it has no top level, which an offset does not touch.

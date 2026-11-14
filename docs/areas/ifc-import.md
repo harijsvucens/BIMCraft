@@ -96,7 +96,7 @@ location with no attachment property means unattached, so geometric roof inferen
 
 Walls without a recognized location still come in from the body's centre line and retain the existing join and roof
 inference. A missing axis, or a layer usage that reverses it, also keeps the generic centre-line reconstruction. Attachment
-targets must have come in as roofs, floors or toposolids; missing or other-kind targets are ignored. The axis is read through the file's
+targets must have come in as roofs or floors; missing or other-kind targets are ignored. The axis is read through the file's
 placements and length units, so the metadata does not introduce a second coordinate system. Other native wall constraints
 (such as height and top offsets) continue to be inferred from geometry; this set does not preserve all native parameters.
 The native project schema and file format are unchanged.

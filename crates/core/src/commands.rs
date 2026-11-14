@@ -15742,7 +15742,7 @@ fn duplicate(c: &str, s: &mut Session, ids: &[Id], mo: &Motion) -> R {
         hosts.insert(m.guid(from), m.guid(id));
         made.push(id);
     }
-    // Copied walls attached to roofs or floors copied with them attach to the copies.
+    // Copied walls attached to roofs, floors or toposolids copied with them attach to the copies.
     for id in &made {
         if let Some(Element::Wall(w)) = m.elements.get_mut(id) {
             for at in [&mut w.attach_top, &mut w.attach_base] {
@@ -17190,7 +17190,7 @@ fn delete_from_scratch(s: &mut Session, p: &Value) -> R {
     for (id, d) in kept {
         m.elements.insert(id, Element::Dimension(d));
     }
-    // Walls attached to a roof or a floor that goes come loose, and roofs running into one end nowhere.
+    // Walls attached to a roof, a floor or a toposolid that goes come loose, and roofs running into one end nowhere.
     for e in m.elements.values_mut() {
         let ties = match e {
             Element::Wall(w) => vec![&mut w.attach_top, &mut w.attach_base],
