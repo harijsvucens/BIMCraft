@@ -6011,6 +6011,22 @@ fn paint_lays_a_material_on_the_face_clicked_in_3d_and_remove_paint_takes_it_off
 }
 
 #[test]
+fn a_wall_attaches_to_a_toposolid_in_plan() {
+    // The wall runs past the terrain at both ends, so the view fits it and the terrain's edge is a click inside the picture.
+    let mut h = app(r#"toposolid {"boundary": [[0,0],[10000,0],[10000,10000],[0,10000]]}
+wall {"points": [[-3000,5000],[13000,5000]]}"#);
+    let wall = ids(&h, "wall")[0];
+    h.state_mut().selection = vec![wall];
+    h.run();
+    // Attach Top/Base on the wall's contextual tab, then the terrain by its boundary line: the wall's top follows the ground.
+    press(&mut h, "Modify | Walls");
+    press(&mut h, "Attach Top/Base");
+    let t = ids(&h, "toposolid")[0];
+    click(&mut h, P2(5000.0, 0.0));
+    assert_eq!(field(&h, wall, "attach_top"), json!(t));
+}
+
+#[test]
 fn paint_lays_a_material_on_a_toposolids_top_in_3d() {
     let mut h = app(r#"toposolid {"boundary": [[0,0],[10000,0],[10000,10000],[0,10000]]}"#);
     press(&mut h, "Default 3D View");

@@ -7416,6 +7416,31 @@ fn a_toposolid_is_as_thick_as_its_types_layers() {
 }
 
 #[test]
+fn a_wall_stands_on_a_toposolid_and_keeps_under_its_underside() {
+    let mut s = Session::new();
+    // A 10 x 10 m plot with a 2 m mound at its middle, 300 mm thick: its top rises from 0 at the edge to 2000 at the centre.
+    let hill = run(&mut s, "toposolid", json!({"boundary": plot(), "points": [[5000, 5000, 2000]]}))["id"].as_u64().unwrap_or_default();
+    let wall = run(&mut s, "wall", json!({"points": [[1000, 5000], [9000, 5000]]}))["ids"][0].as_u64().unwrap_or_default();
+    // Its base attached, the wall stands on the terrain: its bottom follows the rise, 1200 mm up at either side of the mound's
+    // ridge, where a level base would stand on nothing but the lowest point.
+    run(&mut s, "modify", json!({"id": wall, "attach_base": hill}));
+    let base_at = |s: &Session, q: crate::geom::P2| {
+        crate::walls::prisms(&s.model, wall, false).into_iter().find(|p| crate::geom::contains(&p.ring, q)).map(|p| p.bottom.at(q))
+    };
+    assert_eq!(base_at(&s, crate::geom::P2(3000.0, 5000.0)), Some(1200.0));
+    assert_eq!(base_at(&s, crate::geom::P2(7000.0, 5000.0)), Some(1200.0), "the other side of the ridge too");
+    // Its top attached, it keeps under the terrain's underside: 300 mm, its type's thickness, under that surface.
+    run(&mut s, "modify", json!({"id": wall, "attach_base": null, "attach_top": hill}));
+    let top_at = |s: &Session, q: crate::geom::P2| {
+        crate::walls::prisms(&s.model, wall, false).into_iter().find(|p| crate::geom::contains(&p.ring, q)).map(|p| p.top.at(q))
+    };
+    assert_eq!(top_at(&s, crate::geom::P2(3000.0, 5000.0)), Some(900.0));
+    // What a wall is attached to is a roof, a floor or a toposolid: another element is refused, and says so.
+    let e = s.execute("modify", &json!({"id": wall, "attach_top": wall})).unwrap_err();
+    assert!(e.contains("isn't a roof, a floor or a toposolid"), "{e}");
+}
+
+#[test]
 fn the_shape_commands_shape_a_toposolid_as_a_floor() {
     let mut s = Session::new();
     let id = run(&mut s, "toposolid", json!({"boundary": plot()}))["id"].clone();

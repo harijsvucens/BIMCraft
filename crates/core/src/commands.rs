@@ -314,7 +314,7 @@ other_files(
          to `top_level`, `top_offset` mm above it (0; negative, below it; the top must stay above the base). `arc`: degrees each turns from its start to its end, counter-clockwise (180, a half circle bulging to \
          its right). `location`: the line of it the points are on: centre (the default), core-centre, exterior-finish, \
          interior-finish, exterior-core or interior-core; its exterior side is to the left of its start to its end, so walls \
-         drawn clockwise face out. `attach_top`, `attach_base`: a roof or floor its top follows from below, or its base stands \
+         drawn clockwise face out. `attach_top`, `attach_base`: a roof, a floor or a toposolid its top follows from below, or its base stands \
          on. `room_bounding`: false for a wall rooms run past (a low wall, a balustrade); true, the default, bounds them",
         wall,
     )

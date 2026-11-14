@@ -377,7 +377,7 @@ pub struct Wall {
     pub arc: f64,
     #[serde(default, skip_serializing_if = "is_centre")]
     pub location: Location,
-    /// The roof or floor its top follows, from below, instead of its top constraint; and the one its
+    /// The roof, floor or toposolid its top follows, from below, instead of its top constraint; and the one its
     /// base stands on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attach_top: Option<Guid>,
@@ -7455,9 +7455,9 @@ impl Model {
                 }
                 for (what, at) in [("attach_top", w.attach_top), ("attach_base", w.attach_base)] {
                     if let Some(a) = at
-                        && !matches!(self.elements.get(a), Some(Element::Roof(_) | Element::Floor(_)))
+                        && !matches!(self.elements.get(a), Some(Element::Roof(_) | Element::Floor(_) | Element::Toposolid(_)))
                     {
-                        return Err(format!("{who}: {what} {} isn't a roof or a floor", self.shown(a)));
+                        return Err(format!("{who}: {what} {} isn't a roof, a floor or a toposolid", self.shown(a)));
                     }
                 }
                 match w.top_level {

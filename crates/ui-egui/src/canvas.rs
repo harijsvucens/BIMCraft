@@ -1668,9 +1668,10 @@ impl BimApp {
                 .spot_host(level, view.mm(q))
                 .filter(|id| matches!(model.elements.get(*id), Some(Element::Floor(_) | Element::Roof(_)))),
             Tool::Tag => d.pick(q, PICK).filter(|id| model.anchor(*id).is_some()),
-            Tool::Attach => {
-                d.pick_all(q, PICK).into_iter().find(|id| matches!(model.elements.get(id), Some(Element::Roof(_) | Element::Floor(_))))
-            }
+            Tool::Attach => d
+                .pick_all(q, PICK)
+                .into_iter()
+                .find(|id| matches!(model.elements.get(id), Some(Element::Roof(_) | Element::Floor(_) | Element::Toposolid(_)))),
             Tool::Dormer => model.roof_at(level, view.mm(q)),
             Tool::GableEdge => model.roof_edge(level, view.mm(q), f64::from(PICK) / view.scale).map(|(id, _)| id),
             Tool::Railing(path) if path.is_empty() => {

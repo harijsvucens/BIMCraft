@@ -314,8 +314,8 @@ never makes up an arrow, since `Model::check` refuses a sloped floor without one
 What an element is tied to, the same in both profiles (Rev's in its ruled grid, BIMCraft's as Inspector rows). Each tie is a link,
 named by the other element's category and id, that makes it the selection, which every view shows. In the element's own rows: a
 door's or a window's Host Wall, a railing's, a spot's and a tag's host (`Kind::Link`), and beside a wall's greyed Top and Base is
-Attached, the roof or floor it is attached to. For one element, a Tied To group (`properties::ties`) lists the rest: a wall's
-Openings (`Model::referring`, the elements whose `refs` hold its GUID), a roof's or a floor's Attached Walls, and the locked or
+Attached, the roof, floor or toposolid it is attached to. For one element, a Tied To group (`properties::ties`) lists the rest: a wall's
+Openings (`Model::referring`, the elements whose `refs` hold its GUID), a roof's, a floor's or a toposolid's Attached Walls, and the locked or
 equal dimensions that hold it (`Model::held_by` in `constraints.rs`: one kept equal that measures to it, or one with a locked
 segment that ends at it). egui gives a link's node a label's role when its text is selectable, so `properties::link` names it a
 link again; a test clicks one with `click_accesskit`, since a wall's rows run below the palette's fold.

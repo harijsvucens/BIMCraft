@@ -2600,13 +2600,13 @@ pub(crate) fn from_step(file: File, name: &str, seed: u64) -> Result<Imported, S
         }
     }
 
-    // Resolve attachments only after roofs and floors exist, through their IFC GlobalIds rather than transient ids.
+    // Resolve attachments only after roofs, floors and toposolids exist, through their IFC GlobalIds rather than transient ids.
     let by_global: HashMap<&str, Id> = origin.iter().filter_map(|(step, id)| Some((text(e(*step)?.args.first())?, *id))).collect();
     for (ifc, (wid, ..)) in &walls {
         let Some(said) = wall_props.get(ifc).filter(|_| located(*ifc).is_some()) else { continue };
         let to = |name: Option<&str>| {
             let id = *by_global.get(name?)?;
-            matches!(m.elements.get(id), Some(Element::Roof(_) | Element::Floor(_))).then(|| Guid::of_id(id))
+            matches!(m.elements.get(id), Some(Element::Roof(_) | Element::Floor(_) | Element::Toposolid(_))).then(|| Guid::of_id(id))
         };
         let (top, base) = (to(said.attach_top), to(said.attach_base));
         if let Some(Element::Wall(w)) = m.elements.get_mut(*wid) {

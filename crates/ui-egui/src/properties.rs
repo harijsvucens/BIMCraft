@@ -1811,7 +1811,7 @@ impl BimApp {
             referring.iter().filter(keep).copied().collect()
         };
         let openings = if matches!(e, Element::Wall(_)) { of(&["door", "window"]) } else { Vec::new() };
-        let walls = if matches!(e, Element::Roof(_) | Element::Floor(_)) { of(&["wall"]) } else { Vec::new() };
+        let walls = if matches!(e, Element::Roof(_) | Element::Floor(_) | Element::Toposolid(_)) { of(&["wall"]) } else { Vec::new() };
         let rows = [(msg!("Openings"), openings), (msg!("Attached Walls"), walls), (msg!("Held by Dimensions"), model.held_by(id))];
         if rows.iter().all(|(_, links)| links.is_empty()) {
             return;
