@@ -1259,13 +1259,15 @@ pub(crate) fn export_with(m: &Model, reference_rooms: bool) -> String {
                 contained.entry(t.level).or_default().push(ent);
                 products.insert(id, ent);
                 hosts.insert(id, (ent, at, m.elevation(t.level)));
-                let gross = geom::area(&t.boundary).abs();
+                let projected = geom::area(&t.boundary).abs();
+                let surface = m.toposolid_surface_area(t);
                 let volume = m.toposolid_volume(t);
                 let values = [
                     ("Width", "LENGTH", thickness),
                     ("Perimeter", "LENGTH", perimeter(&t.boundary)),
-                    ("GrossArea", "AREA", gross / 1e6),
-                    ("NetArea", "AREA", gross / 1e6),
+                    ("GrossArea", "AREA", surface / 1e6),
+                    ("NetArea", "AREA", surface / 1e6),
+                    ("ProjectedArea", "AREA", projected / 1e6),
                     ("GrossVolume", "VOLUME", volume / 1e9),
                     ("NetVolume", "VOLUME", volume / 1e9),
                 ];

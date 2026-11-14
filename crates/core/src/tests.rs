@@ -7284,6 +7284,10 @@ fn a_toposolids_surface_area_measures_its_tops_slope_beside_its_plan_area() {
     let r = run(&mut s, "schedule", json!({"name": "Earthwork", "category": "toposolid", "fields": ["Name", "Area", "Surface Area"]}));
     assert_eq!(r["columns"], json!(["Name", "Area (m\u{b2})", "Surface Area (m\u{b2})"]));
     assert_eq!(r["rows"], json!([["Flat", 100.0, 100.0], ["Tent", 100.0, 107.7]]));
+    // A schedule left to its category's fields shows all six, the new one among them.
+    let r = run(&mut s, "schedule", json!({"name": "Earthwork Defaults", "category": "toposolid"}));
+    assert_eq!(r["columns"], json!(["Name", "Level", "Area (m\u{b2})", "Surface Area (m\u{b2})", "Volume", "Thickness"]));
+    assert!(r["available"].as_array().unwrap().contains(&json!("Surface Area")), "{}", r["available"]);
     // `elements` gives both on each one, as a schedule's fields read them.
     let done = run(&mut s, "elements", json!({"category": "toposolid"}))["elements"].clone();
     assert_eq!((done[1]["area_m2"].clone(), done[1]["surface_area_m2"].clone()), (json!(100.0), json!(107.7)));
@@ -7504,6 +7508,10 @@ fn a_toposolid_goes_to_ifc_as_a_terrain_slab_and_comes_back_from_the_file() {
     assert_eq!(ifc.lines().filter(|l| l.contains("=IFCSLAB(")).count(), 1);
     assert!(ifc.contains(".BASESLAB.") && ifc.contains("IFCFACETEDBREP"), "a slab of a closed solid");
     assert!(ifc.contains("Qto_SlabBaseQuantities") && ifc.contains("IFCQUANTITYVOLUME"));
+    // Its top's area: Gross and Net over its slope, more than its plan's 100 m2 because of the 2 m peak on its corner;
+    // the plan itself is ProjectedArea, as a roof's.
+    assert!(ifc.contains("IFCQUANTITYAREA('GrossArea',$,$,101.961524,$)"), "{ifc}");
+    assert!(ifc.contains("IFCQUANTITYAREA('ProjectedArea',$,$,100.,$)"), "{ifc}");
     // The file: the element as it was made, its shape's point too.
     let was = serde_json::to_string(&*s.model).unwrap();
     assert!(was.contains("\"toposolid\""));

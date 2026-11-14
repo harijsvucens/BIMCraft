@@ -53,7 +53,8 @@ Boundary a floor does; the 3D view does not, having no plane for an outline that
 - `toposolid_solid`: a closed `Polyhedron`, its top's planes and, `thickness` under them, the same planes plumb (the bottom
   follows the top, so its volume is its plan area times its thickness).
 - `toposolid_range`, `toposolid_volume`, `toposolid_surface_area` (its top's area over its slope: each face's plan area
-  times the rise across it, so a hill measures more than its footprint), `toposolid_slabs` (the 3D view's slabs).
+  times the secant of its slope, `sqrt(1 + |g|²)`, so a hill measures more than its footprint), `toposolid_slabs` (the 3D
+  view's slabs).
 - `toposolid_contours`: at each multiple of `interval` between its top's lowest and highest, the segments where the top
   crosses that height (at most `MAX_CONTOURS`, 1,000 levels, and `MAX_CONTOUR_SEGMENTS`, 20,000 segments in all). A corner
   exactly at a height counts as above it.
@@ -73,7 +74,8 @@ The triangulation is the floor shape editor's (`triangulation::constrained`), no
   material.
 - **Schedules**: category `toposolid`: Name, Level, Area (its boundary's plan area), Surface Area (its top's over its
   slope), Volume, Thickness.
-- **IFC**: an `IfcSlab` with `.BASESLAB.`, a closed faceted Brep, in the level's storey, with `Qto_SlabBaseQuantities`.
+- **IFC**: an `IfcSlab` with `.BASESLAB.`, a closed faceted Brep, in the level's storey, with `Qto_SlabBaseQuantities`:
+  its `GrossArea` and `NetArea` over its top's slope, its plan area as `ProjectedArea` (a roof's quantities).
 - **File**: `FORMAT` 20 (a build that reads up to 19 refuses a toposolid as an unknown element kind).
 - **Visibility/Graphics and Object Styles**: the `toposolid` category.
 

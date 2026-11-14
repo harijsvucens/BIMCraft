@@ -5364,8 +5364,9 @@ impl Model {
         self.toposolid_solid(t).map_or(0.0, |p| volume(&p))
     }
 
-    /// A toposolid's top's area over its slope, mm²: each face's plan area times the rise across it, so a shaped top
-    /// measures what it covers, not its footprint (100 m² of flat ground, more once it is a hill).
+    /// A toposolid's top's area over its slope, mm²: each face's plan area times the secant of its slope
+    /// (`sqrt(1 + |g|²)`), so a shaped top measures what it covers, not its footprint (100 m² of flat ground, more once it
+    /// is a hill).
     pub fn toposolid_surface_area(&self, t: &Toposolid) -> f64 {
         self.toposolid_faces(t).iter().map(|(ring, plane)| geom::area(ring).abs() * (1.0 + plane.g.dot(plane.g)).sqrt()).sum()
     }
