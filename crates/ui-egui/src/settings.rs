@@ -122,6 +122,8 @@ pub struct Settings {
     pub grid_snapping: bool,
     /// How guides and the live drawing's aids are drawn: the refined look, or the classic one to compare it with.
     pub guide_style: GuideStyle,
+    /// Save and Save As write the project zipped (`bimcraft_core::bimc`): a much smaller file, slower to save and open.
+    pub compressed_save: bool,
     /// The plans' old origin marker (now the Internal Origin, Site's in Visibility/Graphics: kept so a settings file reads
     /// back as it was written), and the view's name in their corner, a working aid on the screen.
     pub origin_marker: bool,
@@ -184,6 +186,7 @@ impl Settings {
             "high_contrast": self.high_contrast,
             "grid_snapping": self.grid_snapping,
             "guide_style": self.guide_style.code(),
+            "compressed_save": self.compressed_save,
             "origin_marker": self.origin_marker,
             "view_name": self.view_name,
             "shortcuts": self.shortcuts,
@@ -233,6 +236,7 @@ impl Settings {
             high_contrast: colour(&v["high_contrast"]).unwrap_or(base.high_contrast),
             grid_snapping: v["grid_snapping"].as_bool().unwrap_or(base.grid_snapping),
             guide_style: v["guide_style"].as_str().and_then(GuideStyle::from_code).unwrap_or(base.guide_style),
+            compressed_save: v["compressed_save"].as_bool().unwrap_or(base.compressed_save),
             origin_marker: v["origin_marker"].as_bool().unwrap_or(base.origin_marker),
             view_name: v["view_name"].as_bool().unwrap_or(base.view_name),
             shortcuts: shortcuts_from(&v["shortcuts"], base.shortcuts),
@@ -373,6 +377,7 @@ impl BimApp {
         self.scan_contrast = kept.high_contrast;
         self.grid_snapping = kept.grid_snapping;
         self.guide_style = kept.guide_style;
+        self.compressed_save = kept.compressed_save;
         (self.show_origin, self.show_view_name) = (kept.origin_marker, kept.view_name);
         self.custom_shortcuts = kept.shortcuts.clone();
         self.system_title_bar = kept.system_title_bar;
@@ -425,6 +430,7 @@ impl BimApp {
             high_contrast: self.scan_contrast,
             grid_snapping: self.grid_snapping,
             guide_style: self.guide_style,
+            compressed_save: self.compressed_save,
             origin_marker: self.show_origin,
             view_name: self.show_view_name,
             shortcuts: self.custom_shortcuts.clone(),
@@ -742,6 +748,9 @@ fn graphics_later(ui: &mut Ui) {
 
 impl BimApp {
     fn files_page(&mut self, ui: &mut Ui) {
+        heading(ui, msg!("Saving"));
+        self.compressed_save_box(ui);
+        ui.add_space(8.0);
         heading(ui, "Autosave");
         let mut enabled = self.autosave.interval_minutes > 0;
         if ui.checkbox(&mut enabled, t("Autosave in the background")).changed() {
@@ -768,6 +777,17 @@ impl BimApp {
 }
 
 impl BimApp {
+    /// The Compressed save box, with what it costs: in File > Settings > Files and, as a tick, in the File menu.
+    pub(crate) fn compressed_save_box(&mut self, ui: &mut Ui) {
+        ui.checkbox(&mut self.compressed_save, t("Compressed save")).on_hover_text(t(
+            "Save and Save As write the project zipped: the file is several times smaller. Either kind opens as before, and an \
+             uncompressed project stays readable as text.",
+        ));
+        ui.label(
+            RichText::new(t("⚠ A compressed project is much smaller, but saving and opening it take longer.")).small().color(pal().muted),
+        );
+    }
+
     /// Agents: the control port, through which an agent works on this project (`bimcraft-cli mcp --connect`), opened and closed
     /// here as `--control PORT` opens it at the start, and whether agents may change the project or only read it.
     fn agents_page(&mut self, ui: &mut Ui) {
