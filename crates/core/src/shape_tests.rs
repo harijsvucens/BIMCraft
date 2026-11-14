@@ -388,7 +388,7 @@ fn a_point_that_would_leave_the_screed_thinner_than_nothing_is_refused() {
 }
 
 #[test]
-fn only_one_layer_of_a_floor_or_roof_type_is_variable() {
+fn only_one_layer_of_a_floor_roof_or_toposolid_type_is_variable() {
     let mut s = Session::new();
     let two = json!([{"thickness": 50, "variable": true}, {"thickness": 200, "variable": true}]);
     let e = fails(&mut s, "type", json!({"category": "floor", "name": "Two", "layers": two}));
@@ -399,6 +399,7 @@ fn only_one_layer_of_a_floor_or_roof_type_is_variable() {
         assert!(e.contains("variable"), "{cat}: {e}");
     }
     run(&mut s, "type", json!({"category": "roof", "name": "Flat", "layers": one}));
+    run(&mut s, "type", json!({"category": "toposolid", "name": "Ground", "layers": one}));
 }
 
 #[test]
