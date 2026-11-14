@@ -5341,6 +5341,93 @@ impl Model {
         self.floor_faces(&self.toposolid_as_floor(t))
     }
 
+    /// A toposolid cut in two along the line through `a` and `b` (its ends are just the line's direction): each piece's
+    /// outline, and the shape points on its side - a point on the line goes to both - and split lines, cut where the line
+    /// crosses them. The first piece keeps the element's own id and GUID when it is put back; the second's parts are left
+    /// for the model to give theirs. Refused when the line does not cross the outline, or a piece would be under a square
+    /// metre.
+    pub fn toposolid_split(&self, t: &Toposolid, a: P2, b: P2) -> Result<(Toposolid, Toposolid), String> {
+        let d = b - a;
+        if !(d.0.is_finite() && d.1.is_finite()) || d.dist(P2(0.0, 0.0)) <= TOL {
+            return Err("a split line needs two points apart".into());
+        }
+        let side = |q: P2| d.cross(q - a);
+        let ring = |s: &dyn Fn(P2) -> f64| {
+            // Consecutive points within the tolerance are one: a corner of the cut lands twice on a vertex of the outline.
+            let mut out: Vec<P2> = Vec::new();
+            for q in geom::clip(&t.boundary, s) {
+                if out.last().is_none_or(|p: &P2| p.dist(q) > TOL) {
+                    out.push(q);
+                }
+            }
+            if out.len() > 1 && out[0].dist(out[out.len() - 1]) <= TOL {
+                out.pop();
+            }
+            out
+        };
+        let (mut left, mut right) = (ring(&|q| side(q)), ring(&|q| -side(q)));
+        if [&left, &right].iter().any(|r| r.len() < 3 || geom::area(r).abs() < 1e6) {
+            return Err("the line must cut across its outline, leaving a square metre or more each side".into());
+        }
+        for r in [&mut left, &mut right] {
+            if geom::area(r) < 0.0 {
+                r.reverse();
+            }
+        }
+        // A split line across the cut would end on the new edge, where no point or corner is, so it is refused rather
+        // than moved; one along the cut, or with an end on it, goes to the side it lies on (a point on the cut is in both).
+        for l in &t.shape.lines {
+            let on = |s: f64| s.abs() <= TOL;
+            let (sa, sb) = (side(l.a), side(l.b));
+            if !on(sa) && !on(sb) && (sa > 0.0) != (sb > 0.0) {
+                return Err("a split line crosses the cut: split where no split line crosses it, or edit the shape first".into());
+            }
+        }
+        // A point or a line on the cut itself goes to both: it is the fold between the pieces.
+        let piece = |boundary: Vec<P2>, second: bool| {
+            let wants = |s: f64| if s.abs() <= TOL { true } else { (s > 0.0) == !second };
+            let points = t
+                .shape
+                .points
+                .iter()
+                .filter(|p| wants(side(p.at)))
+                .map(|p| {
+                    let mut p = p.clone();
+                    if second {
+                        (p.id, p.guid) = (Default::default(), Default::default());
+                    }
+                    p
+                })
+                .collect();
+            let lines = t
+                .shape
+                .lines
+                .iter()
+                .filter(|l| {
+                    let (sa, sb) = (side(l.a), side(l.b));
+                    let (on_a, on_b) = (sa.abs() <= TOL, sb.abs() <= TOL);
+                    // Both ends on the cut: in both. One on it: the side its other end is on.
+                    if on_a && on_b {
+                        true
+                    } else if on_a {
+                        (sb > 0.0) == !second
+                    } else {
+                        (sa > 0.0) == !second
+                    }
+                })
+                .map(|l| {
+                    let mut l = l.clone();
+                    if second {
+                        (l.id, l.guid) = (Default::default(), Default::default());
+                    }
+                    l
+                })
+                .collect();
+            Toposolid { boundary, shape: crate::model::Shape { points, lines }, ..t.clone() }
+        };
+        Ok((piece(left, false), piece(right, true)))
+    }
+
     /// A toposolid's underside, when its type has a variable layer, as Revit's: level at the type's thickness under its
     /// top's lowest point, so the variable layer takes up the shape above it and a pit lowers the whole base rather than
     /// thinning the solid. None otherwise: its underside follows its top, its type's thickness plumb.

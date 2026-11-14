@@ -1648,10 +1648,12 @@ other_files(
         "split",
         ui_msg!("Split"),
         &["SL"],
-        "{id, at: [x, y]} splits a wall or a detail line in two at `at`: a wall's doors and windows go with their part; a \
+        "{id, at?: [x, y], line?: [[x, y], [x, y]]} splits a wall or a detail line in two at `at`: a wall's doors and windows go with their part; a \
          detail line of any shape splits where it passes nearest `at` (a spline by its control points exactly, one through \
          points into two through points within 0.05 mm of it), and a closed one (a circle, a whole ellipse, a closed \
-         polyline) opens there instead, into one that starts and ends at `at`",
+         polyline) opens there instead, into one that starts and ends at `at`. A toposolid is cut along `line`, across its \
+         outline, into two that keep its type, level and contours: each keeps the elevation points on its side (a point on \
+         the line goes to both) and the split lines, cut where the line crosses them; the first keeps the id",
         split,
     ),
     edit(
@@ -16436,6 +16438,20 @@ fn split(s: &mut Session, p: &Value) -> R {
     {
         let (l, at) = (l.clone(), point_req(c, p, "at")?);
         return split_line(s, lid, l, at);
+    }
+    // A toposolid is cut along a line across it, into two of the level's ground.
+    if let Some(lid) = m.elements.id(id)
+        && let Some(Element::Toposolid(t)) = m.elements.get(lid)
+    {
+        let line = points(c, p, "line")?;
+        if line.len() != 2 {
+            return Err(bad(c, "`line` is two points, the split line's start and its end"));
+        }
+        let (first, second) = m.toposolid_split(t, line[0], line[1]).map_err(|e| bad(c, e))?;
+        let m = s.model_mut();
+        m.elements.insert(lid, Element::Toposolid(first));
+        let new = m.insert(Element::Toposolid(second));
+        return Ok(json!({"ids": [lid, new]}));
     }
     let w = m.wall(id).cloned().ok_or_else(|| bad(c, format!("{id} is not a wall")))?;
     let id = m.elements.id(id).unwrap_or_default();

@@ -2893,6 +2893,18 @@ fn hostile_params_never_panic_or_break_the_model() {
             ]);
         }
     }
+    // The site's ground, last so no id moves, and what may stand on it or cut it: a wall attached to it, and split lines
+    // that miss, that are one point, and one across it.
+    let ground =
+        base.execute("toposolid", &json!({"boundary": block(), "points": [[4000, 3000, 2000]]})).map_or(Value::Null, |r| r["id"].clone());
+    let ground_cuts = [
+        json!({"id": 100002, "attach_top": ground}),
+        json!({"id": 100002, "attach_base": ground}),
+        json!({"id": ground, "line": [[4000, -1e300], [4000, 1e300]]}),
+        json!({"id": ground, "line": []}),
+        json!({"id": ground, "line": [[0, 0], [0, 0]]}),
+        json!({"id": ground, "line": [[3000, -100], [3000, 100]]}),
+    ];
     let hostile: Vec<Value> = hostile
         .into_iter()
         .chain(detailing.into_iter().map(|(_, p)| p))
@@ -2904,6 +2916,7 @@ fn hostile_params_never_panic_or_break_the_model() {
         .chain(marks)
         .chain(circuits)
         .chain(schedules)
+        .chain(ground_cuts)
         .collect();
     // Each command against each value, on a copy of the same session; the commands shared out between the cores.
     let cmds: Vec<_> = commands().iter().filter(|c| !matches!(c.id, "open" | "save")).collect();
@@ -7413,6 +7426,61 @@ fn a_toposolid_is_as_thick_as_its_types_layers() {
     let e = s.execute("toposolid", &json!({"boundary": plot(), "type": "Generic - 200mm"})).unwrap_err();
     assert!(e.contains("doesn't exist"), "{e}");
     assert!(s.model.types.toposolid.contains_key("Site - 550mm") && !s.model.types.floor.contains_key("Site - 550mm"));
+}
+
+#[test]
+fn a_toposolid_splits_along_a_line_across_it() {
+    let mut s = Session::new();
+    let hill = run(&mut s, "toposolid", json!({"boundary": plot(), "points": [[5000, 5000, 2000]], "interval": 500}))["id"]
+        .as_u64()
+        .unwrap_or_default();
+    let ids = run(&mut s, "split", json!({"id": hill, "line": [[5000, -1000], [5000, 11000]]}))["ids"].clone();
+    assert_eq!(ids[0], json!(hill), "the first piece keeps its id");
+    let pieces = run(&mut s, "elements", json!({"category": "toposolid"}))["elements"].clone();
+    let pieces = pieces.as_array().cloned().unwrap_or_default();
+    assert_eq!(pieces.len(), 2);
+    for p in &pieces {
+        // Half the plot each, the same 300 mm thick, and the cut's own corners at x = 5000.
+        assert_eq!((p["area_m2"].clone(), p["volume_m3"].clone()), (json!(50.0), json!(15.0)));
+        let corners = p["boundary"].as_array().cloned().unwrap_or_default();
+        assert!(corners.contains(&json!([5000.0, 0.0])) && corners.contains(&json!([5000.0, 10000.0])), "{corners:?}");
+        // The peak lies on the cut: both pieces keep it, and rise to it.
+        assert_eq!(p["shape"]["points"].as_array().map(Vec::len), Some(1), "{p}");
+        assert_eq!(p["shape"]["points"][0]["at"], json!([5000.0, 5000.0]));
+        assert_eq!(p["top"], json!([0.0, 2000.0]));
+    }
+}
+
+#[test]
+fn a_split_keeps_each_point_on_the_side_it_stands_on_and_refuses_a_crossed_line() {
+    let mut s = Session::new();
+    let hill = run(&mut s, "toposolid", json!({"boundary": plot(), "points": [[5000, 5000, 2000]]}))["id"].as_u64().unwrap_or_default();
+    // A split line wholly west of the coming cut: it and its ends go with that piece.
+    run(&mut s, "add_split_line", json!({"id": hill, "a": [1000, 1000], "b": [4000, 1000]}));
+    let ids = run(&mut s, "split", json!({"id": hill, "line": [[5000, -1000], [5000, 11000]]}))["ids"].clone();
+    let pieces = run(&mut s, "elements", json!({"category": "toposolid"}))["elements"].clone();
+    let (west, east) = (pieces[0].clone(), pieces[1].clone());
+    assert_eq!((west["id"].clone(), east["id"].clone()), (ids[0].clone(), ids[1].clone()));
+    assert_eq!(west["shape"]["lines"].as_array().map(Vec::len), Some(1), "{west}");
+    assert_eq!(east["shape"]["lines"].as_array().map(Vec::len), None, "{east}");
+    // Its ends are points of the shape, and each stays with the side it stands on.
+    assert!(west["shape"]["points"].as_array().is_some_and(|p| p.iter().any(|q| q["at"] == json!([1000.0, 1000.0]))));
+    assert!(!east["shape"]["points"].as_array().is_some_and(|p| p.iter().any(|q| q["at"] == json!([1000.0, 1000.0]))));
+    // A split line across the cut would end on the new edge, where no point or corner is: refused, and nothing changes.
+    let e = s.execute("split", &json!({"id": ids[0], "line": [[2000, -1000], [2000, 11000]]})).unwrap_err();
+    assert!(e.contains("crosses the cut") || e.contains("crosses it"), "{e}");
+}
+
+#[test]
+fn a_split_refuses_a_line_that_misses_or_shaves_it() {
+    let mut s = Session::new();
+    let hill = run(&mut s, "toposolid", json!({"boundary": plot()}))["id"].as_u64().unwrap_or_default();
+    for line in [json!([[20000, 0], [20000, 10000]]), json!([[0, 0], [10000, 0]]), json!([[9950, 0], [9950, 10000]])] {
+        let e = s.execute("split", &json!({"id": hill, "line": line})).unwrap_err();
+        assert!(e.contains("square metre"), "{line}: {e}");
+    }
+    // Still one toposolid, whole.
+    assert_eq!(run(&mut s, "elements", json!({"category": "toposolid"}))["elements"][0]["area_m2"], 100.0);
 }
 
 #[test]
