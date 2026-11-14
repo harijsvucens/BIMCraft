@@ -1421,7 +1421,7 @@ msgstr ""
 msgid "Came in: {}"
 msgstr ""
 
-#: crates/core/src/commands.rs:2154
+#: crates/core/src/commands.rs:2156
 #: crates/ui-egui/src/camera.rs:38
 #: crates/ui-egui/src/lib.rs:4445
 #: crates/ui-egui/src/properties.rs:282
@@ -3237,7 +3237,7 @@ msgstr ""
 msgid "Demolition"
 msgstr ""
 
-#: crates/core/src/commands.rs:11719
+#: crates/core/src/commands.rs:11721
 msgid "Dependent"
 msgstr ""
 
@@ -3980,7 +3980,7 @@ msgstr ""
 msgid "Electrical Settings: the voltages, distribution systems and wire types circuits and panels refer to; sections in mm²"
 msgstr ""
 
-#: crates/core/src/commands.rs:2592
+#: crates/core/src/commands.rs:2594
 msgid "Elements"
 msgstr ""
 
@@ -4417,7 +4417,7 @@ msgstr ""
 msgid "Filled region"
 msgstr ""
 
-#: crates/core/src/commands.rs:1669
+#: crates/core/src/commands.rs:1671
 msgid "Fillet Arc"
 msgstr ""
 
@@ -6251,7 +6251,7 @@ msgstr ""
 msgid "Maximum Riser Height"
 msgstr ""
 
-#: crates/core/src/commands.rs:2268
+#: crates/core/src/commands.rs:2270
 #: crates/ui-egui/src/editor/document.rs:686
 #: crates/ui-egui/src/editor/document.rs:687
 msgid "Measure"
@@ -8596,7 +8596,7 @@ msgid "Properties over the Project Browser, on the left, as at first"
 msgstr ""
 
 #: crates/core/src/commands.rs:551
-#: crates/core/src/commands.rs:7999
+#: crates/core/src/commands.rs:8001
 msgid "Property Line"
 msgstr ""
 
@@ -9471,7 +9471,7 @@ msgstr ""
 msgid "Scan"
 msgstr ""
 
-#: crates/core/src/commands.rs:2057
+#: crates/core/src/commands.rs:2059
 msgid "Schedule"
 msgstr ""
 
@@ -11507,7 +11507,7 @@ msgid "Topology: {} ({} triangles)"
 msgstr ""
 
 #: crates/core/src/commands.rs:563
-#: crates/core/src/commands.rs:8041
+#: crates/core/src/commands.rs:8043
 msgid "Toposolid"
 msgstr ""
 
@@ -11798,7 +11798,7 @@ msgstr ""
 msgid "Unlock alignment"
 msgstr ""
 
-#: crates/core/src/commands.rs:11890
+#: crates/core/src/commands.rs:11892
 msgid "Unnamed"
 msgstr ""
 
