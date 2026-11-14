@@ -2,7 +2,7 @@
 //! faces and its layers' boundaries lie across it where its type and its location line put them,
 //! the exterior side to its left. Where walls meet, end to end at any angle or one ending on
 //! another, their faces meet in corners: each end's cap. Caps and faces make the outline plans
-//! fill, 3D and sections cut, and IFC sweeps. A wall's top may follow a roof or a floor above it,
+//! fill, 3D and sections cut, and IFC sweeps. A wall's top may follow a roof, a floor or a toposolid above it,
 //! its base one below: the lowest of their planes, which is a pitched roof's surface.
 
 use std::f64::consts::{PI, TAU};
@@ -567,9 +567,9 @@ impl Plane {
     }
 }
 
-/// What a wall's base stands on, or its top keeps under: a level plane at `own`, or, over the roof
-/// or floor it's attached to, that one's plane there (each of a roof's slopes over its own part of
-/// the plan, in convex pieces), and outside it still `own`.
+/// What a wall's base stands on, or its top keeps under: a level plane at `own`, or, over the roof,
+/// floor or toposolid it's attached to, that one's plane there (each of a roof's slopes over its own
+/// part of the plan, in convex pieces), and outside it still `own`.
 #[derive(Clone)]
 struct Bound {
     regions: Vec<(Vec<P2>, Plane)>,
@@ -577,9 +577,13 @@ struct Bound {
 }
 
 impl Bound {
-    /// The roof or floor `id` from below (with `top`, from above), or `own` without one.
+    /// The roof, floor or toposolid `id` from below (with `top`, from above), or `own` without one.
     fn of(m: &Model, id: Option<Guid>, top: bool, own: f64) -> Bound {
         let regions = match id.and_then(|id| m.elements.get(id)) {
+            // The site's ground: its top's pieces for a base to stand on, its thickness under each for a top to keep under.
+            Some(Element::Toposolid(t)) => {
+                m.toposolid_prisms(t).into_iter().map(|(ring, bottom, up)| (ring, if top { up } else { bottom })).collect()
+            }
             // From below its underside (a shaped one's level under a variable layer), from above its top.
             Some(Element::Roof(r)) => m
                 .roof_prisms(r)

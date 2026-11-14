@@ -81,6 +81,9 @@ The triangulation is the floor shape editor's (`triangulation::constrained`), no
   material.
 - **Schedules**: category `toposolid`: Name, Level, Area (its boundary's plan area), Surface Area (its top's over its
   slope), Volume, Thickness.
+- **Walls on it**: `attach_top` and `attach_base` take a toposolid as they take a roof or a floor, so a wall's base may
+  stand on the terrain (its bottom follows the rise, bending where the top does) and its top keep under it; `modify`'s and
+  the desktop's Attach Top/Base both offer it.
 - **IFC**: an `IfcSlab` with `.BASESLAB.`, a closed faceted Brep, in the level's storey, with `Qto_SlabBaseQuantities`:
   its `GrossArea` and `NetArea` over its top's slope, its plan area as `ProjectedArea` (a roof's quantities), and its
   `Width` the type's nominal thickness.
@@ -95,7 +98,6 @@ The triangulation is the floor shape editor's (`triangulation::constrained`), no
 - **Its layers in 3D**: a toposolid is not split by its compound structure as a floor is, so its sides take its top
   layer's material and its lower layers show no colour there.
 - **Split Element**: `split` takes walls and detail lines, so a toposolid cannot be sliced.
-- **A wall attached to it**: `attach_top` and `attach_base` take a floor or a roof, not a toposolid.
 - **Everywhere but its own plan**: only that level's plan draws it; another plan, or a section, does not, and its
   contours are drawn in plan only, not in 3D.
 - **Smooth shading**: a shaped top is drawn faceted; there is no `Toposolid Smooth Shading` toggle.
