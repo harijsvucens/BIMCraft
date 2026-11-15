@@ -7863,10 +7863,10 @@ fn a_plan_above_a_toposolid_draws_the_ground_beneath_it_and_a_plan_below_draws_n
     run(&mut s, "modify", json!({"id": 100001, "view_range": {"depth": -1500}}));
     let above = crate::render::draw(&s.model, 100001, view);
     assert!(above.owners.contains(&Some(id)), "a plan above the ground does not draw it");
-    // Its own level's plan draws it too, once. The count is the `t.level == level` guard's, not new coverage: it is the same
-    // 4 `a_toposolid_draws_its_boundary_and_contours_in_plan_and_its_solid_in_3d` asserts.
+    // Its own level's plan draws it too, range or no range; what that drawing's prims are is
+    // `a_toposolid_draws_its_boundary_and_contours_in_plan_and_its_solid_in_3d`'s business.
     let own = crate::render::draw(&s.model, 100000, view);
-    assert_eq!(own.owners.iter().filter(|o| **o == Some(id)).count(), 4);
+    assert!(own.owners.contains(&Some(id)), "its own level's plan does not draw it");
     // A plan under it is cut below the ground: the ground is over the cut plane there, so it draws none of it.
     let below = run(&mut s, "level", json!({"elevation": -4000, "name": "Basement"}))["id"].as_u64().unwrap();
     assert!(!crate::render::draw(&s.model, below, view).owners.contains(&Some(id)));
