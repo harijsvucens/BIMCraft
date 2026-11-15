@@ -281,12 +281,18 @@ mod tests {
     }
 
     #[test]
-    fn a_column_attaches_only_to_a_roof_or_a_floor_and_a_footing_never() {
+    fn a_column_attaches_only_to_a_roof_a_floor_or_a_toposolid_and_a_footing_never() {
         let (mut s, wall, column, roof) = house();
         assert!(s.execute("modify", &json!({"id": column, "attach_top": wall})).is_err());
         let footing = run(&mut s, "footing", json!({"at": [100, 100]}))["id"].as_u64().unwrap_or_default();
         assert!(s.execute("modify", &json!({"id": footing, "attach_top": roof})).is_err());
         assert!(s.execute("modify", &json!({"id": column, "attach_top": roof})).is_ok());
+        // A toposolid, too: its underside 300 mm under Upper is over the column's base.
+        let ground =
+            run(&mut s, "toposolid", json!({"level": "Upper", "boundary": [[0, 0], [10000, 0], [10000, 10000], [0, 10000]]}))["id"]
+                .as_u64()
+                .unwrap_or_default();
+        assert!(s.execute("modify", &json!({"id": column, "attach_top": ground})).is_ok());
     }
 
     /// What FORMAT 20 holds of a column: its top offset and what it's attached to are in the file, by GUID, and a copy follows the

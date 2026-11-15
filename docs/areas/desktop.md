@@ -224,8 +224,8 @@ A wall or column selected alone in Modify has handles in the 3D view (core `hand
 ends at its base on its location line, which is drawn dashed along its base (`handles::location_line`), a column's place, and an arrow on the top and under the base of each, as a section box's faces have. A drag previews the element
 and runs its command when it ends: an end or the place over its level's plane, snapped as a plan snaps; an arrow up or down, landing on
 a level within a few pixels, changing the top offset or unconnected height and the base offset. A base dragged keeps the top where it
-is. A top or base attached to a roof or a floor has no arrow, since it follows that. Attach Top/Base (`Tool::Attach`, `BimApp::attach_to`)
-takes walls and columns, and picks its roof or floor in a plan or the 3D view; a column attached stands on or under what it's attached
+is. A top or base attached to a roof, a floor or a toposolid has no arrow, since it follows that. Attach Top/Base (`Tool::Attach`, `BimApp::attach_to`)
+takes walls and columns, and picks its roof, floor or toposolid in a plan or the 3D view; a column attached stands on or under what it's attached
 to as a wall does (`walls::column_prisms`), and `Model::column_span` is what everything reads its heights from.
 
 The Measure tool in the 3D view (`measure_point`, `Orbit::chain`) measures a chain of points of the model, corners, edges, the middle

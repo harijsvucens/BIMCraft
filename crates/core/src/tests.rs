@@ -7644,6 +7644,31 @@ fn a_wall_stands_on_a_toposolid_and_keeps_under_its_underside() {
 }
 
 #[test]
+fn a_column_stands_on_a_toposolid_and_keeps_under_its_underside() {
+    let mut s = Session::new();
+    // A 10 x 10 m plot rising 1 m across it, 300 mm thick: its top is 0.1 x, its underside 300 mm under that.
+    let ground =
+        run(&mut s, "toposolid", json!({"boundary": plot(), "points": [[10000, 0, 1000], [10000, 10000, 1000]]}))["id"].as_u64().unwrap();
+    let at = crate::geom::P2(5000.0, 5000.0);
+    let column = run(&mut s, "column", json!({"at": [5000, 5000], "attach_base": ground}))["id"].as_u64().unwrap();
+    let plane_at = |s: &Session, low: bool| {
+        let e = s.model.elements.get(column).unwrap();
+        crate::walls::column_prisms(&s.model, e)
+            .into_iter()
+            .find(|p| crate::geom::contains(&p.ring, at))
+            .map(|p| if low { p.bottom.at(at) } else { p.top.at(at) })
+    };
+    // Its base stands on the ground: 500 mm up at the middle, where a level base would be the level's 0.
+    assert_eq!(plane_at(&s, true), Some(500.0));
+    // Its top attached, it keeps under the ground's underside: 300 mm under that surface.
+    run(&mut s, "modify", json!({"id": column, "attach_base": null, "attach_top": ground}));
+    assert_eq!(plane_at(&s, false), Some(200.0));
+    // A column is attached to a roof, a floor or a toposolid: another element is refused, and says so.
+    let e = s.execute("modify", &json!({"id": column, "attach_top": column})).unwrap_err();
+    assert!(e.contains("isn't a roof, a floor or a toposolid"), "{e}");
+}
+
+#[test]
 fn a_walls_base_follows_a_concave_plot_all_across_it() {
     let mut s = Session::new();
     // An L-shaped plot a metre over the level: its outline is concave, so its top's pieces must be cut into convex ones

@@ -88,9 +88,9 @@ The triangulation is the floor shape editor's (`triangulation::constrained`), no
 - **Split Element**: `split {id, line}` cuts it along a line across its outline into two, each with its type, level,
   contours and pattern frame and the elevation points on its side (a point on the cut goes to both); the first keeps
   its id and name, the second takes a free name.
-- **Walls on it**: `attach_top` and `attach_base` take a toposolid as they take a roof or a floor, so a wall's base may
-  stand on the terrain (its bottom follows the rise, bending where the top does) and its top keep under it; `modify`'s and
-  the desktop's Attach Top/Base both offer it.
+- **Walls and columns on it**: `attach_top` and `attach_base` take a toposolid as they take a roof or a floor, so a
+  wall's or a column's base may stand on the terrain (its bottom follows the rise, bending where the top does) and its top
+  keep under it; `modify`'s and the desktop's Attach Top/Base both offer it.
 - **IFC**: an `IfcSlab` with `.BASESLAB.`, a closed faceted Brep, in the level's storey, with `Qto_SlabBaseQuantities`:
   its `GrossArea` and `NetArea` over its top's slope, its plan area as `ProjectedArea` (a roof's quantities), and its
   `Width` the type's nominal thickness.

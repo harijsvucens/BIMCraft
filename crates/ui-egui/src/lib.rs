@@ -3114,8 +3114,8 @@ impl BimApp {
         self.selection.iter().copied().filter(can).collect()
     }
 
-    /// Attach Top/Base's pick, in a plan or the 3D view: the selected walls and columns onto roof or floor `id`, then Modify, them
-    /// still selected.
+    /// Attach Top/Base's pick, in a plan or the 3D view: the selected walls and columns onto the roof, floor or toposolid `id`,
+    /// then Modify, them still selected.
     pub(crate) fn attach_to(&mut self, id: Id) {
         let field = if self.attach_base { "attach_base" } else { "attach_top" };
         let mut p = json!({"ids": self.selected_attachable()});

@@ -874,7 +874,8 @@ other_files(
         &["CL"],
         "{at: [x,y], type?, angle?, level?, top_level?, top_offset?, height?, base_offset?, attach_top?, attach_base?} a column, \
          its width along `angle` degrees; up to the next level, or `height` mm tall, or up to `top_level` (`top_offset` mm above \
-         it). `attach_top`, `attach_base`: a roof or floor (id) its top follows from below, or its base stands on, as a wall's do",
+         it). `attach_top`, `attach_base`: a roof, a floor or a toposolid (id) its top follows from below, or its base stands \
+         on, as a wall's do",
         column,
     )
     .menu("Architecture > Column"),

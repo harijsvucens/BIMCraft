@@ -183,8 +183,8 @@ pub const MAX_SLOPE: f64 = 75.0;
 /// project parameters may be of kinds 19 doesn't know (`integer`, `area`, `volume`, `angle`), a type's (`scope`, `type_values`),
 /// from a `.bimparams` dictionary (`dictionaries`), grouped under a heading of the project's own, and the project's information
 /// is an element that title blocks read; a build that reads up to 19 would answer such a kind with a serde error. And a column
-/// holds a `top_offset` and the roof or floor its top and its base are attached to (`attach_top`, `attach_base`), as a wall's are;
-/// a build that reads up to 19 would leave them out of a file and stand the column at its own level, not "saved by a newer BIMCraft".
+/// holds a `top_offset` and the roof, floor or toposolid its top and its base are attached to (`attach_top`, `attach_base`), as
+/// a wall's are; a build that reads up to 19 would leave them out of a file and stand the column at its own level, not "saved by a newer BIMCraft".
 /// And a project has a Project Base Point, a Survey Point and named sites beside its georeference (`coordinates`), and a
 /// georeference needs no coordinate reference system (`crs` may be left out); a build that reads up to 19 would refuse such a
 /// georeference and lose where the project stands; and it would read spot coordinates (a spot's `coordinate`, `type`, `origin`,
@@ -1821,10 +1821,10 @@ pub struct Column {
     /// How far above `top_level` its top is.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub top_offset: f64,
-    /// The roof or floor its top follows from below, as a wall's; a footing has none.
+    /// The roof, floor or toposolid its top follows from below, as a wall's; a footing has none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attach_top: Option<Guid>,
-    /// The roof or floor its base stands on.
+    /// The roof, floor or toposolid its base stands on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attach_base: Option<Guid>,
     /// Its values of the project's parameters, by name.
@@ -8987,8 +8987,8 @@ impl Model {
                         if matches!(e, Element::Footing(_)) {
                             return Err(format!("{who}: a footing has no {what}"));
                         }
-                        if !matches!(self.elements.get(a), Some(Element::Roof(_) | Element::Floor(_))) {
-                            return Err(format!("{who}: {what} {} isn't a roof or a floor", self.shown(a)));
+                        if !matches!(self.elements.get(a), Some(Element::Roof(_) | Element::Floor(_) | Element::Toposolid(_))) {
+                            return Err(format!("{who}: {what} {} isn't a roof, a floor or a toposolid", self.shown(a)));
                         }
                     }
                 }
