@@ -93,7 +93,8 @@ The triangulation is the floor shape editor's (`triangulation::constrained`), no
   keep under it; `modify`'s and the desktop's Attach Top/Base both offer it.
 - **IFC**: an `IfcSlab` with `.BASESLAB.`, a closed faceted Brep, in the level's storey, with `Qto_SlabBaseQuantities`:
   its `GrossArea` and `NetArea` over its top's slope, its plan area as `ProjectedArea` (a roof's quantities), and its
-  `Width` the type's nominal thickness.
+  `Width` the type's nominal thickness. IFC4's slab set names no `ProjectedArea`; it is written as a roof's, and
+  IfcOpenShell reads it.
 - **File**: `FORMAT` 33 (0.12 reads a 20 file, and would answer a toposolid with a serde error rather than "saved by a newer BIMCraft"; 21 to 32 are the Family Editor's unreleased formats and are refused).
 - **Visibility/Graphics and Object Styles**: the `toposolid` category.
 
