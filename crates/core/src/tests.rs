@@ -7800,6 +7800,42 @@ fn a_toposolid_draws_its_boundary_and_contours_in_plan_and_its_solid_in_3d() {
 }
 
 #[test]
+fn a_plan_above_a_toposolid_draws_the_ground_beneath_it_and_a_plan_below_draws_none_of_it() {
+    let mut s = Session::new();
+    let id = run(&mut s, "toposolid", json!({"boundary": plot(), "points": [[0, 0, 2000]], "interval": 500}))["id"].as_u64().unwrap();
+    let view = crate::render::View { scale: 0.05, cx: 5000.0, cy: 5000.0, width: 1000, height: 1000, angle: 0.0 };
+    // Level 2 is 3000 up, so a depth of -1500 is 1500: under the peak (2000) and over the ground's lowest, so the plan draws
+    // the part of the top under it, as it would draw a floor there.
+    run(&mut s, "modify", json!({"id": 100001, "view_range": {"depth": -1500}}));
+    let above = crate::render::draw(&s.model, 100001, view);
+    assert!(above.owners.contains(&Some(id)), "a plan above the ground does not draw it");
+    // Its own level's plan draws it too, once. The count is the `t.level == level` guard's, not new coverage: it is the same
+    // 4 `a_toposolid_draws_its_boundary_and_contours_in_plan_and_its_solid_in_3d` asserts.
+    let own = crate::render::draw(&s.model, 100000, view);
+    assert_eq!(own.owners.iter().filter(|o| **o == Some(id)).count(), 4);
+    // A plan under it is cut below the ground: the ground is over the cut plane there, so it draws none of it.
+    let below = run(&mut s, "level", json!({"elevation": -4000, "name": "Basement"}))["id"].as_u64().unwrap();
+    assert!(!crate::render::draw(&s.model, below, view).owners.contains(&Some(id)));
+    // A pit is a toposolid whose whole top is under its own level: its level's plan still draws it, range or no range.
+    // The level is named because a toposolid with none goes on the lowest, which is the basement now.
+    let pit = run(
+        &mut s,
+        "toposolid",
+        json!({"level": 100000, "boundary": [[20000, 0], [30000, 0], [30000, 10000], [20000, 10000]],
+               "points": [[20000, 0, -1000], [30000, 0, -1000], [30000, 10000, -1000], [20000, 10000, -1000]]}),
+    )["id"]
+        .as_u64()
+        .unwrap();
+    assert!(crate::render::draw(&s.model, 100000, view).owners.contains(&Some(pit)), "its own plan does not draw a pit");
+    // A section through the ground cuts it, as it cuts a floor: its cut is a filled piece under its owner, not a projection.
+    let sec = run(&mut s, "section", json!({"start": [-1000, 5000], "end": [11000, 5000]}))["id"].as_u64().unwrap();
+    let fit = crate::render::section_fit(&s.model, sec, 1600, 1000);
+    let cut = crate::render::section(&s.model, sec, fit);
+    let cut_by_it = cut.parts.iter().zip(&cut.owners).any(|(part, o)| *o == Some(id) && *part == crate::render::Part::Cut);
+    assert!(cut_by_it, "a section does not cut the ground");
+}
+
+#[test]
 fn a_toposolid_goes_to_ifc_as_a_terrain_slab_and_comes_back_from_the_file() {
     let mut s = Session::new();
     run(&mut s, "toposolid", json!({"boundary": plot(), "points": [[0, 0, 2000]], "interval": 500}));

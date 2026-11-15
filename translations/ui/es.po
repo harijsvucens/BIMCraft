@@ -3604,7 +3604,7 @@ msgstr "Corta"
 msgid "Cylinder"
 msgstr "Cilindro"
 
-#: crates/core/src/render.rs:4676
+#: crates/core/src/render.rs:4683
 msgid "DN"
 msgstr "BAJA"
 
@@ -13889,7 +13889,7 @@ msgstr "Escriba dónde está el proyecto, o el nombre o código del sistema."
 msgid "Type:"
 msgstr "Tipo:"
 
-#: crates/core/src/render.rs:4676
+#: crates/core/src/render.rs:4683
 msgid "UP"
 msgstr "SUBE"
 

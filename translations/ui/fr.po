@@ -3604,7 +3604,7 @@ msgstr "Coupe"
 msgid "Cylinder"
 msgstr "Cylindre"
 
-#: crates/core/src/render.rs:4676
+#: crates/core/src/render.rs:4683
 msgid "DN"
 msgstr "DN"
 
@@ -13889,7 +13889,7 @@ msgstr ""
 msgid "Type:"
 msgstr "Type:"
 
-#: crates/core/src/render.rs:4676
+#: crates/core/src/render.rs:4683
 msgid "UP"
 msgstr "HAUT"
 

@@ -56,7 +56,7 @@ msgstr ""
 msgid "Ceiling Luminaire"
 msgstr ""
 
-#: crates/core/src/render.rs:3725
+#: crates/core/src/render.rs:3732
 msgid "Ceiling Plan"
 msgstr ""
 
@@ -111,7 +111,7 @@ msgstr ""
 msgid "Crosshatch"
 msgstr ""
 
-#: crates/core/src/render.rs:4676
+#: crates/core/src/render.rs:4683
 msgid "DN"
 msgstr ""
 
@@ -742,7 +742,7 @@ msgstr ""
 msgid "Type"
 msgstr ""
 
-#: crates/core/src/render.rs:4676
+#: crates/core/src/render.rs:4683
 msgid "UP"
 msgstr ""
 

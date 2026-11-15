@@ -3278,6 +3278,45 @@ fn draw_plan_among(m: &Model, key: Guid, view: View, up: bool, k: f32, n: f64, t
             slope_arrow(&mut d, tail, head, f.slope);
         }
     }
+    // A ground: its boundary, the lines where its top crosses each contour height, and its type's surface. Its own level's
+    // plan draws it even where all of it is below that level (a pit); another draws it where its range reaches it, as a
+    // floor's is drawn. Here, before the walls' and columns' poche, so its surface and its contours lie under them.
+    for (&id, e) in all().filter(|_| !up).filter(|(id, _)| shown(**id)) {
+        let Element::Toposolid(t) = e else { continue };
+        // A shaped top's range triangulates to answer it, as its drawing asks anyway; a cheap span over the shape's points
+        // would say the same if a plan that draws none of it ever pays too much for this.
+        let (lo, hi) = m.toposolid_range(t);
+        if t.level != level && !(lo <= range.cut && hi >= range.depth) {
+            continue;
+        }
+        d.owner = Some(id);
+        let material = m.type_layers("toposolid", &t.type_name).first().and_then(|l| m.materials.get(&l.material));
+        if d.detail == Detail::Fine
+            && let Some(x) = material
+        {
+            for (face, rise) in m.toposolid_slabs(t) {
+                for piece in m.less_shafts(&face, rise).0 {
+                    match x.surface_pattern.as_ref().and_then(|n| m.fill_patterns.get(n)) {
+                        Some(p) => fill_pattern(
+                            &mut d,
+                            p,
+                            std::slice::from_ref(&piece),
+                            std::slice::from_ref(&piece),
+                            FAINT,
+                            (t.pattern_origin, t.pattern_angle),
+                        ),
+                        None => surface(&mut d, &piece, x.surface, FAINT, (t.pattern_origin, t.pattern_angle)),
+                    }
+                }
+            }
+        }
+        d.line(&t.boundary, BY_CATEGORY, FAINT, true);
+        for (_, lines) in m.toposolid_contours(t) {
+            for (a, b) in lines {
+                d.line(&[a, b], Pen::PROJECTION, FAINT, false);
+            }
+        }
+    }
     if coloured {
         d.solid_fills_under(under);
     }
@@ -3555,36 +3594,6 @@ fn draw_plan_among(m: &Model, key: Guid, view: View, up: bool, k: f32, n: f64, t
             Element::Ramp(r) => ramp(&mut d, m, r, level),
             Element::Railing(rl) if m.level_of(e) == Some(level) => railing(&mut d, m, rl, range.cut),
             Element::PropertyLine(pl) if pl.level == level => property_outline(&mut d, pl),
-            // A toposolid: its boundary, the lines where its top crosses each contour height, and its type's surface.
-            Element::Toposolid(t) if t.level == level => {
-                d.owner = Some(id);
-                let material = m.type_layers("toposolid", &t.type_name).first().and_then(|l| m.materials.get(&l.material));
-                if d.detail == Detail::Fine
-                    && let Some(x) = material
-                {
-                    for (face, rise) in m.toposolid_slabs(t) {
-                        for piece in m.less_shafts(&face, rise).0 {
-                            match x.surface_pattern.as_ref().and_then(|n| m.fill_patterns.get(n)) {
-                                Some(p) => fill_pattern(
-                                    &mut d,
-                                    p,
-                                    std::slice::from_ref(&piece),
-                                    std::slice::from_ref(&piece),
-                                    FAINT,
-                                    (t.pattern_origin, t.pattern_angle),
-                                ),
-                                None => surface(&mut d, &piece, x.surface, FAINT, (t.pattern_origin, t.pattern_angle)),
-                            }
-                        }
-                    }
-                }
-                d.line(&t.boundary, BY_CATEGORY, FAINT, true);
-                for (_, lines) in m.toposolid_contours(t) {
-                    for (a, b) in lines {
-                        d.line(&[a, b], Pen::PROJECTION, FAINT, false);
-                    }
-                }
-            }
             // A room separation line: a thin line, on its own level's plan only.
             Element::RoomSeparator(rs) if rs.level == level => {
                 let pts = vec![d.view.px(rs.start), d.view.px(rs.end)];

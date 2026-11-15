@@ -3603,7 +3603,7 @@ msgstr "Schneidet"
 msgid "Cylinder"
 msgstr "Zylinder"
 
-#: crates/core/src/render.rs:4676
+#: crates/core/src/render.rs:4683
 msgid "DN"
 msgstr "DN"
 
@@ -13888,7 +13888,7 @@ msgstr ""
 msgid "Type:"
 msgstr "Typ:"
 
-#: crates/core/src/render.rs:4676
+#: crates/core/src/render.rs:4683
 msgid "UP"
 msgstr "OBEN"
 

@@ -56,7 +56,7 @@ msgstr ""
 msgid "Ceiling Luminaire"
 msgstr "Stropní svítidlo"
 
-#: crates/core/src/render.rs:3725
+#: crates/core/src/render.rs:3732
 msgid "Ceiling Plan"
 msgstr "Půdorys podhledu"
 
@@ -111,7 +111,7 @@ msgstr "Počet"
 msgid "Crosshatch"
 msgstr "Křížové šrafování"
 
-#: crates/core/src/render.rs:4676
+#: crates/core/src/render.rs:4683
 msgid "DN"
 msgstr "DOLŮ"
 
@@ -742,7 +742,7 @@ msgstr ""
 msgid "Type"
 msgstr "Typ"
 
-#: crates/core/src/render.rs:4676
+#: crates/core/src/render.rs:4683
 msgid "UP"
 msgstr "NAHORU"
 

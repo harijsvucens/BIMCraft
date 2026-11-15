@@ -3604,7 +3604,7 @@ msgstr "剪切"
 msgid "Cylinder"
 msgstr "圓柱體"
 
-#: crates/core/src/render.rs:4676
+#: crates/core/src/render.rs:4683
 msgid "DN"
 msgstr "下"
 
@@ -13889,7 +13889,7 @@ msgstr ""
 msgid "Type:"
 msgstr "類型："
 
-#: crates/core/src/render.rs:4676
+#: crates/core/src/render.rs:4683
 msgid "UP"
 msgstr "上"
 

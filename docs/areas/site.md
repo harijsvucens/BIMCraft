@@ -70,10 +70,13 @@ The triangulation is the floor shape editor's (`triangulation::constrained`), no
 
 ## Where it shows
 
-- **Plans**, on its own level: its boundary, its contour lines at `interval`, and its type's top material's surface pattern —
-  a named fill pattern or a built-in one — laid over the whole top in one frame, from `pattern_origin` and turned by
-  `pattern_angle` (degrees counter-clockwise), so the pattern runs unbroken over a fold. `contours {id}` gives the lines as
-  data.
+- **Plans**, on its own level (always, even where all of it is below that level, as a pit) and on any other plan
+  whose view range reaches it, as a floor is drawn: its boundary, its contour lines at `interval`, and its type's top
+  material's surface pattern — a named fill pattern or a built-in one — laid over the whole top in one frame, from
+  `pattern_origin` and turned by `pattern_angle` (degrees counter-clockwise), so the pattern runs unbroken over a fold.
+  `contours {id}` gives the lines as data. Its boundary sizes its own level's crop, as a floor's does; another plan's crop
+  does not grow to the ground under it.
+- **Sections**: cut as a floor is, its cut filled as the view fills a cut (pochè, or the view's cut fill).
 - **3D**: its top's pieces, each a slab down to the plane under it - under a variable layer, a prism from its level base
   up - and its type's finish material's texture, on the plan's axes turned by the same angle from the same origin: a
   paving meets itself at a fold, and turns as the plan's pattern does.
@@ -105,8 +108,7 @@ The triangulation is the floor shape editor's (`triangulation::constrained`), no
   corner to hold it), and a point off the cut is not shared, so each piece's top is its own ground and the seam can
   step - cutting the line and pinning the cut's profile is the next slice. The desktop's Split tool clicks a wall or a
   line (point-based), so a toposolid is cut by the command.
-- **Everywhere but its own plan**: only that level's plan draws it; another plan, or a section, does not, and its
-  contours are drawn in plan only, not in 3D.
+- **Contours in 3D**: its contours are drawn in plan only, not in 3D.
 - **Smooth shading**: a shaped top is drawn faceted; there is no `Toposolid Smooth Shading` toggle.
 - **A V/G surface-pattern override**: a view's override reaches a floor's top, not yet a toposolid's.
 - **Sub-Divide**: a sub-area with its own offset, material and inherit-contours.
