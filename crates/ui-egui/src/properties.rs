@@ -1005,6 +1005,8 @@ pub(crate) struct TypeDialog {
     shape: Option<(bool, String)>,
     /// A room type's own: its rooms' floor and ceiling, and their colour on plans.
     pub(crate) room: Option<RoomRows>,
+    /// A toposolid type's own: the interval between its contour lines and between the heavier ones.
+    pub(crate) contour: Option<ContourRows>,
     /// The type's values of the project's type parameters, as typed.
     project: Vec<TypeValue>,
 }
@@ -1102,6 +1104,39 @@ impl RoomRows {
 /// The groups a room type's parameters are under.
 const ROOM_FINISHES: &str = msg!("Floor and Ceiling");
 const GRAPHICS: &str = msg!("Graphics");
+/// The group a toposolid type's contours are under.
+const CONTOUR_DISPLAY: &str = msg!("Contour Display");
+
+/// A toposolid type's contour display, as typed: the mm between its contour lines and between the heavier ones, in the
+/// project's units.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct ContourRows {
+    pub(crate) interval: String,
+    pub(crate) major: String,
+}
+
+impl ContourRows {
+    fn new(m: &Model, name: &str) -> ContourRows {
+        let c = m.types.toposolid.get(name).map(|t| t.contours.clone()).unwrap_or_default();
+        ContourRows { interval: m.units.length(c.interval), major: m.units.length(c.major) }
+    }
+
+    /// Its rows in the table, under `group`: how plans draw its toposolids' contours.
+    fn rows(&mut self, tb: &mut typeprops::Table, group: &str, m: &Model) {
+        if group == CONTOUR_DISPLAY {
+            tb.text(t("Contour Interval"), &mut self.interval, m.units.name());
+            tb.text(t("Major Contour Interval"), &mut self.major, m.units.name());
+        }
+    }
+
+    /// What the `type` command is given for them, or why one isn't a length.
+    fn params(&self, p: &mut Value, units: Units) -> Result<(), String> {
+        let length = |label: &str, typed: &str| units.parse(typed).ok_or_else(|| tf("{}: `{}` is not a length", &[t(label), typed]));
+        let (interval, major) = (length("Contour Interval", &self.interval)?, length("Major Contour Interval", &self.major)?);
+        p["contours"] = json!({"interval": interval, "major": major});
+        Ok(())
+    }
+}
 
 impl TypeDialog {
     pub(crate) fn new(m: &Model, category: &'static str, name: String, elements: Vec<Id>) -> TypeDialog {
@@ -1123,6 +1158,7 @@ impl TypeDialog {
             layers,
             shape,
             room: (category == "room").then(|| RoomRows::new(m, &name_of)),
+            contour: (category == "toposolid").then(|| ContourRows::new(m, &name_of)),
             project,
         }
     }
@@ -1176,6 +1212,9 @@ impl TypeDialog {
         }
         if let Some(room) = &self.room {
             room.params(&mut p, units)?;
+        }
+        if let Some(contour) = &self.contour {
+            contour.params(&mut p, units)?;
         }
         Ok(p)
     }
@@ -2794,6 +2833,7 @@ impl BimApp {
                     (d.shape.is_some(), msg!("Materials and Finishes")),
                     (d.room.is_some(), ROOM_FINISHES),
                     (d.room.is_some(), GRAPHICS),
+                    (d.contour.is_some(), CONTOUR_DISPLAY),
                 ];
                 for g in d.fields.iter().map(|f| f.0).chain(extra.iter().filter(|(on, _)| *on).map(|(_, g)| *g)) {
                     if !groups.contains(&g) {
@@ -2817,6 +2857,9 @@ impl BimApp {
                         }
                         if let Some(room) = &mut d.room {
                             room.rows(tb, g, &model);
+                        }
+                        if let Some(contour) = &mut d.contour {
+                            contour.rows(tb, g, &model);
                         }
                         if g == "Construction" && layered {
                             let (out, inward) = if d.category == "wall" { (msg!("Out"), msg!("In")) } else { ("Up", "Down") };

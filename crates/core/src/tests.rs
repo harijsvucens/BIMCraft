@@ -2403,6 +2403,8 @@ fn hostile_params_never_panic_or_break_the_model() {
         json!({"category": "floor", "name": "F", "layers": [{"thickness": 1e300, "material": "Concrete"}]}),
         json!({"category": "roof", "name": "R", "layers": [{"thickness": 0, "function": "membrane"}]}),
         json!({"category": "ceiling", "name": "C", "layers": "x", "grid": -5}),
+        json!({"category": "toposolid", "name": "T", "thickness": 300, "contours": {"interval": 1e300, "major": -5}}),
+        json!({"category": "toposolid", "name": "T", "thickness": 300, "contours": "x"}),
         json!({"ids": [100002, 100003], "arc": 1e300}),
         json!({"id": 100002, "location": "exterior-core", "arc": 179.99}),
         json!({"id": 100002, "attach_top": 100002}),
@@ -7502,7 +7504,8 @@ fn a_toposolid_point_is_in_project_coordinates_over_its_level() {
 #[test]
 fn contours_cut_a_toposolid_at_each_interval() {
     let mut s = Session::new();
-    let id = run(&mut s, "toposolid", json!({"boundary": plot(), "points": [[0, 0, 2000]], "interval": 500}))["id"].clone();
+    run(&mut s, "type", json!({"category": "toposolid", "name": "Survey", "thickness": 300, "contours": {"interval": 500}}));
+    let id = run(&mut s, "toposolid", json!({"boundary": plot(), "points": [[0, 0, 2000]], "type": "Survey"}))["id"].clone();
     // Its top rises from its lowest to its highest by 2 m: a line at 500, 1000 and 1500, one cut through its one raised half.
     let c = run(&mut s, "contours", json!({"id": id}));
     let levels: Vec<(f64, usize)> =
@@ -7511,9 +7514,134 @@ fn contours_cut_a_toposolid_at_each_interval() {
 }
 
 #[test]
+fn a_toposolids_contours_come_from_its_type_and_the_major_ones_are_named() {
+    let mut s = Session::new();
+    // A type of its own: a line every 500 mm, and a major one every 1000.
+    run(&mut s, "type", json!({"category": "toposolid", "name": "Survey", "thickness": 300, "contours": {"interval": 500, "major": 1000}}));
+    let make = |s: &mut Session| {
+        run(s, "toposolid", json!({"boundary": plot(), "points": [[0, 0, 2000]], "type": "Survey"}))["id"].as_u64().unwrap_or_default()
+    };
+    let (west, east) = (make(&mut s), make(&mut s));
+    let levels = |s: &mut Session, id: u64| -> (f64, f64, Vec<(f64, bool)>) {
+        let c = run(s, "contours", json!({"id": id}));
+        let levels = c["levels"].as_array().unwrap().iter().map(|l| (l["z"].as_f64().unwrap(), l["major"].as_bool().unwrap())).collect();
+        (c["interval"].as_f64().unwrap(), c["major"].as_f64().unwrap(), levels)
+    };
+    assert_eq!(
+        levels(&mut s, west),
+        (500.0, 1000.0, vec![(500.0, false), (1000.0, true), (1500.0, false)]),
+        "the type's interval, and which lines are major"
+    );
+    // Its element shows the interval it is drawn at, and the type is what owns it: change the type and every
+    // toposolid of it follows.
+    assert_eq!(run(&mut s, "elements", json!({"category": "toposolid"}))["elements"][0]["interval"], json!(500.0));
+    run(&mut s, "type", json!({"category": "toposolid", "name": "Survey", "thickness": 300, "contours": {"interval": 250, "major": 0}}));
+    for id in [west, east] {
+        let (interval, major, levels) = levels(&mut s, id);
+        assert_eq!((interval, major), (250.0, 0.0));
+        assert_eq!(
+            levels.iter().map(|(z, major)| (*z, *major)).collect::<Vec<_>>(),
+            [(250.0, false), (500.0, false), (750.0, false), (1000.0, false), (1250.0, false), (1500.0, false), (1750.0, false)]
+        );
+    }
+    // A type keeps the contours it has while it is changed for its layers, and 0 draws none.
+    run(&mut s, "type", json!({"category": "toposolid", "name": "Survey", "thickness": 400}));
+    assert_eq!(s.model.types.toposolid["Survey"].contours.interval, 250.0);
+    run(&mut s, "type", json!({"category": "toposolid", "name": "Survey", "thickness": 300, "contours": {"interval": 0}}));
+    assert!(levels(&mut s, west).2.is_empty(), "no interval, no contours");
+}
+
+#[test]
+fn a_toposolid_types_contours_are_checked() {
+    let mut s = Session::new();
+    let e =
+        s.execute("type", &json!({"category": "toposolid", "name": "Fine", "thickness": 300, "contours": {"interval": 5.0}})).unwrap_err();
+    assert!(e.contains("at least 10 mm"), "{e}");
+    // A major interval that no contour line falls on would draw nothing heavier: refused rather than ignored.
+    let e = s
+        .execute(
+            "type",
+            &json!({"category": "toposolid", "name": "Fine", "thickness": 300, "contours": {"interval": 2000.0, "major": 500.0}}),
+        )
+        .unwrap_err();
+    assert!(e.contains("major contour interval"), "{e}");
+    let e = s
+        .execute(
+            "type",
+            &json!({"category": "toposolid", "name": "Fine", "thickness": 300, "contours": {"interval": 1000.0, "major": 1500.0}}),
+        )
+        .unwrap_err();
+    assert!(e.contains("major contour interval"), "{e}");
+    // A major is a positive number of intervals: one below zero is refused, not ignored.
+    let e = s
+        .execute(
+            "type",
+            &json!({"category": "toposolid", "name": "Fine", "thickness": 300, "contours": {"interval": 1000.0, "major": -1000.0}}),
+        )
+        .unwrap_err();
+    assert!(e.contains("major contour interval"), "{e}");
+    assert!(!s.model.types.toposolid.contains_key("Fine"), "a refused type is not made");
+    // 0 for the interval means no contour lines at all, so the major goes with it rather than being refused.
+    run(&mut s, "type", json!({"category": "toposolid", "name": "Fine", "thickness": 300, "contours": {"interval": 1000.0, "major": 5000.0}}));
+    run(&mut s, "type", json!({"category": "toposolid", "name": "Fine", "contours": {"interval": 0.0}}));
+    let c = &s.model.types.toposolid["Fine"].contours;
+    assert_eq!((c.interval, c.major), (0.0, 0.0));
+}
+
+#[test]
+fn a_toposolids_major_contours_are_drawn_heavier_in_plan() {
+    let mut s = Session::new();
+    run(&mut s, "type", json!({"category": "toposolid", "name": "Survey", "thickness": 300, "contours": {"interval": 500, "major": 1000}}));
+    let id = run(&mut s, "toposolid", json!({"boundary": plot(), "points": [[0, 0, 2000]], "type": "Survey"}))["id"]
+        .as_u64()
+        .unwrap_or_default();
+    let view = crate::render::View { scale: 0.05, cx: 5000.0, cy: 5000.0, width: 1000, height: 1000, angle: 0.0 };
+    let d = crate::render::draw(&s.model, 100000, view);
+    let mut widths: Vec<f32> = d
+        .prims
+        .iter()
+        .zip(&d.owners)
+        .filter(|(_, o)| **o == Some(id))
+        .filter_map(|(p, _)| match p {
+            crate::render::Prim::Line { pts, width, .. } if pts.len() == 2 => Some(*width),
+            _ => None,
+        })
+        .collect();
+    widths.sort_by(f32::total_cmp);
+    // A line at 500, 1000 and 1500, the one at 1000 heavier than the two either side of it.
+    assert_eq!(widths.len(), 3, "{widths:?}");
+    assert!(widths[0] == widths[1] && widths[1] < widths[2], "the major contour is not the heavier line: {widths:?}");
+}
+
+#[test]
+fn a_file_with_the_elements_old_interval_opens_with_its_types_contours() {
+    let mut s = Session::new();
+    run(&mut s, "toposolid", json!({"boundary": plot(), "points": [[0, 0, 2000]]}));
+    let mut was: serde_json::Value = serde_json::from_str(&serde_json::to_string(&*s.model).unwrap()).unwrap();
+    // As the builds before this one wrote it: the interval on the element, and none on its type.
+    for e in was["elements"].as_object_mut().unwrap().values_mut() {
+        if e["category"] == json!("toposolid") {
+            e["interval"] = json!(250.0);
+        }
+    }
+    let (m, left_out) = Model::read(&serde_json::to_string(&was).unwrap()).unwrap();
+    assert!(left_out.iter().any(|p| p.ends_with("/interval")), "the field is named: {left_out:?}");
+    let t = m
+        .elements
+        .values()
+        .find_map(|e| match e {
+            crate::model::Element::Toposolid(t) => Some(t),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(m.toposolid_contour(t).interval, 1000.0, "the type's, which has none of its own");
+}
+
+#[test]
 fn a_toposolid_draws_its_boundary_and_contours_in_plan_and_its_solid_in_3d() {
     let mut s = Session::new();
-    let id = run(&mut s, "toposolid", json!({"boundary": plot(), "points": [[0, 0, 2000]], "interval": 500}))["id"].as_u64().unwrap();
+    run(&mut s, "type", json!({"category": "toposolid", "name": "Survey", "thickness": 300, "contours": {"interval": 500}}));
+    let id = run(&mut s, "toposolid", json!({"boundary": plot(), "points": [[0, 0, 2000]], "type": "Survey"}))["id"].as_u64().unwrap();
     let view = crate::render::View { scale: 0.05, cx: 5000.0, cy: 5000.0, width: 1000, height: 1000, angle: 0.0 };
     let d = crate::render::draw(&s.model, 100000, view);
     let mine: Vec<&crate::render::Prim> = d.prims.iter().zip(&d.owners).filter(|(_, o)| **o == Some(id)).map(|(p, _)| p).collect();
@@ -7539,7 +7667,8 @@ fn a_toposolid_draws_its_boundary_and_contours_in_plan_and_its_solid_in_3d() {
 #[test]
 fn a_toposolid_goes_to_ifc_as_a_terrain_slab_and_comes_back_from_the_file() {
     let mut s = Session::new();
-    run(&mut s, "toposolid", json!({"boundary": plot(), "points": [[0, 0, 2000]], "interval": 500}));
+    run(&mut s, "type", json!({"category": "toposolid", "name": "Survey", "thickness": 300, "contours": {"interval": 500, "major": 1000}}));
+    run(&mut s, "toposolid", json!({"boundary": plot(), "points": [[0, 0, 2000]], "type": "Survey"}));
     // IFC: one terrain slab, its top a closed Brep, its quantities under the slab's.
     let ifc = crate::ifc::export(&s.model);
     assert_eq!(ifc.lines().filter(|l| l.contains("=IFCSLAB(")).count(), 1);
@@ -7555,7 +7684,10 @@ fn a_toposolid_goes_to_ifc_as_a_terrain_slab_and_comes_back_from_the_file() {
         crate::model::Element::Toposolid(t) => Some(t),
         _ => None,
     });
-    assert_eq!(t.map(|t| (t.shape.points.len(), t.interval)), Some((1, 500.0)));
+    assert_eq!(t.map(|t| t.shape.points.len()), Some(1));
     assert_eq!(t.map(|t| m.toposolid_thickness(t)), Some(300.0), "its type's thickness, kept as the type");
     assert_eq!(m.types.toposolid["Generic - 300mm"].thickness, 300.0);
+    // Its type's contours too: they are the type's, so the element keeps none of its own.
+    let c = &m.types.toposolid["Survey"].contours;
+    assert_eq!((c.interval, c.major), (500.0, 1000.0));
 }

@@ -23,12 +23,12 @@ use crate::lines::{DetailLine, LineStyle};
 use crate::massing;
 use crate::memory;
 use crate::model::{
-    CEILING_HEIGHT, CadImport, Ceiling, CeilingType, Column, ColumnType, Component, DEFAULT_HEIGHT, DimKind, Dimension, Dimension3D,
-    Element, End, Extrusion, Face, Facing, Floor, FloorType, Grid, Guid, HostRef, Hosted, Id, Key, Landing, Layer, Level, Line, Location,
-    MAX_COORD, MAX_POINTS, MAX_SLOPE, MAX_TEXT, Mass, Model, Note, Opening, OpeningType, Orient, PARAMETER_CATEGORIES, ParameterKind,
-    Pattern, Perspective, PlanView, PointCloud, ProjectParameter, PropertyLine, RAMP_SLOPE, RAMP_WIDTH, RISER, Railing, RailingType, Ramp,
-    Rebar, Ref3, Reference, Roof, RoofType, Room, RoomArea, RoomSeparator, STAIR_WIDTH, Schedule, Scope, Section, SectionBox, Shaft, Sheet,
-    Side, Spot, Stair, TOL, TREAD, Tag, Toposolid, Unbound, View3D, Viewport, Wall, WallType, heading, paper,
+    CEILING_HEIGHT, CadImport, Ceiling, CeilingType, Column, ColumnType, Component, Contour, DEFAULT_HEIGHT, DimKind, Dimension,
+    Dimension3D, Element, End, Extrusion, Face, Facing, Floor, FloorType, Grid, Guid, HostRef, Hosted, Id, Key, Landing, Layer, Level,
+    Line, Location, MAX_COORD, MAX_POINTS, MAX_SLOPE, MAX_TEXT, Mass, Model, Note, Opening, OpeningType, Orient, PARAMETER_CATEGORIES,
+    ParameterKind, Pattern, Perspective, PlanView, PointCloud, ProjectParameter, PropertyLine, RAMP_SLOPE, RAMP_WIDTH, RISER, Railing,
+    RailingType, Ramp, Rebar, Ref3, Reference, Roof, RoofType, Room, RoomArea, RoomSeparator, STAIR_WIDTH, Schedule, Scope, Section,
+    SectionBox, Shaft, Sheet, Side, Spot, Stair, TOL, TREAD, Tag, Toposolid, Unbound, View3D, Viewport, Wall, WallType, heading, paper,
 };
 use crate::paint;
 use crate::phasing;
@@ -630,22 +630,22 @@ other_files(
         ui_msg!("Toposolid"),
         // No `TS` until the Massing tab's Toposolid tool lands: a shortcut the keyboard lists has to do something.
         &[],
-        "{type?, boundary?: [[x,y],…], sketch?: […], points?: [[x,y,z],…], level?, offset?, interval?, name?} a solid \
+        "{type?, boundary?: [[x,y],…], sketch?: […], points?: [[x,y,z],…], level?, offset?, name?} a solid \
          topographic element (Revit's Toposolid): its boundary in plan, as `sketch` (the Editor's lines, solved into one \
          ring as a floor's are) or `boundary`, its `type` (the layers it is made of, and so how thick it is), \
          its top `offset` mm over its level (0). `points` are survey points, their z in project coordinates, stored above \
          the flat top; the top is shaped by them and by split lines as a floor's, so `add_point`, `edit_shape`, \
-         `add_split_line` and `reset_shape` take it. `interval` is the mm between the contour lines plans draw (1000; 0 \
-         for none). Its type's top material's surface pattern lies over the whole top from `pattern_origin` and turned by \
+         `add_split_line` and `reset_shape` take it. Its contours are its type's (`type`, `contours`). Its type's top \
+         material's surface pattern lies over the whole top from `pattern_origin` and turned by \
          `pattern_angle`, as a floor's (`modify` sets both). Returns id, name, area_m2, volume_m3, thickness, top and bottom",
         toposolid,
     ),
     other(
         "contours",
         "Contours",
-        "{id} a toposolid's contour lines: at each multiple of its `interval` between its top's lowest and highest, the \
-         segments where its top crosses that height (mm, in the project's z). Returns `levels`, each with its `z` and its \
-         `lines` [[x,y],[x,y]]",
+        "{id} a toposolid's contour lines: at each multiple of its type's `interval` between its top's lowest and highest, \
+         the segments where its top crosses that height (mm, in the project's z). Returns `interval` and `major`, then \
+         `levels`, each with its `z`, whether it is a `major` contour, and its `lines` [[x,y],[x,y]]",
         contours,
     ),
     edit(
@@ -1406,7 +1406,9 @@ other_files(
          have `grid`: its square tiles' width, mm, which reflected ceiling plans draw (0, none); a railing type, `height` (its \
          rail over what it runs along) and `spacing` (its balusters' centres, 0 for none). Floor, roof, ceiling and toposolid \
          types may have `layers` too, from the top down; a layer's `material` is one of the library's (see `material`). A \
-         toposolid type's `thickness` is how thick its toposolids are (Revit's Default Thickness)",
+         toposolid type's `thickness` is how thick its toposolids are (Revit's Default Thickness), and its `contours` \
+         ({interval, major}, mm) is where plans draw their contour lines: a line every `interval` mm (1000; 0 for none) and \
+         a heavier one every `major` mm (0, none), a multiple of `interval`",
         edit_type,
     ),
     edit_files(
@@ -3463,7 +3465,7 @@ pub fn element_json_with(m: &Model, id: Id, rooms: &crate::rooms::Rooms) -> Valu
             extra.insert("top".into(), json!([hundredth(lo), hundredth(hi)]));
             extra.insert("bottom".into(), json!([hundredth(lo - thickness), hundredth(hi - thickness)]));
             extra.insert("thickness".into(), json!(thickness));
-            extra.insert("interval".into(), json!(t.interval));
+            extra.insert("interval".into(), json!(m.toposolid_contour(t).interval));
             // Where its top's model pattern starts and how far it's turned: shown at their defaults too, to be set by modify.
             extra.insert("pattern_origin".into(), json!(t.pattern_origin));
             extra.insert("pattern_angle".into(), json!(t.pattern_angle));
@@ -8739,7 +8741,7 @@ fn property_line(s: &mut Session, p: &Value) -> R {
 
 fn toposolid(s: &mut Session, p: &Value) -> R {
     let c = "toposolid";
-    only(c, p, &["type", "boundary", "sketch", "points", "level", "offset", "interval", "name"])?;
+    only(c, p, &["type", "boundary", "sketch", "points", "level", "offset", "name"])?;
     let m = &s.model;
     let level = level_param(c, m, p, "level")?;
     let type_name = type_param(c, p, m, "toposolid")?;
@@ -8753,7 +8755,6 @@ fn toposolid(s: &mut Session, p: &Value) -> R {
         boundary.reverse();
     }
     let offset = num(c, p, "offset")?.unwrap_or(0.0);
-    let interval = num(c, p, "interval")?.unwrap_or(1000.0);
     let base = m.elevation(level) + offset;
     // Survey points, their z in project coordinates: kept above the flat top, as a floor's shape points are.
     let survey = if absent(p.get("points")) { Vec::new() } else { points3(c, p, "points")? };
@@ -8781,7 +8782,6 @@ fn toposolid(s: &mut Session, p: &Value) -> R {
         boundary,
         offset,
         shape: crate::model::Shape { points, lines: Vec::new() },
-        interval,
         pattern_origin: P2(0.0, 0.0),
         pattern_angle: 0.0,
         name: name.clone(),
@@ -8813,13 +8813,19 @@ fn contours(s: &mut Session, p: &Value) -> R {
     let Some(Element::Toposolid(t)) = s.model.elements.get(id) else {
         return Err(bad(c, format!("{id} is not a toposolid")));
     };
+    let contour = s.model.toposolid_contour(t);
     let levels: Vec<Value> = s
         .model
         .toposolid_contours(t)
         .into_iter()
-        .map(|(z, lines)| json!({"z": hundredth(z), "lines": lines.iter().map(|(a, b)| json!([a, b])).collect::<Vec<_>>()}))
+        .map(|c| {
+            json!({
+                "z": hundredth(c.z), "major": c.major,
+                "lines": c.segments.iter().map(|(a, b)| json!([a, b])).collect::<Vec<_>>()
+            })
+        })
         .collect();
-    Ok(json!({"id": id, "interval": t.interval, "levels": levels}))
+    Ok(json!({"id": id, "interval": contour.interval, "major": contour.major, "levels": levels}))
 }
 
 fn room_separator(s: &mut Session, p: &Value) -> R {
@@ -15869,14 +15875,15 @@ fn edit_type(s: &mut Session, p: &Value) -> R {
         "floor" => {
             let (thickness, layers) =
                 layered(c, p, m.types.floor.get(&name).map(|t| (t.thickness, t.layers.as_slice())), thickness, &need)?;
-            let t = FloorType { thickness, layers };
+            let t = FloorType { thickness, layers, ..Default::default() };
             m.types.floor.insert(name.clone(), t.clone());
             json!(t)
         }
         "toposolid" => {
             let (thickness, layers) =
                 layered(c, p, m.types.toposolid.get(&name).map(|t| (t.thickness, t.layers.as_slice())), thickness, &need)?;
-            let t = FloorType { thickness, layers };
+            let contours = contours_of(c, p, m.types.toposolid.get(&name).map(|t| &t.contours))?;
+            let t = FloorType { thickness, layers, contours };
             m.types.toposolid.insert(name.clone(), t.clone());
             json!(t)
         }
@@ -16137,6 +16144,26 @@ fn steel(c: &str, p: &Value, cat: &str, old: Option<&crate::model::Profile>) -> 
             Steel::Unsaid(Some(profile))
         }
     })
+}
+
+/// A toposolid type's `contours` ({interval, major}, mm) from `type`'s params: what is given, the type's for what is
+/// left out, and a new type's for a type that has none.
+fn contours_of(c: &str, p: &Value, old: Option<&Contour>) -> Result<Contour, String> {
+    let mut contours = old.cloned().unwrap_or_default();
+    let Some(v) = p.get("contours") else { return Ok(contours) };
+    let given: Contour = serde_json::from_value(v.clone())
+        .map_err(|e| bad(c, format!("`contours` is {{interval, major}}, the mm between its contour lines: {e}")))?;
+    if v.get("interval").is_some() {
+        contours.interval = given.interval;
+    }
+    if v.get("major").is_some() {
+        contours.major = given.major;
+    }
+    // No contour lines at all, none of them heavier: 0 for the interval clears the major with it.
+    if contours.interval <= 0.0 {
+        contours.major = 0.0;
+    }
+    Ok(contours)
 }
 
 /// A layered type's thickness and layers from `type`'s params, over the one named that way already

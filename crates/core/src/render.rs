@@ -3579,9 +3579,11 @@ fn draw_plan_among(m: &Model, key: Guid, view: View, up: bool, k: f32, n: f64, t
                     }
                 }
                 d.line(&t.boundary, BY_CATEGORY, FAINT, true);
-                for (_, lines) in m.toposolid_contours(t) {
-                    for (a, b) in lines {
-                        d.line(&[a, b], Pen::PROJECTION, FAINT, false);
+                for c in m.toposolid_contours(t) {
+                    // A major contour, every `major` mm of its type, is drawn heavier, as Revit's is.
+                    let pen = if c.major { Pen::MEDIUM } else { Pen::PROJECTION };
+                    for (a, b) in c.segments {
+                        d.line(&[a, b], pen, FAINT, false);
                     }
                 }
             }

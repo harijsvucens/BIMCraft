@@ -2317,7 +2317,7 @@ pub(crate) fn from_step(file: File, name: &str, seed: u64, budget: &Budget) -> R
                 &mut m.types.floor,
                 &base,
                 |k| (k.thickness - t).abs() < 0.05 && k.layers == layers,
-                FloorType { thickness: t, layers: layers.clone() },
+                FloorType { thickness: t, layers: layers.clone(), ..Default::default() },
             );
             let level = level_near(high).unwrap_or_else(|| level_for(id, high));
             let shape = crate::model::Shape {
@@ -2384,7 +2384,7 @@ pub(crate) fn from_step(file: File, name: &str, seed: u64, budget: &Budget) -> R
             &mut m.types.floor,
             &base,
             |k| (k.thickness - t).abs() < 0.05 && k.layers == layers,
-            FloorType { thickness: t, layers: layers.clone() },
+            FloorType { thickness: t, layers: layers.clone(), ..Default::default() },
         );
         let z = top.at(tail);
         let level = level_near(z).unwrap_or_else(|| level_for(id, z));

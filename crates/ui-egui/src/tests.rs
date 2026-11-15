@@ -4093,6 +4093,22 @@ fn a_floor_types_layers_go_from_its_top_down() {
 }
 
 #[test]
+fn a_toposolid_types_contours_are_set_in_type_properties() {
+    let mut h = app(r#"toposolid {"boundary": [[0,0],[10000,0],[10000,10000],[0,10000]], "points": [[0,0,2000]]}"#);
+    press(&mut h, "Default 3D View");
+    topmost(&mut h, "Modify");
+    let at = h.state().screen3([5000.0, 5000.0, 0.0]);
+    click_at(&mut h, at);
+    press(&mut h, "Edit Type");
+    // A line every 500 mm and a heavier one every 1000: the type's, so every toposolid of it is drawn that way.
+    type_into(&mut h, "Contour Interval", "500");
+    type_into(&mut h, "Major Contour Interval", "1000");
+    press(&mut h, "OK");
+    let c = &h.state().session.model.types.toposolid["Generic - 300mm"].contours;
+    assert_eq!((c.interval, c.major), (500.0, 1000.0));
+}
+
+#[test]
 fn a_multi_category_schedule_is_made_from_the_new_schedule_dialog_and_lists_walls_and_doors() {
     let mut h = app_at(&format!("{BOX}\ndoor {{\"at\": [2000, 0]}}"), 0.05);
     press(&mut h, "View");

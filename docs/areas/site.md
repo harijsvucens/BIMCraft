@@ -8,17 +8,23 @@ by elevation points and split lines. The element is `Toposolid` (`model.rs`); th
 
 `Toposolid`: `type` (its type's name: what it is made of, see below), `level`, `boundary` (a simple ring in plan,
 counter-clockwise; concave fine), `offset` (its flat top's height over the level), `shape` (points and split lines on its top,
-a floor's `Shape`), `interval` (the mm between the contour lines plans draw; 1000, 0 for none), a `name` and `params` (phases,
-design options, project parameters).
+a floor's `Shape`), a `name` and `params` (phases, design options, project parameters). Its contour lines are its type's.
 
 ## The type: what it is made of
 
-A toposolid type (`Model::types.toposolid`, a `FloorType`: `thickness` and `layers`) is a compound structure like a floor's,
-from the top down: each layer a `function`, a `material` and a `thickness`. Its thickness is its layers' total, Revit's
-**Default Thickness**, and that is how thick every toposolid of the type is: the instance's Thickness is read-only. The
-project starts with `Generic - 300mm`, so a toposolid is 300 mm thick until its type says otherwise; `type {category:
-toposolid, name, thickness? | layers?}` makes or changes one, and every toposolid of it follows. `Model::migrate` gives a file
-from before `FORMAT` 33 that type.
+A toposolid type (`Model::types.toposolid`, a `FloorType`: `thickness`, `layers` and `contours`) is a compound structure like
+a floor's, from the top down: each layer a `function`, a `material` and a `thickness`. Its thickness is its layers' total,
+Revit's **Default Thickness**, and that is how thick every toposolid of the type is: the instance's Thickness is read-only.
+The project starts with `Generic - 300mm`, so a toposolid is 300 mm thick until its type says otherwise; `type {category:
+toposolid, name, thickness? | layers?, contours?}` makes or changes one, and every toposolid of it follows. `Model::migrate`
+gives a file from before `FORMAT` 33 that type.
+
+`contours` (`Contour`: `interval`, `major`, mm) is Revit's **Contour Display** on the type: a line every `interval` mm
+(1000; 0 for none) and a heavier one every `major` mm (0, none), which must be a multiple of `interval` and is refused
+otherwise, since no line of the interval would fall on it. Plans draw the major ones with `Pen::MEDIUM` and the rest with
+`Pen::PROJECTION`, and `contours {id}` says which each level is. The type is what owns them, so changing one moves every
+toposolid of it; a type keeps its contours while it is changed for its layers, and the desktop's Type Properties has the
+two rows under **Contour Display**.
 
 A point's `z` is above the flat top, as a floor's shape points are. `toposolid`'s `points` are survey points whose z is in
 project coordinates, and the command stores them relative to `elevation(level) + offset`. `add_point {absolute}` does the same
@@ -27,11 +33,11 @@ it, so an import that would have the survey reach the edge puts a point on each 
 
 ## Create from Sketch, then Add Point
 
-`toposolid {type?, sketch?, boundary?, points?, level?, offset?, interval?, name?}` makes one. Its outline comes as `sketch`
+`toposolid {type?, sketch?, boundary?, points?, level?, offset?, name?}` makes one. Its outline comes as `sketch`
 (the Sketch Editor's lines, solved into one ring as a floor's are) or as `boundary`; it refuses one that isn't simple
 (the sketch solver: crossings, spikes, zero-length edges), a sketch with a loop inside its outline (a toposolid has no
-holes), a point outside it, fewer than three corners, an interval out of range, and a type nothing has or one whose
-thickness is 0. `Model::check` holds the same rules and checks the shape as a floor's is checked. A point may lie below the
+holes), a point outside it, fewer than three corners, and a type nothing has or one whose thickness is 0. `Model::check`
+holds the same rules and checks the shape as a floor's is checked. A point may lie below the
 level: the bottom follows the top, so the solid is its thickness everywhere (a pit is just a dip in the top), where Revit
 refuses a point below its base.
 
@@ -47,18 +53,19 @@ grips) do too. `reset_shape` leaves it flat at its offset, its perimeter kept.
 - `toposolid_solid`: a closed `Polyhedron`, its top's planes and, `thickness` under them, the same planes plumb (the bottom
   follows the top, so its volume is its plan area times its thickness).
 - `toposolid_range`, `toposolid_volume`, `toposolid_slabs` (the 3D view's slabs).
-- `toposolid_contours`: at each multiple of `interval` between its top's lowest and highest, the segments where the top
-  crosses that height (at most `MAX_CONTOURS`, 1,000 levels, and `MAX_CONTOUR_SEGMENTS`, 20,000 segments in all). A corner
-  exactly at a height counts as above it.
+- `toposolid_contours`: at each multiple of its type's `interval` between its top's lowest and highest, a `ContourLine`: the
+  height, whether it is one of the major contours (every whole number of intervals apart, `Contour::every`), and the
+  segments where the top crosses that height (at most `MAX_CONTOURS`, 1,000 levels, and `MAX_CONTOUR_SEGMENTS`, 20,000
+  segments in all). A corner exactly at a height counts as above it.
 
 The triangulation is the floor shape editor's (`triangulation::constrained`), not a second TIN engine.
 
 ## Where it shows
 
-- **Plans**, on its own level: its boundary, its contour lines at `interval`, and its type's top material's surface pattern —
-  a named fill pattern or a built-in one — laid over the whole top in one frame, from `pattern_origin` and turned by
-  `pattern_angle` (degrees counter-clockwise), so the pattern runs unbroken over a fold. `contours {id}` gives the lines as
-  data.
+- **Plans**, on its own level: its boundary, its contour lines at its type's `interval` (the major ones heavier), and its
+  type's top material's surface pattern — a named fill pattern or a built-in one — laid over the whole top in one frame,
+  from `pattern_origin` and turned by `pattern_angle` (degrees counter-clockwise), so the pattern runs unbroken over a fold.
+  `contours {id}` gives the lines as data.
 - **3D**: its top's pieces, each a slab down to the plane under it, and its type's finish material's texture, on the plan's
   axes turned by the same angle from the same origin: a paving meets itself at a fold, and turns as the plan's pattern does.
 - **Schedules**: category `toposolid`: Name, Level, Area, Volume, Thickness.
@@ -69,8 +76,9 @@ The triangulation is the floor shape editor's (`triangulation::constrained`), no
 ## Not yet
 
 - **Create from Import**: CSV points and 3D DXF contours.
-- **The rest of the type**: contour display by type (start and end elevation, line style subcategories), the coarse-scale
-  fill pattern and colour, a structural material, and the function. The interval is the instance's for now.
+- **The rest of the contour display**: a start and an end elevation, a line style subcategory of its own for the minor and
+  the major lines, Label Contours, and contours in 3D. The coarse-scale fill pattern and colour, a structural material, and
+  the function, too.
 - **Its layers in 3D**: a toposolid is not split by its compound structure as a floor is, so its sides take its top
   layer's material and its lower layers show no colour there.
 - **A variable layer**: a floor's or a roof's type may mark a layer `variable`, and a shaped one's underside then stays

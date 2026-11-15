@@ -73,8 +73,8 @@ pub const CEILING_HEIGHT: f64 = 2600.0;
 /// The steepest slope a floor or a roof may have, degrees.
 pub const MAX_SLOPE: f64 = 75.0;
 /// The version of the project file this build writes, and the newest it reads. 20: a project may hold toposolids (the
-/// `toposolid` category: a boundary on a level, a `type` of compound layers that is its thickness, `offset`, a `shape`, a
-/// contour `interval` and a `name`, and a floor's two fields for placing its top's pattern, `pattern_origin` and
+/// `toposolid` category: a boundary on a level, a `type` of compound layers that is its thickness, and the contour display
+/// it draws, `offset`, a `shape` and a `name`, and a floor's two fields for placing its top's pattern, `pattern_origin` and
 /// `pattern_angle`); a build that reads up to 19 would answer a toposolid with a serde error ("unknown variant"), not say
 /// "saved by a newer
 /// BIMCraft"; nothing in a file of 19 changes. 19: a schedule may be of sheets, the
@@ -192,8 +192,9 @@ pub const MAX_SLOPE: f64 = 75.0;
 /// needs no step: its georeference is the active site, both points at the internal origin.
 /// 33 (the toposolid's; 21 to 32 are the Family Editor's unreleased builds, which no release read): the site's ground is a
 /// toposolid (`toposolid`), a solid element whose type's layers set its thickness (`types.toposolid`, which a file of 20 is
-/// given: `Generic - 300mm`) and whose top its elevation points and split lines shape; a build that reads up to 20 (0.12,
-/// which writes 20) would answer one with a serde error, not "saved by a newer BIMCraft".
+/// given: `Generic - 300mm`) and whose top its elevation points and split lines shape, and whose type's `contours` is the
+/// interval and the major interval plans draw; a build that reads up to 20 (0.12, which writes 20) would answer one with a
+/// serde error, not "saved by a newer BIMCraft".
 pub const FORMAT: u32 = 33;
 /// How far past the model a level reaches without an extent of its own, mm.
 pub const LEVEL_PAST: f64 = 1000.0;
@@ -327,9 +328,6 @@ pub struct Toposolid {
     /// Points and split lines on its top, a floor's (`Floor::shape`).
     #[serde(default, skip_serializing_if = "Shape::is_empty")]
     pub shape: Shape,
-    /// The mm between the contour lines plans draw; 0 for none.
-    #[serde(default = "contour_interval")]
-    pub interval: f64,
     /// Where its top's model pattern starts, and how far it's turned, degrees: Revit's aligned and rotated pattern.
     #[serde(default, skip_serializing_if = "crate::fills::at_origin")]
     pub pattern_origin: P2,
@@ -344,6 +342,50 @@ pub struct Toposolid {
 
 fn contour_interval() -> f64 {
     1000.0
+}
+
+/// How plans draw a toposolid's contour lines, Revit's Contour Display on the type: a line every `interval` mm, and a
+/// heavier one every `major` mm. 0 for no lines, and for no heavier one.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Contour {
+    #[serde(default = "contour_interval")]
+    pub interval: f64,
+    #[serde(default)]
+    pub major: f64,
+}
+
+impl Default for Contour {
+    /// A line every metre, none of them heavier, as a new toposolid type has it.
+    fn default() -> Self {
+        Contour { interval: contour_interval(), major: 0.0 }
+    }
+}
+
+impl Contour {
+    /// Whether it draws what a new type draws, so a file leaves it out.
+    fn is_default(&self) -> bool {
+        *self == Contour::default()
+    }
+
+    /// How many contour lines apart the major ones are: 0 when none is drawn heavier. `Model::check` holds `major` to a
+    /// whole number of intervals, and the lines are counted by that number rather than by comparing elevations, which
+    /// drift apart from it far from the origin.
+    fn every(&self) -> i64 {
+        if self.interval <= 0.0 || self.major <= 0.0 {
+            return 0;
+        }
+        (self.major / self.interval).round().max(1.0) as i64
+    }
+}
+
+/// A toposolid's contour at one height: the height (mm, the project's z), whether it is a major contour, and the segments
+/// where its top crosses it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ContourLine {
+    pub z: f64,
+    pub major: bool,
+    pub segments: Vec<(P2, P2)>,
 }
 
 /// A reinforcing bar: a round bar of `diameter` mm bent along `path` (mm: x east, y north, z over `level`), of steel `grade`. It
@@ -2786,13 +2828,16 @@ pub struct WallType {
     pub layers: Vec<Layer>,
 }
 
-/// A floor type: how thick its floors are and, a compound one, its layers from the top down.
+/// A floor type: how thick its floors are and, a compound one, its layers from the top down. A toposolid type is one
+/// of these too, and is also what draws its contours (`contours`); a floor, a roof and a ceiling don't read that.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FloorType {
     pub thickness: f64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub layers: Vec<Layer>,
+    #[serde(default, skip_serializing_if = "Contour::is_default")]
+    pub contours: Contour,
 }
 
 /// A room type: the floor and the ceiling its rooms have of their own, each a type of the project's and its distance from
@@ -3667,8 +3712,8 @@ impl Model {
             layer(Function::Finish, "Plaster", 10.0),
         ];
         m.types.wall.insert("Exterior - 300mm".into(), WallType { thickness: 300.0, layers });
-        m.types.floor.insert("Generic - 200mm".into(), FloorType { thickness: 200.0, layers: Vec::new() });
-        m.types.toposolid.insert("Generic - 300mm".into(), FloorType { thickness: 300.0, layers: Vec::new() });
+        m.types.floor.insert("Generic - 200mm".into(), FloorType { thickness: 200.0, ..Default::default() });
+        m.types.toposolid.insert("Generic - 300mm".into(), FloorType { thickness: 300.0, ..Default::default() });
         for (n, w) in [("Single 900 x 2100", 900.0), ("Single 800 x 2100", 800.0)] {
             m.types.door.insert(n.into(), OpeningType { width: w, height: 2100.0, sill: 0.0, operation: None });
         }
@@ -4439,7 +4484,7 @@ impl Model {
         }
         // A file of 20 or before has no toposolid type: the one a new toposolid is made of, which `default_type` names.
         if self.format < 21 {
-            self.types.toposolid.entry("Generic - 300mm".into()).or_insert(FloorType { thickness: 300.0, layers: Vec::new() });
+            self.types.toposolid.entry("Generic - 300mm".into()).or_insert(FloorType { thickness: 300.0, ..Default::default() });
         }
         self.settle_hosts(None);
         // 19 to 20: rooms have types. A file of 19 has none, so its rooms are of the starter one, with no floor or ceiling.
@@ -5925,25 +5970,34 @@ impl Model {
             .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), z| (lo.min(z), hi.max(z)))
     }
 
-    /// A toposolid's contour lines: at each multiple of its `interval` between its top's lowest and highest (not at either),
-    /// the segments where its top crosses that height. At most [`MAX_CONTOURS`] levels, and
-    /// [`MAX_CONTOUR_SEGMENTS`] segments in all.
-    pub fn toposolid_contours(&self, t: &Toposolid) -> Vec<(f64, Vec<(P2, P2)>)> {
-        if t.interval <= 0.0 || t.shape.is_empty() {
+    /// How its type draws its contours, or a new type's when its type is gone (a command refuses that earlier).
+    pub fn toposolid_contour(&self, t: &Toposolid) -> Contour {
+        self.types.toposolid.get(&t.type_name).map(|x| x.contours.clone()).unwrap_or_default()
+    }
+
+    /// A toposolid's contour lines: at each multiple of its type's interval between its top's lowest and highest (not at
+    /// either), the segments where its top crosses that height, and whether that height is a multiple of the type's
+    /// major interval. At most [`MAX_CONTOURS`] levels, and [`MAX_CONTOUR_SEGMENTS`] segments in all.
+    pub fn toposolid_contours(&self, t: &Toposolid) -> Vec<ContourLine> {
+        let contour = self.toposolid_contour(t);
+        let Contour { interval, .. } = contour;
+        if interval <= 0.0 || t.shape.is_empty() {
             return Vec::new();
         }
+        let every = contour.every();
         let (lo, hi) = self.toposolid_range(t);
         if !(lo.is_finite() && hi.is_finite()) {
             return Vec::new();
         }
-        let first = (lo / t.interval).ceil() as i64;
-        let last = ((hi / t.interval).floor() as i64).min(first + MAX_CONTOURS as i64 - 1);
+        let first = (lo / interval).ceil() as i64;
+        let last = ((hi / interval).floor() as i64).min(first + MAX_CONTOURS as i64 - 1);
         let f = self.toposolid_as_floor(t);
         let Ok((mesh, lifted, _)) = self.shape_mesh(&f, &[]) else { return Vec::new() };
         let mut out = Vec::new();
         let mut drawn = 0usize;
         for k in first..=last {
-            let z = k as f64 * t.interval;
+            let z = k as f64 * interval;
+            let major = every > 0 && k.rem_euclid(every) == 0;
             let mut lines = Vec::new();
             for tri in &mesh.triangles {
                 let (Some(a), Some(b), Some(c)) = (lifted.get(tri[0]), lifted.get(tri[1]), lifted.get(tri[2])) else {
@@ -5971,7 +6025,7 @@ impl Model {
                 }
             }
             if !lines.is_empty() {
-                out.push((z, lines));
+                out.push(ContourLine { z, major, segments: lines });
             }
             if drawn >= MAX_CONTOUR_SEGMENTS {
                 break;
@@ -7734,6 +7788,32 @@ impl Model {
                 return Err(format!("{who}: its layers add up to {sum} mm, not its thickness, {thickness} mm"));
             }
         }
+        for (n, t) in &self.types.toposolid {
+            let who = format!("toposolid type `{n}`");
+            let Contour { interval, major } = t.contours;
+            coord(&format!("{who} contour interval"), interval)?;
+            coord(&format!("{who} major contour interval"), major)?;
+            if interval != 0.0 && interval < MIN_CONTOUR_INTERVAL {
+                return Err(format!("{who}: its contour interval is {interval} mm: it must be 0, or at least {MIN_CONTOUR_INTERVAL} mm"));
+            }
+            if major != 0.0 {
+                if interval <= 0.0 {
+                    return Err(format!(
+                        "{who}: its major contour interval is {major} mm, but it draws no contours: its contour interval is 0"
+                    ));
+                }
+                if major < 0.0 {
+                    return Err(format!("{who}: its major contour interval is {major} mm: it must be 0, or a multiple of its contour interval"));
+                }
+                // One that no contour line falls on would draw nothing heavier, and the lines it draws heavier are every
+                // whole number of the interval (`Contour::every`), so that is what it must be.
+                if (major / interval - (major / interval).round()).abs() * interval > TOL {
+                    return Err(format!(
+                        "{who}: its major contour interval is {major} mm: it must be a multiple of its contour interval, {interval} mm"
+                    ));
+                }
+            }
+        }
         for (cat, types) in
             [("column", &self.types.column), ("structural column", &self.types.structural_column), ("footing", &self.types.footing)]
         {
@@ -8126,14 +8206,7 @@ impl Model {
                 crate::site::check(&who, &t.boundary)?;
                 text(&who, "name", &t.name)?;
                 coord(&format!("{who} offset"), t.offset)?;
-                coord(&format!("{who} interval"), t.interval)?;
                 coord(&format!("{who} thickness"), self.toposolid_thickness(t))?;
-                if t.interval != 0.0 && t.interval < MIN_CONTOUR_INTERVAL {
-                    return Err(format!(
-                        "{who}: its contour interval is {} mm: it must be 0, or at least {MIN_CONTOUR_INTERVAL} mm",
-                        t.interval
-                    ));
-                }
                 shape_ok(&who, &self.toposolid_as_floor(t), None)?;
             }
             Element::RoomSeparator(rs) => {
