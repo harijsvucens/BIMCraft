@@ -18230,6 +18230,9 @@ fn split(s: &mut Session, p: &Value) -> R {
     if let Some(lid) = m.elements.id(id)
         && let Some(Element::Toposolid(t)) = m.elements.get(lid)
     {
+        if !absent(p.get("at")) {
+            return Err(bad(c, "a toposolid splits along `line`; `at` is for a wall or a detail line"));
+        }
         let line = points(c, p, "line")?;
         if line.len() != 2 {
             return Err(bad(c, "`line` is two points, the split line's start and its end"));

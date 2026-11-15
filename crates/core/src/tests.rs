@@ -7603,6 +7603,32 @@ fn a_split_keeps_each_point_on_the_side_it_stands_on_and_refuses_a_crossed_line(
 }
 
 #[test]
+fn a_split_line_that_ends_on_the_cut_goes_with_the_side_its_other_end_is_on() {
+    let mut s = Session::new();
+    // A ridge point on the coming cut at x = 5000 and one west of it, joined by a split line that ends where the cut
+    // crosses the ridge: the line goes with the west piece, its other end being west, and the point on the cut goes to
+    // both - which is what holds the line's end there and lets `Model::check` pass.
+    let hill = run(&mut s, "toposolid", json!({"boundary": plot(), "points": [[2000, 5000, 1000], [5000, 5000, 2000]]}))["id"]
+        .as_u64()
+        .unwrap_or_default();
+    run(&mut s, "add_split_line", json!({"id": hill, "a": [2000, 5000], "b": [5000, 5000]}));
+    let ids = run(&mut s, "split", json!({"id": hill, "line": [[5000, -1000], [5000, 11000]]}))["ids"].clone();
+    let pieces = run(&mut s, "elements", json!({"category": "toposolid"}))["elements"].clone();
+    let (west, east) = (pieces[0].clone(), pieces[1].clone());
+    assert_eq!((west["id"].clone(), east["id"].clone()), (ids[0].clone(), ids[1].clone()));
+    for p in [&west, &east] {
+        assert!(
+            p["shape"]["points"].as_array().is_some_and(|q| q.iter().any(|q| q["at"] == json!([5000.0, 5000.0]))),
+            "the point on the cut is in both pieces: {p}"
+        );
+    }
+    assert_eq!(west["shape"]["lines"].as_array().map(Vec::len), Some(1), "{west}");
+    assert_eq!(east["shape"]["lines"].as_array().map(Vec::len), None, "the line went east: {east}");
+    // Both rose to the ridge, which the cut holds: the highest of either is the point on the cut.
+    assert_eq!((west["top"].clone(), east["top"].clone()), (json!([0.0, 2000.0]), json!([0.0, 2000.0])));
+}
+
+#[test]
 fn a_split_refuses_a_line_that_misses_or_shaves_it() {
     let mut s = Session::new();
     let hill = run(&mut s, "toposolid", json!({"boundary": plot()}))["id"].as_u64().unwrap_or_default();
@@ -7614,6 +7640,9 @@ fn a_split_refuses_a_line_that_misses_or_shaves_it() {
     // One 50 mm in leaves a sliver.
     let e = s.execute("split", &json!({"id": hill, "line": [[9950, 0], [9950, 10000]]})).unwrap_err();
     assert!(e.contains("under a square metre"), "{e}");
+    // `at` is a wall's or a detail line's, so a payload that sends both is told rather than cut where `line` says.
+    let e = s.execute("split", &json!({"id": hill, "at": [5000, 5000], "line": [[5000, 0], [5000, 10000]]})).unwrap_err();
+    assert!(e.contains("`at` is for a wall or a detail line"), "{e}");
     // Still one toposolid, whole.
     assert_eq!(run(&mut s, "elements", json!({"category": "toposolid"}))["elements"][0]["area_m2"], 100.0);
 }
