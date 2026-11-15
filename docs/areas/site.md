@@ -22,8 +22,7 @@ from before `FORMAT` 33 that type.
 
 A point's `z` is above the flat top, as a floor's shape points are. `toposolid`'s `points` are survey points whose z is in
 project coordinates, and the command stores them relative to `elevation(level) + offset`. `add_point {absolute}` does the same
-conversion. A corner with no point on it stays at the flat top (the level and its offset), as Revit's Create from Sketch has
-it, so an import that would have the survey reach the edge puts a point on each corner.
+conversion.
 
 ## Create from Sketch, then Add Point
 
@@ -66,8 +65,12 @@ its layers are edited, and the Type Selector shows the project's toposolid types
 
 ## Where it shows
 
-- **Plans**, on its own level: its boundary, and its contour lines at `interval`. `contours {id}` gives the lines as data.
-- **3D**: its top's pieces, each a slab down to the plane under it.
+- **Plans**, on its own level: its boundary, its contour lines at `interval`, and its type's top material's surface pattern —
+  a named fill pattern or a built-in one — laid over the whole top in one frame, from `pattern_origin` and turned by
+  `pattern_angle` (degrees counter-clockwise), so the pattern runs unbroken over a fold. `contours {id}` gives the lines as
+  data.
+- **3D**: its top's pieces, each a slab down to the plane under it, and its type's finish material's texture, on the plan's
+  axes turned by the same angle from the same origin: a paving meets itself at a fold, and turns as the plan's pattern does.
 - **Schedules**: category `toposolid`: Name, Level, Area, Volume, Thickness.
 - **IFC**: an `IfcSlab` with `.BASESLAB.`, a closed faceted Brep, in the level's storey, with `Qto_SlabBaseQuantities`.
 - **File**: `FORMAT` 33 (0.12 reads a 20 file, and would answer a toposolid with a serde error rather than "saved by a newer BIMCraft"; 21 to 32 are the Family Editor's unreleased formats and are refused).
