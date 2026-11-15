@@ -7461,6 +7461,11 @@ fn a_toposolid_variable_layer_keeps_its_base_level_under_its_lowest_point() {
             .any(|x| matches!(x, crate::view3d::Solid::Prism { owner, .. } if owner == t) && x.over(centre)),
         "the shaft is cut out of the terrain"
     );
+    // And it cuts the plan's pieces too: `less_shafts` is told a piece's rise, which under this layer runs from the level
+    // base up to the top's highest point - 0 would leave the shaft out of the plan's pattern.
+    let Some(Element::Toposolid(terrain)) = s.model.elements.get(t) else { panic!() };
+    let rises: Vec<f64> = s.model.toposolid_slabs(terrain).into_iter().map(|(_, rise)| rise).collect();
+    assert!(!rises.is_empty() && rises.iter().all(|rise| *rise >= 500.0), "a piece rises over its base: {rises:?}");
     // Without the flag the type is an ordinary slab again: its base follows the top, its thickness under each point.
     run(&mut s, "type", json!({"category": "toposolid", "name": "Site - Variable", "layers": layers(false)}));
     let e = run(&mut s, "elements", json!({"category": "toposolid"}))["elements"][0].clone();

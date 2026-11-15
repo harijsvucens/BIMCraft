@@ -6007,15 +6007,15 @@ impl Model {
             .collect()
     }
 
-    /// A toposolid's pieces in plan, each its bottom face and, without a variable layer, how far the piece rises to the
-    /// top: what the 3D view draws as slabs where no variable layer makes prisms of them (`toposolid_prisms`). Under one
-    /// the rise is 0, since the pieces are prisms and no caller reads it.
+    /// A toposolid's pieces in plan, each its bottom face and how far the piece rises over it (its tallest such rise):
+    /// what the 3D view draws as slabs where no variable layer makes prisms of them (`toposolid_prisms`), and the height
+    /// a shaft is held against to know whether it reaches through the piece (`less_shafts`). Under a variable layer the
+    /// base is level under the top's lowest point, so that rise still reaches the piece's highest point.
     pub fn toposolid_slabs(&self, t: &Toposolid) -> Vec<(Vec<[f64; 3]>, f64)> {
-        let under = self.toposolid_under(t).is_some();
         self.toposolid_prisms(t)
             .into_iter()
             .map(|(ring, bottom, top)| {
-                let rise = if under { 0.0 } else { ring.iter().map(|q| top.at(*q) - bottom.at(*q)).fold(0.0, f64::max) };
+                let rise = ring.iter().map(|q| top.at(*q) - bottom.at(*q)).fold(0.0, f64::max);
                 (bottom.lift(&ring), rise)
             })
             .collect()
