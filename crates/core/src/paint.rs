@@ -15,8 +15,7 @@ pub fn reserved(name: &str) -> bool {
 }
 
 /// The faces an element of `category` has to paint, by name: a wall's two sides; a floor's, a roof's, a ceiling's or a
-/// toposolid's top and
-/// bottom; and of the other things a model is made of that hold values, all of it.
+/// toposolid's top and bottom; and of the other things a model is made of that hold values, all of it.
 pub fn faces(category: &str) -> &'static [&'static str] {
     match category {
         "wall" => &["exterior", "interior"],
