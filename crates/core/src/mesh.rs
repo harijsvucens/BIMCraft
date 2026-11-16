@@ -86,9 +86,62 @@ fn volume(tris: &[[P3; 3]]) -> f64 {
     tris.iter().map(|[a, b, c]| dot(*a, cross(*b, *c))).sum::<f64>() / 6.0
 }
 
+/// A corner of the weld, as the scene's own: a micron's grid.
+type Corner = [i64; 3];
+
+/// An edge of the weld, either way round: both ends sorted, so a walk from one and a walk from the other name one edge.
+type Edge = (Corner, Corner);
+
+/// An edge on a face's boundary: which edge it is, and the way round the face's triangles walk it.
+struct OnRim {
+    edge: Edge,
+    from: Corner,
+    to: Corner,
+}
+
+fn edge(a: Corner, b: Corner) -> Edge {
+    (a.min(b), a.max(b))
+}
+
+/// How many triangles of a mesh meet on each of its edges.
+fn edges(keys: &[[Corner; 3]]) -> HashMap<Edge, usize> {
+    let mut out: HashMap<Edge, usize> = HashMap::new();
+    for t in keys {
+        for j in 0..3 {
+            *out.entry(edge(t[j], t[(j + 1) % 3])).or_default() += 1;
+        }
+    }
+    out
+}
+
+/// A face's boundary, walked as its triangles walk it: each edge of it no other triangle of the face shares, from its first
+/// corner to its second, which is the way the face's outside runs.
+fn rim(keys: &[[Corner; 3]], group: &[usize]) -> Vec<OnRim> {
+    let mut within: HashMap<Edge, usize> = HashMap::new();
+    let tri = |i: usize| keys.get(i).copied().unwrap_or_default();
+    for i in group {
+        let t = tri(*i);
+        for j in 0..3 {
+            *within.entry(edge(t[j], t[(j + 1) % 3])).or_default() += 1;
+        }
+    }
+    let mut out = Vec::new();
+    for i in group {
+        let t = tri(*i);
+        for j in 0..3 {
+            let (a, b) = (t[j], t[(j + 1) % 3]);
+            if a != b && within.get(&edge(a, b)) == Some(&1) {
+                out.push(OnRim { edge: edge(a, b), from: a, to: b });
+            }
+        }
+    }
+    out
+}
+
 /// `tris` with `face` moved `distance` mm along its normal, out of the solid where that is positive: every corner welded
-/// to one of the face's moves with it, so the faces round it stretch as a hand pulling a SketchUp face's does. A solid
-/// that closes may not be pushed through itself, into an inside-out shell.
+/// to one of the face's moves with it, so the faces round it stretch as a hand pulling a SketchUp face's does. A face with
+/// nothing beside it — a sheet, as an imported mesh may hold — is no surface to stretch: it rises into a solid, keeping
+/// itself as the near end. A solid that closes may not be pushed through itself, into an inside-out shell.
 pub fn push(tris: &[[P3; 3]], face: &Face, distance: f64) -> Result<Vec<[P3; 3]>, String> {
     if !distance.is_finite() || distance.abs() > MAX_COORD {
         return Err(format!("a distance is a number of mm within {MAX_COORD}, not {distance}"));
@@ -97,6 +150,11 @@ pub fn push(tris: &[[P3; 3]], face: &Face, distance: f64) -> Result<Vec<[P3; 3]>
         return Err("that face is no face of these triangles".into());
     }
     let keys = crate::view3d::weld(tris);
+    let (met, rim) = (edges(&keys), rim(&keys, &face.tris));
+    let alone = !rim.is_empty() && rim.iter().all(|e| met.get(&e.edge) == Some(&1));
+    if alone {
+        return extrude(tris, &keys, face, &rim, distance).and_then(held);
+    }
     let mut moving: HashSet<[i64; 3]> = HashSet::new();
     for i in &face.tris {
         if let Some(k) = keys.get(*i) {
@@ -106,11 +164,57 @@ pub fn push(tris: &[[P3; 3]], face: &Face, distance: f64) -> Result<Vec<[P3; 3]>
     let step = mul(face.normal, distance);
     let out: Vec<[P3; 3]> =
         tris.iter().zip(&keys).map(|(t, k)| std::array::from_fn(|j| if moving.contains(&k[j]) { add(t[j], step) } else { t[j] })).collect();
-    if out.iter().flatten().flatten().any(|v| !v.is_finite() || v.abs() > MAX_COORD) {
-        return Err(format!("that would put a corner past {MAX_COORD} mm"));
-    }
+    let out = held(out)?;
     if sealed(tris).is_ok() && volume(&out) <= 1.0 {
         return Err("that would turn the solid inside out: push it less far".into());
+    }
+    Ok(out)
+}
+
+/// `tris` with `face` raised `distance` mm into a solid and the face left as its near end, its copy standing at the far one,
+/// with a wall of two triangles along each of `rim`'s edges: what a sheet becomes when a hand pulls it up, off either side.
+fn extrude(tris: &[[P3; 3]], keys: &[[Corner; 3]], face: &Face, rim: &[OnRim], distance: f64) -> Result<Vec<[P3; 3]>, String> {
+    let step = mul(face.normal, distance);
+    // Where each corner the face welds to stands, as its triangles write it.
+    let mut place: HashMap<Corner, P3> = HashMap::new();
+    for i in &face.tris {
+        let (Some(t), Some(k)) = (tris.get(*i), keys.get(*i)) else { continue };
+        for j in 0..3 {
+            place.entry(k[j]).or_insert(t[j]);
+        }
+    }
+    let inside: HashSet<usize> = face.tris.iter().copied().collect();
+    let mut out: Vec<[P3; 3]> = tris.iter().enumerate().filter(|(i, _)| !inside.contains(i)).map(|(_, t)| *t).collect();
+    let mut raised: Vec<[P3; 3]> = Vec::with_capacity(2 * face.tris.len() + 2 * rim.len());
+    for i in &face.tris {
+        let Some(t) = tris.get(*i) else { continue };
+        // The face turned round is the near end, facing out of what rises; its copy is the far end.
+        raised.push([t[2], t[1], t[0]]);
+        raised.push(t.map(|p| add(p, step)));
+    }
+    for e in rim {
+        let (Some(pa), Some(pb)) = (place.get(&e.from).copied(), place.get(&e.to).copied()) else {
+            return Err("a corner of that face is not one its triangles name".into());
+        };
+        let (qa, qb) = (add(pa, step), add(pb, step));
+        raised.push([pa, pb, qb]);
+        raised.push([pa, qb, qa]);
+    }
+    sealed(&raised).map_err(|e| format!("that face is no simple loop, so no solid rises from it: {e}"))?;
+    // Wound one way the walls face in: the solid is then the mirror of itself, so it turns out.
+    if volume(&raised) < 0.0 {
+        for t in &mut raised {
+            t.swap(1, 2);
+        }
+    }
+    out.extend(raised);
+    Ok(out)
+}
+
+/// `out`, if every corner of it stands where the model holds one.
+fn held(out: Vec<[P3; 3]>) -> Result<Vec<[P3; 3]>, String> {
+    if out.iter().flatten().flatten().any(|v| !v.is_finite() || v.abs() > MAX_COORD) {
+        return Err(format!("that would put a corner past {MAX_COORD} mm"));
     }
     Ok(out)
 }
@@ -218,6 +322,44 @@ mod tests {
         folded.push(tris[0]);
         let e = sealed(&folded).unwrap_err();
         assert!(e.contains("not two"), "a fold: {e}");
+    }
+
+    /// A square `side` mm a way at height `z`, its two triangles turned to face up.
+    fn pane(side: f64, z: f64) -> Vec<[P3; 3]> {
+        let p = [[0.0, 0.0, z], [side, 0.0, z], [side, side, z], [0.0, side, z]];
+        vec![[p[0], p[1], p[2]], [p[0], p[2], p[3]]]
+    }
+
+    #[test]
+    fn a_sheet_pulled_up_becomes_a_solid_and_pulled_down_the_same_one_the_other_way_out() {
+        let sheet = pane(1000.0, 0.0);
+        let face = face_at(&sheet, [500.0, 500.0, 0.0]).expect("the sheet's one face");
+        assert_eq!((face.tris.len(), face.normal), (2, [0.0, 0.0, 1.0]));
+        let up = push(&sheet, &face, 500.0).expect("it rises");
+        assert_eq!(up.len(), 12, "the face as the near end, its copy at the far one, and two walls a side");
+        assert!(sealed(&up).is_ok(), "a solid where there was a sheet");
+        assert_eq!(volume(&up), 5e8, "a metre square, half a metre high");
+        // The sheet itself stayed, and now faces out of the solid, down.
+        let near = face_at(&up, [500.0, 500.0, 0.0]).expect("the sheet is still its near end");
+        assert_eq!(near.normal, [0.0, 0.0, -1.0]);
+        // Pushed the other way it is the same solid, turned out: the sheet is its top.
+        let face = face_at(&sheet, [500.0, 500.0, 0.0]).expect("the face");
+        let down = push(&sheet, &face, -500.0).expect("it sinks");
+        assert!(sealed(&down).is_ok(), "a solid too");
+        assert_eq!(volume(&down), 5e8, "the same solid, hanging under the sheet");
+        assert_eq!(down.iter().flatten().map(|p| p[2]).fold(f64::MIN, f64::max), 0.0, "its top is the sheet");
+    }
+
+    #[test]
+    fn a_sheet_pushed_leaves_the_other_sheets_of_the_mesh_where_they_are() {
+        let mut two = pane(1000.0, 0.0);
+        let above = pane(500.0, 2000.0);
+        two.extend(above.iter().copied());
+        let face = face_at(&two, [500.0, 500.0, 0.0]).expect("the sheet at the bottom");
+        assert_eq!(face.tris, [0, 1], "the lower one alone, not the one above it");
+        let up = push(&two, &face, 500.0).expect("it rises");
+        assert_eq!(up.len(), 14, "the lower sheet's twelve and the other one's two");
+        assert_eq!(&up[..2], &above[..], "the sheet above stands where it was, wound as it was");
     }
 
     #[test]

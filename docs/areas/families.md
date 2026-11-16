@@ -1261,6 +1261,13 @@ surface — a cylinder's side — which has no plane of its own, so a pick there
 weld and the grouping are the scene's, so the face a pick selects is the face a push moves. A push of nothing, or one that
 would turn the solid inside out, is refused.
 
+A face with no other face beside it — a sheet, as an imported mesh may hold, or a single quad in a file — is not stretched by a
+push: it rises into a solid. The face stays where it is as the near end, facing out of what rises, a copy of it stands `distance`
+away as the far end, and a wall of two triangles runs round each of its boundary edges; pushed the other way, the same solid
+hangs the other side, turned out. So a sheet drawn or imported flat becomes a box with one push, and the push is one undo step.
+Only a face whose boundary meets no other triangle of the mesh is extruded this way: a face beside others moves and they stretch,
+as before.
+
 What it does not do yet, and the slices that follow: draw on a face in the 3D view (the tool and its draft), holes and
 openings through a face, booleans between meshes, bevels, and pushing an imported mesh's face from a pick in the viewport
 (the command takes the form's own point). The plan is [Discussion #468](https://github.com/IPedrax/BIMCraft/discussions/468).

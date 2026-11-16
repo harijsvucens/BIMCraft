@@ -713,7 +713,7 @@ msgstr ""
 msgid "Air Terminals"
 msgstr ""
 
-#: crates/core/src/commands.rs:1881
+#: crates/core/src/commands.rs:1883
 #: crates/ui-egui/src/editor/document.rs:633
 #: crates/ui-egui/src/editor/sketch.rs:1520
 #: crates/ui-egui/src/editor.rs:1109
@@ -1726,7 +1726,7 @@ msgstr ""
 msgid "Came in: {}"
 msgstr ""
 
-#: crates/core/src/commands.rs:2492
+#: crates/core/src/commands.rs:2494
 #: crates/ui-egui/src/camera.rs:38
 #: crates/ui-egui/src/lib.rs:4778
 #: crates/ui-egui/src/properties.rs:292
@@ -2073,7 +2073,7 @@ msgstr ""
 msgid "Checking for updates…"
 msgstr ""
 
-#: crates/core/src/commands.rs:3955
+#: crates/core/src/commands.rs:3957
 msgid "Checking the model"
 msgstr ""
 
@@ -3241,7 +3241,7 @@ msgstr ""
 msgid "Copper"
 msgstr ""
 
-#: crates/core/src/commands.rs:1928
+#: crates/core/src/commands.rs:1930
 #: crates/ui-egui/src/coordinates.rs:1219
 #: crates/ui-egui/src/cowork.rs:600
 #: crates/ui-egui/src/editor/document.rs:658
@@ -3850,7 +3850,7 @@ msgstr ""
 msgid "Demolition"
 msgstr ""
 
-#: crates/core/src/commands.rs:13303
+#: crates/core/src/commands.rs:13305
 msgid "Dependent"
 msgstr ""
 
@@ -4079,7 +4079,7 @@ msgstr ""
 msgid "Dimension Text Placement:"
 msgstr ""
 
-#: crates/core/src/commands.rs:1893
+#: crates/core/src/commands.rs:1895
 msgid "Dimension Value"
 msgstr ""
 
@@ -4721,7 +4721,7 @@ msgstr ""
 msgid "Electrical Settings: the voltages, distribution systems and wire types circuits and panels refer to; sections in mm²"
 msgstr ""
 
-#: crates/core/src/commands.rs:2930
+#: crates/core/src/commands.rs:2932
 msgid "Elements"
 msgstr ""
 
@@ -5254,7 +5254,7 @@ msgstr ""
 msgid "Filled region"
 msgstr ""
 
-#: crates/core/src/commands.rs:1997
+#: crates/core/src/commands.rs:1999
 msgid "Fillet Arc"
 msgstr ""
 
@@ -7417,7 +7417,7 @@ msgstr ""
 msgid "Massing"
 msgstr ""
 
-#: crates/core/src/commands.rs:1857
+#: crates/core/src/commands.rs:1859
 msgid "Match Properties"
 msgstr ""
 
@@ -7493,7 +7493,7 @@ msgstr ""
 msgid "Maximum Riser Height"
 msgstr ""
 
-#: crates/core/src/commands.rs:2606
+#: crates/core/src/commands.rs:2608
 #: crates/ui-egui/src/editor/document.rs:686
 #: crates/ui-egui/src/editor/document.rs:687
 msgid "Measure"
@@ -7881,7 +7881,7 @@ msgstr ""
 msgid "Mounting Height"
 msgstr ""
 
-#: crates/core/src/commands.rs:1908
+#: crates/core/src/commands.rs:1910
 #: crates/ui-egui/src/editor/document.rs:648
 msgid "Move"
 msgstr ""
@@ -9501,7 +9501,7 @@ msgstr ""
 msgid "Picture…"
 msgstr ""
 
-#: crates/core/src/commands.rs:1865
+#: crates/core/src/commands.rs:1867
 #: crates/ui-egui/src/context.rs:79
 msgid "Pin"
 msgstr ""
@@ -10216,7 +10216,7 @@ msgid "Properties over the Project Browser, on the left, as at first"
 msgstr ""
 
 #: crates/core/src/commands.rs:618
-#: crates/core/src/commands.rs:8854
+#: crates/core/src/commands.rs:8856
 msgid "Property Line"
 msgstr ""
 
@@ -10388,7 +10388,7 @@ msgstr ""
 msgid "Reading elements"
 msgstr ""
 
-#: crates/core/src/commands.rs:3912
+#: crates/core/src/commands.rs:3914
 msgid "Reading the file"
 msgstr ""
 
@@ -11042,7 +11042,7 @@ msgstr ""
 msgid "RotZ (degrees)"
 msgstr ""
 
-#: crates/core/src/commands.rs:1935
+#: crates/core/src/commands.rs:1937
 #: crates/ui-egui/src/editor/document.rs:668
 msgid "Rotate"
 msgstr ""
@@ -11261,7 +11261,7 @@ msgstr ""
 msgid "Scan"
 msgstr ""
 
-#: crates/core/src/commands.rs:2394
+#: crates/core/src/commands.rs:2396
 msgid "Schedule"
 msgstr ""
 
@@ -12215,7 +12215,7 @@ msgstr ""
 msgid "Spline: click its control points; Enter finishes it"
 msgstr ""
 
-#: crates/core/src/commands.rs:1977
+#: crates/core/src/commands.rs:1979
 msgid "Split"
 msgstr ""
 
@@ -13713,7 +13713,7 @@ msgstr ""
 msgid "Trim/Extend Single Element: pick the line to trim or extend to, then the line to change, on the part to keep"
 msgstr ""
 
-#: crates/core/src/commands.rs:1951
+#: crates/core/src/commands.rs:1953
 #: crates/ui-egui/src/editor/sketch.rs:1515
 #: crates/ui-egui/src/sketch.rs:741
 #: crates/ui-egui/src/sketch.rs:1022
@@ -14007,15 +14007,15 @@ msgstr ""
 msgid "Unlock alignment"
 msgstr ""
 
-#: crates/core/src/commands.rs:13474
+#: crates/core/src/commands.rs:13476
 msgid "Unnamed"
 msgstr ""
 
-#: crates/core/src/commands.rs:3929
+#: crates/core/src/commands.rs:3931
 msgid "Unpacking the project"
 msgstr ""
 
-#: crates/core/src/commands.rs:1874
+#: crates/core/src/commands.rs:1876
 #: crates/ui-egui/src/context.rs:80
 msgid "Unpin"
 msgstr ""
@@ -14428,7 +14428,7 @@ msgstr ""
 msgid "Wall Footing (FW): click its start and its end, or a chain of clicks, under a wall"
 msgstr ""
 
-#: crates/core/src/commands.rs:1919
+#: crates/core/src/commands.rs:1921
 msgid "Wall Length"
 msgstr ""
 

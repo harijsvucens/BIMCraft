@@ -1824,7 +1824,9 @@ other_files(
         "{family, at: [x, y, z], distance, form?} moves the flat face of one of a family's meshes that `at` lies on, \
          `distance` mm along the face's normal, out of the solid where that is positive, as SketchUp's Push/Pull: every \
          corner the face shares with the triangles beside it moves with it and those triangles stretch, so a box grows or \
-         shrinks and nothing comes apart. `at` is in the form's own axes, the `origin` `mesh` replies with: the point a pick \
+         shrinks and nothing comes apart. A face with no other face beside it, as an imported sheet has, rises into a solid \
+         instead: it stays as the near end, a copy stands at the far end and walls run round its boundary, so one push turns a \
+         flat sheet into a box. `at` is in the form's own axes, the `origin` `mesh` replies with: the point a pick \
          on the face gives, taken back to the family. `form` counts the family's forms from 1, its first mesh by default. A \
          curved side, such as a cylinder's, is no flat face: it has no plane of its own and nothing pushes it; a push of 0, or \
          one that would turn the solid inside out, is refused. Returns the `family` and `form` it changed, the `distance`, the \

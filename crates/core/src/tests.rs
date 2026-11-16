@@ -7407,6 +7407,25 @@ fn a_mesh_is_a_family_of_its_own_and_a_face_of_it_pushes_in_one_undo_step() {
 }
 
 #[test]
+fn a_sheet_imported_from_a_file_is_pulled_up_into_a_solid() {
+    let path = temp("sheet.obj");
+    std::fs::write(&path, "o Sheet\nv 0 0 0\nv 1000 0 0\nv 1000 1000 0\nv 0 1000 0\nf 1 2 3\nf 1 3 4\n").unwrap();
+    let mut s = Session::new();
+    let made = run(&mut s, "import_mesh", json!({"path": path, "at": [0, 0], "units": "mm", "up": "z"}));
+    assert_eq!(made["families"], json!(["Sheet"]));
+    assert_eq!(s.model.families["Sheet"].forms[0].mesh.len(), 2, "a sheet, two triangles, no solid yet");
+    // Pulled up half a metre round its own origin: a solid where the sheet was, the sheet its base.
+    let pushed = run(&mut s, "mesh_push_pull", json!({"family": "Sheet", "at": [0, 0, 0], "distance": 500}));
+    assert_eq!(pushed["volume"], json!(0.5), "a metre square, half a metre high");
+    let mesh = &s.model.families["Sheet"].forms[0].mesh;
+    assert_eq!(mesh.len(), 12, "the sheet, its copy, and two walls a side");
+    crate::mesh::sealed(mesh).expect("a solid");
+    run(&mut s, "undo", json!({}));
+    assert_eq!(s.model.families["Sheet"].forms[0].mesh.len(), 2, "one undo is the sheet again");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn a_mesh_given_world_heights_stands_on_a_level_that_is_not_at_zero() {
     let mut s = Session::new();
     let mut p = box_mesh();
