@@ -103,17 +103,6 @@ fn edge(a: Corner, b: Corner) -> Edge {
     (a.min(b), a.max(b))
 }
 
-/// How many triangles of a mesh meet on each of its edges.
-fn edges(keys: &[[Corner; 3]]) -> HashMap<Edge, usize> {
-    let mut out: HashMap<Edge, usize> = HashMap::new();
-    for t in keys {
-        for j in 0..3 {
-            *out.entry(edge(t[j], t[(j + 1) % 3])).or_default() += 1;
-        }
-    }
-    out
-}
-
 /// A face's boundary, walked as its triangles walk it: each edge of it no other triangle of the face shares, from its first
 /// corner to its second, which is the way the face's outside runs.
 fn rim(keys: &[[Corner; 3]], group: &[usize]) -> Vec<OnRim> {
@@ -138,6 +127,59 @@ fn rim(keys: &[[Corner; 3]], group: &[usize]) -> Vec<OnRim> {
     out
 }
 
+/// Whether the face is a sheet: no other triangle of the mesh holds it, along a whole edge or at a corner standing part way
+/// along one — a T-junction, as a tessellated surface brings in, which whole edges alone cannot see. A face that is anything
+/// else is part of a surface: pushing it moves its corners and stretches what is beside it.
+fn alone(tris: &[[P3; 3]], keys: &[[Corner; 3]], group: &[usize], rim: &[OnRim], face: &Face) -> bool {
+    if group.len() == tris.len() {
+        return true;
+    }
+    let inside: HashSet<usize> = group.iter().copied().collect();
+    let boundary: HashSet<Edge> = rim.iter().map(|e| e.edge).collect();
+    let mut place: HashMap<Corner, P3> = HashMap::new();
+    for i in group {
+        let (Some(t), Some(k)) = (tris.get(*i), keys.get(*i)) else { continue };
+        for j in 0..3 {
+            place.entry(k[j]).or_insert(t[j]);
+        }
+    }
+    let start = group.first().and_then(|i| tris.get(*i)).map_or([0.0; 3], |t| t[0]);
+    for (i, k) in keys.iter().enumerate().filter(|(i, _)| !inside.contains(i)) {
+        if (0..3).any(|j| boundary.contains(&edge(k[j], k[(j + 1) % 3]))) {
+            return false;
+        }
+        let t = tris.get(i).copied().unwrap_or_default();
+        for p in t {
+            // Only a corner in the face's own plane can stand on its boundary.
+            if dot(face.normal, sub(p, start)).abs() > ON_FACE {
+                continue;
+            }
+            if rim.iter().any(|e| stands_on(place.get(&e.from).copied(), place.get(&e.to).copied(), p)) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Whether corner `p` stands on the line from `a` to `b` between them, a weld away from either end: a corner there is a
+/// T-junction, its triangle meeting the face along part of an edge and walking none of it whole.
+fn stands_on(a: Option<P3>, b: Option<P3>, p: P3) -> bool {
+    let (Some(a), Some(b)) = (a, b) else { return false };
+    let ab = sub(b, a);
+    let square = dot(ab, ab);
+    if square <= ON_FACE * ON_FACE {
+        return false;
+    }
+    let along = dot(sub(p, a), ab) / square.sqrt();
+    if along <= ON_FACE || along >= square.sqrt() - ON_FACE {
+        return false;
+    }
+    let foot = add(a, mul(ab, along / square.sqrt()));
+    let off = sub(p, foot);
+    dot(off, off).sqrt() <= ON_FACE
+}
+
 /// `tris` with `face` moved `distance` mm along its normal, out of the solid where that is positive: every corner welded
 /// to one of the face's moves with it, so the faces round it stretch as a hand pulling a SketchUp face's does. A face with
 /// nothing beside it — a sheet, as an imported mesh may hold — is no surface to stretch: it rises into a solid, keeping
@@ -150,9 +192,8 @@ pub fn push(tris: &[[P3; 3]], face: &Face, distance: f64) -> Result<Vec<[P3; 3]>
         return Err("that face is no face of these triangles".into());
     }
     let keys = crate::view3d::weld(tris);
-    let (met, rim) = (edges(&keys), rim(&keys, &face.tris));
-    let alone = !rim.is_empty() && rim.iter().all(|e| met.get(&e.edge) == Some(&1));
-    if alone {
+    let rim = rim(&keys, &face.tris);
+    if !rim.is_empty() && alone(tris, &keys, &face.tris, &rim, face) {
         return extrude(tris, &keys, face, &rim, distance).and_then(held);
     }
     let mut moving: HashSet<[i64; 3]> = HashSet::new();
@@ -185,6 +226,9 @@ fn extrude(tris: &[[P3; 3]], keys: &[[Corner; 3]], face: &Face, rim: &[OnRim], d
     }
     let inside: HashSet<usize> = face.tris.iter().copied().collect();
     let mut out: Vec<[P3; 3]> = tris.iter().enumerate().filter(|(i, _)| !inside.contains(i)).map(|(_, t)| *t).collect();
+    if out.len().saturating_add(2 * face.tris.len() + 2 * rim.len()) > crate::family::MAX_TRIANGLES {
+        return Err(format!("that would make the mesh more than {} triangles, the most a form holds", crate::family::MAX_TRIANGLES));
+    }
     let mut raised: Vec<[P3; 3]> = Vec::with_capacity(2 * face.tris.len() + 2 * rim.len());
     for i in &face.tris {
         let Some(t) = tris.get(*i) else { continue };
@@ -200,7 +244,7 @@ fn extrude(tris: &[[P3; 3]], keys: &[[Corner; 3]], face: &Face, rim: &[OnRim], d
         raised.push([pa, pb, qb]);
         raised.push([pa, qb, qa]);
     }
-    sealed(&raised).map_err(|e| format!("that face is no simple loop, so no solid rises from it: {e}"))?;
+    sealed(&raised).map_err(|e| format!("that face is no surface a solid can rise from: {e}"))?;
     // Wound one way the walls face in: the solid is then the mirror of itself, so it turns out.
     if volume(&raised) < 0.0 {
         for t in &mut raised {
@@ -360,6 +404,38 @@ mod tests {
         let up = push(&two, &face, 500.0).expect("it rises");
         assert_eq!(up.len(), 14, "the lower sheet's twelve and the other one's two");
         assert_eq!(&up[..2], &above[..], "the sheet above stands where it was, wound as it was");
+    }
+
+    #[test]
+    fn a_sheet_with_another_triangle_on_part_of_its_edge_moves_instead_of_rising() {
+        // A sheet A whose bottom edge has two triangles of its plane on parts of it: A alone is no sheet, whatever the exact
+        // edges say, and pushing it moves its corners as any face of a surface does.
+        let a = [[0.0, 0.0, 0.0], [4000.0, 0.0, 0.0], [2000.0, 2000.0, 0.0]];
+        let tris = vec![
+            a,
+            [[0.0, 0.0, 0.0], [2000.0, 0.0, 0.0], [0.0, -1000.0, 0.0]],
+            [[2000.0, 0.0, 0.0], [4000.0, 0.0, 0.0], [4000.0, -1000.0, 0.0]],
+        ];
+        let face = face_at(&tris, [2000.0, 500.0, 0.0]).expect("the sheet's face");
+        assert_eq!(face.tris, [0], "the triangle alone");
+        let pushed = push(&tris, &face, 500.0).expect("it moves");
+        assert_eq!(pushed.len(), 3, "nothing rises: the face moves and the two triangles beside it stretch");
+        assert_eq!(pushed.iter().flatten().map(|p| p[2]).fold(f64::MIN, f64::max), 500.0, "the face went up");
+    }
+
+    #[test]
+    fn a_face_no_solid_can_rise_from_is_refused() {
+        // Three triangles over one edge, each walking it the same way: a face a push cannot wall in, refused with why.
+        let spine: [[f64; 3]; 2] = [[0.0, 0.0, 0.0], [1000.0, 0.0, 0.0]];
+        let tris = vec![
+            [spine[0], spine[1], [500.0, 500.0, 0.0]],
+            [spine[0], spine[1], [500.0, 1000.0, 0.0]],
+            [spine[0], spine[1], [500.0, 1500.0, 0.0]],
+        ];
+        let face = face_at(&tris, [500.0, 800.0, 0.0]).expect("the face they make");
+        assert_eq!(face.tris.len(), 3, "one flat face of three triangles");
+        let e = push(&tris, &face, 500.0).expect_err("no solid rises from it");
+        assert!(e.contains("no surface a solid can rise from"), "{e}");
     }
 
     #[test]

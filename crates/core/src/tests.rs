@@ -2461,6 +2461,9 @@ fn hostile_params_never_panic_or_break_the_model() {
         json!({"family": "Direct Model", "at": [0, -200, 1000], "distance": f64::MAX}),
         json!({"family": "Direct Model", "at": [0, -200, 1000], "distance": 1}),
         json!({"family": "Direct Model", "at": [0, 0, 0], "distance": 1, "form": 9}),
+        json!({"family": "Sweep Sheet", "at": [200, 200, 0], "distance": 500}),
+        json!({"family": "Sweep Sheet", "at": [200, 200, 0], "distance": f64::MAX}),
+        json!({"family": "Sweep Sheet", "at": [200, 200, 0], "distance": 1e-9, "form": 0}),
         json!({"name": "F", "types": {"A": {}}, "forms": [{"plane": "xz", "profile": [[1, 0], [2, 0], [2, 1]], "axis": [[0, 0], [1e300, 1e300]], "to": 1e300}]}),
         json!({"name": "F", "types": {"A": {}}, "forms": [{"profile": [[1, 0], [2, 0], [2, 1]], "axis": [[0, 0], [0, 0]], "to": 360}]}),
         json!({"name": "F", "types": {"A": {}}, "forms": [{"profile": [[1, 0], [2, 0], [2, 1]], "axis": "x", "to": 360}]}),
@@ -3004,6 +3007,12 @@ fn hostile_params_never_panic_or_break_the_model() {
     let _ = base.execute("place", &json!({"sheet": "A101", "view": "Level 1"}));
     // A direct-modeling mesh, last so that no id moves: the sweep pushes a face of it, and refuses bad ones.
     let _ = base.execute("mesh", &box_mesh());
+    // And a sheet, one triangle with nothing beside it, so a push of it takes the other rule: it rises into a solid rather
+    // than stretching what is round it.
+    let _ = base.execute(
+        "family",
+        &json!({"name": "Sweep Sheet", "types": {"Default": {}}, "forms": [{"mesh": [[[0.0, 0.0, 0.0], [1000.0, 0.0, 0.0], [0.0, 1000.0, 0.0]]]}]}),
+    );
     let exports = temp("sweep-exports");
     targeted.extend(crate::export_tests::sweep_payloads(&exports));
     let hostile: Vec<Value> = hostile.into_iter().chain(finishes).collect();

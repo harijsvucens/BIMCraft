@@ -1264,9 +1264,10 @@ would turn the solid inside out, is refused.
 A face with no other face beside it — a sheet, as an imported mesh may hold, or a single quad in a file — is not stretched by a
 push: it rises into a solid. The face stays where it is as the near end, facing out of what rises, a copy of it stands `distance`
 away as the far end, and a wall of two triangles runs round each of its boundary edges; pushed the other way, the same solid
-hangs the other side, turned out. So a sheet drawn or imported flat becomes a box with one push, and the push is one undo step.
-Only a face whose boundary meets no other triangle of the mesh is extruded this way: a face beside others moves and they stretch,
-as before.
+hangs the other side, turned out. So a sheet imported flat, or drawn once a tool draws one, becomes a box with one push — a tube,
+if the sheet has a hole through it — and the push is one undo step. Only a face that no other triangle of the mesh holds is
+extruded this way: one beside others moves and they stretch, as before, and that includes a triangle meeting it along part of an
+edge only (a T-junction, as a tessellated surface brings in), which is why the test is not the exact edges alone.
 
 What it does not do yet, and the slices that follow: draw on a face in the 3D view (the tool and its draft), holes and
 openings through a face, booleans between meshes, bevels, and pushing an imported mesh's face from a pick in the viewport

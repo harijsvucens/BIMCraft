@@ -1830,7 +1830,7 @@ other_files(
          on the face gives, taken back to the family. `form` counts the family's forms from 1, its first mesh by default. A \
          curved side, such as a cylinder's, is no flat face: it has no plane of its own and nothing pushes it; a push of 0, or \
          one that would turn the solid inside out, is refused. Returns the `family` and `form` it changed, the `distance`, the \
-         face's `normal`, the `triangles` of it and the solid's `volume` in m³",
+         face's `normal`, the `triangles` of it and the form's signed `volume` in m³",
         mesh_push_pull,
     ),
     edit(
