@@ -1252,6 +1252,12 @@ a closed solid: `mesh::sealed` holds every welded edge to exactly two triangles,
 holds the count, `MAX_COORD`, the volume and the winding (turning a mesh inside out by its signed volume). `mesh.rs` owns the
 rest: which triangles make one face, and pushing one.
 
+`mesh_check` says what one of a family's meshes makes of itself, through the same `mesh::measure` a push and a form's own
+check read: `kind` is a `solid` (every welded edge walked by two triangles, one each way), an `open sheet` (a surface with an
+edge on one triangle, as an imported model may be), an edge shared by more than two triangles, or a triangle turned round —
+with `solid`, the `volume` in m³, the `area` in m² and the `triangles`. `Family::check` measures every mesh form too, so a
+corner past `MAX_COORD` or a triangle folded on itself is no form, while a sheet is one: a direct model starts from one.
+
 `mesh_push_pull` is SketchUp's Push/Pull on one flat face of a family's mesh: `at` is a point on the face, in the form's own
 axes, and the face moves `distance` millimetres along its normal, out of the solid where that is positive. Given `component`
 (a component's GUID) instead of `family`, `at` is a point of the model and is taken back through where the component stands —
@@ -1275,7 +1281,6 @@ edge only (a T-junction, as a tessellated surface brings in), which is why the t
 What it does not do yet, and the slices that follow: draw on a face in the 3D view (the tool and its draft), holes and
 openings through a face, booleans between meshes, bevels, and pushing an imported mesh's face from a pick in the viewport
 (the command takes the form's own point). The plan is [Discussion #468](https://github.com/IPedrax/BIMCraft/discussions/468).
-
 ## Where the code lives
 
 Moved from the root `CLAUDE.md`'s module map, which names the files and points here for what each owns.

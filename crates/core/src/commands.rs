@@ -1837,6 +1837,17 @@ other_files(
         mesh_push_pull,
     ),
     edit(
+        "mesh_check",
+        "Mesh Check",
+        &[],
+        "{family, form?} what one of a family's meshes makes of itself: `kind` is `solid` (every edge shared by two triangles, \
+         facing apart), `open sheet` (a surface with an edge on one triangle, as an imported model may be) or what is wrong with \
+         it (an edge shared by more than two, a triangle turned round), with `solid`, the space it encloses `volume` in m³, its \
+         `area` in m² and its `triangles`. `form` counts the family's forms from 1, its first mesh by default. The measuring a \
+         push and a form's own check read, one place",
+        mesh_check,
+    ),
+    edit(
         "flip",
         "Flip",
         &[],
@@ -8457,6 +8468,59 @@ fn triangles(c: &str, p: &Value, points: &[[f64; 3]]) -> Result<Vec<[[f64; 3]; 3
         .collect()
 }
 
+/// The form of `family` a mesh command names: its `form` counted from 1, or its first mesh. One place, so `mesh_check`,
+/// `mesh_push_pull` and what comes after read a form the same way.
+fn mesh_form(c: &str, p: &Value, m: &Model, family: &str) -> Result<usize, String> {
+    let f = m.families.get(family).ok_or_else(|| bad(c, format!("the project has no family `{family}`")))?;
+    let want = match p.get("form") {
+        v if absent(v) => None,
+        Some(v) => {
+            let n = v.as_u64().filter(|n| *n >= 1).ok_or_else(|| bad(c, format!("`form` counts a family's forms from 1, got {v}")))?;
+            Some(usize::try_from(n - 1).map_err(|_| bad(c, format!("`form` counts a family's forms from 1, got {v}")))?)
+        }
+        None => None,
+    };
+    match want {
+        Some(n) => {
+            let form = f.forms.get(n).ok_or_else(|| bad(c, format!("`{family}` has {} forms, not {}", f.forms.len(), n + 1)))?;
+            if form.mesh.is_empty() {
+                return Err(bad(c, format!("form {} of `{family}` has no mesh: it is a sketch", n + 1)));
+            }
+            Ok(n)
+        }
+        None => f
+            .forms
+            .iter()
+            .position(|form| !form.mesh.is_empty())
+            .ok_or_else(|| bad(c, format!("`{family}` has no mesh: its forms are sketches"))),
+    }
+}
+
+/// What a family's mesh makes of itself: a solid, an open sheet, or no surface at all, with the space it encloses and the
+/// surface it has. `mesh::measure` is the one place those are worked out, so this is what a push and a form's checks read.
+fn mesh_check(s: &mut Session, p: &Value) -> R {
+    let c = "mesh_check";
+    let family = string(c, p, "family")?.ok_or_else(|| bad(c, "`family` is required: the family whose mesh is measured"))?;
+    let index = mesh_form(c, p, &s.model, &family)?;
+    let form = s
+        .model
+        .families
+        .get(&family)
+        .and_then(|f| f.forms.get(index))
+        .ok_or_else(|| bad(c, format!("the project has no family `{family}`")))?;
+    let m = crate::mesh::measure(&form.mesh).map_err(|e| bad(c, e))?;
+    let round = |v: f64| (v * 1e6).round() / 1e6;
+    Ok(json!({
+        "family": family,
+        "form": index + 1,
+        "kind": m.kind.word(),
+        "solid": m.is_solid(),
+        "volume": round(m.volume / 1e9),
+        "area": round(m.area / 1e6),
+        "triangles": m.triangles,
+    }))
+}
+
 /// One flat face of a family's mesh pushed along its normal: a solid grown or shrunk by a hand, as SketchUp pulls one.
 fn mesh_push_pull(s: &mut Session, p: &Value) -> R {
     let c = "mesh_push_pull";
@@ -8488,40 +8552,19 @@ fn mesh_push_pull(s: &mut Session, p: &Value) -> R {
         }
     };
     let distance = num(c, p, "distance")?.ok_or_else(|| bad(c, "`distance` in mm is required: how far the face moves along its normal"))?;
-    let want = match p.get("form") {
-        v if absent(v) => None,
-        Some(v) => {
-            let n = v.as_u64().filter(|n| *n >= 1).ok_or_else(|| bad(c, format!("`form` counts a family's forms from 1, got {v}")))?;
-            Some(usize::try_from(n - 1).map_err(|_| bad(c, format!("`form` counts a family's forms from 1, got {v}")))?)
-        }
-        None => None,
-    };
     if distance == 0.0 {
         return Err(bad(c, "`distance` is 0: a push of nothing moves no face"));
     }
+    let index = mesh_form(c, p, &s.model, &family)?;
     // Nothing is copied until the push is known to be one: `Arc::make_mut` alone would make an undo step.
-    let (index, face, pushed, volume, same) = {
+    let (face, pushed, volume, same) = {
         let f = s.model.families.get(&family).ok_or_else(|| bad(c, format!("the project has no family `{family}`")))?;
-        let index = match want {
-            Some(n) => {
-                let form = f.forms.get(n).ok_or_else(|| bad(c, format!("`{family}` has {} forms, not {}", f.forms.len(), n + 1)))?;
-                if form.mesh.is_empty() {
-                    return Err(bad(c, format!("form {} of `{family}` has no mesh: it is a sketch", n + 1)));
-                }
-                n
-            }
-            None => f
-                .forms
-                .iter()
-                .position(|form| !form.mesh.is_empty())
-                .ok_or_else(|| bad(c, format!("`{family}` has no mesh to push: its forms are sketches")))?,
-        };
         let form = &f.forms[index];
         let face = crate::mesh::face_at(&form.mesh, at).map_err(|e| bad(c, e))?;
         let pushed = crate::mesh::push(&form.mesh, &face, distance).map_err(|e| bad(c, e))?;
         let volume = crate::mesh::measure(&pushed).map(|m| m.volume / 1e9).map_err(|e| bad(c, e))?;
         let same = *form.mesh == pushed;
-        (index, face, pushed, volume, same)
+        (face, pushed, volume, same)
     };
     let reply = json!({
         "family": family,

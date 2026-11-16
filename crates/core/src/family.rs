@@ -2258,6 +2258,11 @@ impl Family {
                 return Err(format!("{who}: its sketch has {} lines, more than {}", form.sketch.len(), sketch::MAX_SKETCH));
             }
             forms::check_kind(form).map_err(|e| format!("{who}: {e}"))?;
+            // A mesh is measured here as the commands measure it: a corner off the model, or a triangle folded on itself, is no
+            // form. An open sheet is a form as a direct model starts one, so it is measured, not refused.
+            if !form.mesh.is_empty() {
+                crate::mesh::measure(&form.mesh).map_err(|e| format!("{who}: its mesh: {e}"))?;
+            }
             if form.mesh.is_empty() {
                 self.frame(&form.host).map_err(|e| format!("{who}: its host: {e}"))?;
             }

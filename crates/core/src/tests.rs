@@ -2461,6 +2461,8 @@ fn hostile_params_never_panic_or_break_the_model() {
         json!({"family": "Direct Model", "at": [0, -200, 1000], "distance": f64::MAX}),
         json!({"family": "Direct Model", "at": [0, -200, 1000], "distance": 1}),
         json!({"family": "Direct Model", "at": [0, 0, 0], "distance": 1, "form": 9}),
+        json!({"family": "Direct Model", "form": 0}),
+        json!({"family": "Sweep Sheet", "form": 1e9}),
         json!({"family": "Sweep Sheet", "at": [200, 200, 0], "distance": 500}),
         json!({"family": "Sweep Sheet", "at": [200, 200, 0], "distance": f64::MAX}),
         json!({"family": "Sweep Sheet", "at": [200, 200, 0], "distance": 1e-9, "form": 0}),
@@ -7461,6 +7463,39 @@ fn a_meshed_component_s_face_is_pushed_by_a_point_of_the_model() {
     assert!(e.contains("no `component`") || e.contains("must be a component"), "{e}");
     let e = s.execute("mesh_push_pull", &json!({"at": [0, 0, 0], "distance": 1})).unwrap_err();
     assert!(e.contains("`family`") && e.contains("`component`"), "{e}");
+}
+
+#[test]
+fn a_mesh_is_checked_for_what_it_makes_and_what_is_wrong_with_it() {
+    let mut s = Session::new();
+    run(&mut s, "mesh", box_mesh());
+    let m = run(&mut s, "mesh_check", json!({"family": "Direct Model"}));
+    assert_eq!((m["kind"].as_str(), m["solid"].as_bool()), (Some("solid"), Some(true)));
+    assert_eq!((m["volume"].as_f64(), m["area"].as_f64(), m["triangles"].as_u64()), (Some(1.0), Some(6.0), Some(12)));
+    // A sheet is a form a direct model starts from: measured and named, not refused, by the check or the family.
+    run(
+        &mut s,
+        "family",
+        json!({"name": "Sheet", "types": {"Default": {}}, "forms": [{"mesh": [[[0, 0, 0], [1000, 0, 0], [0, 1000, 0]]]}]}),
+    );
+    let m = run(&mut s, "mesh_check", json!({"family": "Sheet"}));
+    assert_eq!((m["kind"].as_str(), m["solid"].as_bool()), (Some("open sheet"), Some(false)));
+    assert_eq!(m["volume"], json!(0.0));
+    // A triangle turned round is no surface, and said so; a mesh that reaches past the model is no form at all.
+    let mut turned = box_mesh();
+    turned["triangles"][2] = json!([4, 6, 5]);
+    run(
+        &mut s,
+        "family",
+        json!({"name": "Turned", "types": {"Default": {}}, "forms": [{"mesh": [[[0, 0, 0], [1000, 0, 0], [1000, 1000, 0]], [[0, 0, 0], [0, 1000, 0], [1000, 1000, 0]]]}]}),
+    );
+    let m = run(&mut s, "mesh_check", json!({"family": "Turned"}));
+    assert_eq!(m["kind"], json!("a triangle turned round"), "two triangles over one edge the same way");
+    let far = json!({"name": "Far", "types": {"Default": {}}, "forms": [{"mesh": [[[0, 0, 0], [1e300, 0, 0], [0, 1000, 0]]]}]});
+    let e = s.execute("family", &far).unwrap_err();
+    assert!(e.contains("past where the model") || e.contains("its mesh"), "{e}");
+    let e = s.execute("mesh_check", &json!({"family": "Direct Model", "form": 0})).unwrap_err();
+    assert!(e.contains("counts a family's forms from 1"), "{e}");
 }
 
 #[test]
