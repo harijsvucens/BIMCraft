@@ -2453,6 +2453,9 @@ fn hostile_params_never_panic_or_break_the_model() {
         json!({"name": "F", "types": {"A": {}}, "parameters": [{"name": "W", "formula": "W + 1"}], "forms": [{"circle": {"centre": [0, 0], "radius": "W"}, "to": 1}]}),
         json!({"name": "F", "types": {"A": {"Nope": 1}}, "forms": [{"profile": "x"}]}),
         json!({"name": "F", "types": {"A": {}}, "forms": [{"mesh": [[[0, 0, 0], [1e300, 0, 0], [0, 1, 0]]]}]}),
+        json!({"points": [[0, 0, 0], [1000, 0, 0], [0, 1000, 0], [0, 0, 1000]], "triangles": [[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]]}),
+        json!({"points": "x", "triangles": [[0, u64::MAX, 2], [0, 0, 0]], "name": 5, "at": [1e300, 0], "level": []}),
+        json!({"family": "Direct Model", "at": [1e300, 0, 0], "distance": 1e300, "form": 0}),
         json!({"name": "F", "types": {"A": {}}, "forms": [{"plane": "xz", "profile": [[1, 0], [2, 0], [2, 1]], "axis": [[0, 0], [1e300, 1e300]], "to": 1e300}]}),
         json!({"name": "F", "types": {"A": {}}, "forms": [{"profile": [[1, 0], [2, 0], [2, 1]], "axis": [[0, 0], [0, 0]], "to": 360}]}),
         json!({"name": "F", "types": {"A": {}}, "forms": [{"profile": [[1, 0], [2, 0], [2, 1]], "axis": "x", "to": 360}]}),
@@ -7331,4 +7334,54 @@ fn the_exit_tests_window_flexes_as_built_schedules_and_goes_to_ifc() {
     let n = |class: &str| ifc.lines().filter(|l| l.contains(&format!("={class}("))).count();
     assert_eq!((n("IFCWINDOW"), n("IFCOPENINGELEMENT"), n("IFCRELVOIDSELEMENT"), n("IFCRELFILLSELEMENT")), (2, 2, 2, 2));
     assert!(ifc.contains("'Exit Window:1200 x 1500',#") && ifc.contains(",1500.,1200.,.WINDOW."), "the window's OverallHeight and Width");
+}
+
+/// A box a metre each way as `mesh` takes it: eight points and twelve triangles, turned out.
+fn box_mesh() -> Value {
+    json!({
+        "points": [[0, 0, 0], [1000, 0, 0], [1000, 1000, 0], [0, 1000, 0], [0, 0, 1000], [1000, 0, 1000], [1000, 1000, 1000], [0, 1000, 1000]],
+        "triangles": [[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]],
+    })
+}
+
+#[test]
+fn a_mesh_is_a_family_of_its_own_and_a_face_of_it_pushes_in_one_undo_step() {
+    let mut s = Session::new();
+    let mut p = box_mesh();
+    p["at"] = json!([2000, 3000]);
+    let made = run(&mut s, "mesh", p);
+    assert_eq!(made["family"], json!("Direct Model"));
+    assert_eq!(made["volume"], json!(1.0), "a cubic metre");
+    // The family stands on its own origin; the component puts it back where the points were.
+    let origin: Vec<f64> = made["origin"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+    assert_eq!(origin, [500.0, 500.0, 0.0]);
+    let placed = s
+        .model
+        .elements
+        .iter()
+        .find_map(|(_, e)| match e {
+            crate::model::Element::Component(c) => Some((c.at.0, c.at.1, c.offset)),
+            _ => None,
+        })
+        .expect("a component");
+    assert_eq!(placed, (2500.0, 3500.0, 0.0));
+    // The top face, half a metre up, along the family's own axes.
+    let at = [500.0 - origin[0], 300.0 - origin[1], 1000.0 - origin[2]];
+    let pushed = run(&mut s, "mesh_push_pull", json!({"family": "Direct Model", "at": at, "distance": 500}));
+    assert_eq!(pushed["normal"], json!([0.0, 0.0, 1.0]));
+    assert_eq!(pushed["triangles"], json!(2), "the top is two triangles");
+    assert_eq!(pushed["volume"], json!(1.5), "half a metre taller");
+    // The model keeps it, and one undo takes it back.
+    run(&mut s, "undo", json!({}));
+    let top = s.model.families["Direct Model"].forms[0].mesh.iter().flatten().map(|q| q[2]).fold(f64::MIN, f64::max);
+    assert_eq!(top, 1000.0, "the top is where it was");
+    // Nothing holds a point off a face, and a mesh that does not close is refused before it is made.
+    let e = s.execute("mesh_push_pull", &json!({"family": "Direct Model", "at": [0.0, 0.0, 5000.0], "distance": 100})).unwrap_err();
+    assert!(e.contains("no flat face"), "{e}");
+    let mut open = box_mesh();
+    open["triangles"].as_array_mut().unwrap().pop();
+    let e = s.execute("mesh", &open).unwrap_err();
+    assert!(e.contains("no closed solid"), "{e}");
+    let e = s.execute("mesh_push_pull", &json!({"family": "No such", "at": [0, 0, 0], "distance": 1})).unwrap_err();
+    assert!(e.contains("no family"), "{e}");
 }

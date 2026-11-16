@@ -659,7 +659,7 @@ const SMOOTH: f64 = 20.0;
 /// [`SMOOTH`] degrees there are one. A surface with a bend in it is a curve, each triangle's as its first triangle's
 /// index; one with none is a face, numbered the same way, so two faces in one plane that do not touch are two. None for a
 /// triangle with no area, which has no plane to be one.
-fn facets(tris: &[[P3; 3]]) -> (Vec<Option<usize>>, Vec<Option<usize>>) {
+pub(crate) fn facets(tris: &[[P3; 3]]) -> (Vec<Option<usize>>, Vec<Option<usize>>) {
     /// The first triangle of `i`'s surface, as `up` links them, shortening the way as it goes.
     fn first(up: &mut [usize], mut i: usize) -> usize {
         while let Some(&p) = up.get(i)
@@ -677,20 +677,16 @@ fn facets(tris: &[[P3; 3]]) -> (Vec<Option<usize>>, Vec<Option<usize>>) {
     let normals: Vec<P3> = tris.iter().map(|[a, b, c]| unit(cross(sub(*b, *a), sub(*c, *a)))).collect();
     let normal = |i: usize| normals.get(i).copied().unwrap_or_default();
     let mut up: Vec<usize> = (0..tris.len()).collect();
+    let corners = weld(tris);
     // The first triangle on each side, whose corners a micron's grid names and [`welded`] joins to a twin in the cells
     // around it.
     // ponytail: a third triangle on a side meets only the first; pair them all if facet lines show.
     let mut edges: HashMap<([i64; 3], [i64; 3]), usize> = HashMap::new();
-    let mut canon: HashMap<[i64; 3], [i64; 3]> = HashMap::new();
     let mut bent = Vec::new();
-    for (i, t) in tris.iter().enumerate() {
-        let mut corner = |k: usize| {
-            let p = t.get(k % 3).copied().unwrap_or_default();
-            welded(&mut canon, p.map(|x| (x * 1e3).round() as i64), p)
-        };
-        let corners = [corner(0), corner(1), corner(2)];
+    for (i, _) in tris.iter().enumerate() {
+        let c = corners.get(i).copied().unwrap_or_default();
         for k in 0..3 {
-            let (a, b) = (corners[k], corners[(k + 1) % 3]);
+            let (a, b) = (c[k], c[(k + 1) % 3]);
             let j = *edges.entry((a.min(b), a.max(b))).or_insert(i);
             // A triangle with no area has no normal, so it turns 90° from every other.
             let turn = dot(normal(i), normal(j));
@@ -718,6 +714,13 @@ fn facets(tris: &[[P3; 3]]) -> (Vec<Option<usize>>, Vec<Option<usize>>) {
         faces.push(face);
     }
     (curves, faces)
+}
+
+/// The corner each triangle corner of a mesh welds to, by a micron's grid: the same point written twice, or twice within
+/// the weld, gets one. The scene groups a mesh's faces by these corners, so what a pick selects is what a push moves.
+pub(crate) fn weld(tris: &[[P3; 3]]) -> Vec<[[i64; 3]; 3]> {
+    let mut canon: HashMap<[i64; 3], [i64; 3]> = HashMap::new();
+    tris.iter().map(|t| t.map(|p| welded(&mut canon, p.map(|x| (x * 1e3).round() as i64), p))).collect()
 }
 
 /// The corner a rounded `q` stands for: itself, or the first corner already met within the weld, which a cell's edge may

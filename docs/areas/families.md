@@ -1242,6 +1242,28 @@ data URI is decoded. What the reader can't use (textures, lines and points, spar
 which refuse the file) is listed in `left_out`; a file with nothing to bring in is an error that says what was left out.
 Generic components go to IFC as `IfcBuildingElementProxy`.
 
+## Direct-modeling a mesh
+
+`mesh` makes a free-form mesh a Generic Model family of its own, and places it: `points` are `[x, y, z]` in millimetres and
+`triangles` give three indices into them each, wound counter-clockwise seen from outside, so they close a solid. The family
+stands on its base with the middle of its plan on its origin, as an imported model does, and its component goes where the
+points are, on its level, its lowest point as the offset. The triangles are checked as a closed solid (`family::forms::closed`):
+too many, past `MAX_COORD`, no volume, or inward-wound and turned out by their signed volume. `mesh.rs` owns the rest: which
+triangles make one face and pushing one.
+
+`mesh_push_pull` is SketchUp's Push/Pull on one flat face of a family's mesh: `at` is a point on the face, in the form's own
+axes, and the face moves `distance` millimetres along its normal, out of the solid where that is positive. Every corner the
+face shares with the triangles beside it moves too, so a box's top rises and its sides stretch: no boolean, no new face, and
+nothing comes apart. A face is what the 3D scene groups ([`view3d::facets`]): triangles that share a welded corner's edge and
+lie in one plane, however they wind. Triangles that turn into one another by less than the scene's smooth angle are one curved
+surface — a cylinder's side — which has no plane of its own, so a pick there is refused with what to pick instead. Both the
+weld and the grouping are the scene's, so the face a pick selects is the face a push moves.
+
+What it does not do yet, and the slices that follow: draw on a face in the 3D view (`DirectDraft`, the tool), holes and
+openings through a face, booleans between meshes, bevels, and pushing an imported mesh's face from a pick in the viewport
+(the command takes the form's own point). The design is `notes/specs/direct-modeling.md` in the contribution workspace, not
+in this repository.
+
 ## Where the code lives
 
 Moved from the root `CLAUDE.md`'s module map, which names the files and points here for what each owns.

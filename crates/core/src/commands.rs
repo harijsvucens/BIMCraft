@@ -1805,6 +1805,32 @@ other_files(
     )
     .menu("Architecture > Component"),
     edit(
+        "mesh",
+        ui_msg!("Mesh"),
+        &[],
+        "{points, triangles, name?, level?, at?: [x, y]} makes a free-form mesh a family of its own, a Generic Model with \
+         one form of its triangles, and places it: `points` are [x, y, z] in mm, `triangles` three indices into them each, \
+         wound counter-clockwise seen from outside, so the triangles close a solid. The family is about the middle of its \
+         plan and its lowest point, and the component stands where the points are, on `level` (the lowest by default), its \
+         plan moved by `at`. `name` names the family (Direct Model by default, numbered if the project has one). Returns \
+         the family's name, the component's id, the `origin` its mesh's axes are about and its `volume` in m³. Push a face \
+         of it with `mesh_push_pull`",
+        mesh,
+    ),
+    edit(
+        "mesh_push_pull",
+        ui_msg!("Push/Pull"),
+        &[],
+        "{family, at: [x, y, z], distance, form?} moves the flat face of one of a family's meshes that `at` lies on, \
+         `distance` mm along the face's normal, out of the solid where that is positive, as SketchUp's Push/Pull: every \
+         corner the face shares with the triangles beside it moves with it and those triangles stretch, so a box grows or \
+         shrinks and nothing comes apart. `at` is in the form's own axes, the `origin` `mesh` replies with: the point a pick \
+         on the face gives, taken back to the family. `form` counts the family's forms from 1, its first mesh by default. A \
+         curved side, such as a cylinder's, is no flat face: it has no plane of its own and nothing pushes it. Returns the \
+         form it changed, the face's normal, the triangles of it and the solid's `volume` in m³",
+        mesh_push_pull,
+    ),
+    edit(
         "flip",
         "Flip",
         &[],
@@ -8345,6 +8371,129 @@ fn import_mesh(s: &mut Session, p: &Value) -> R {
         }
     }
     Ok(json!({"components": components, "families": families, "left_out": left_out}))
+}
+
+/// A free-form mesh as a Generic Model family of its own, placed: what the Family Editor's imported triangles are, made
+/// from points and indices, so a model can be drawn and pushed into shape by commands.
+fn mesh(s: &mut Session, p: &Value) -> R {
+    use crate::family::{Category, Family, Form};
+    let c = "mesh";
+    let level = level_param(c, &s.model, p, "level")?;
+    let at = point_opt(c, p, "at")?.unwrap_or(P2(0.0, 0.0));
+    let points = points3(c, p, "points")?;
+    if points.len() < 3 {
+        return Err(bad(c, "`points` needs three points at least, to make a triangle of"));
+    }
+    let tris = triangles(c, p, &points)?;
+    // The family stands on its base, its middle on its origin; the component puts it back where the points are.
+    let (lo, hi) = points.iter().fold(([f64::MAX; 3], [f64::MIN; 3]), |(lo, hi), q| {
+        ([lo[0].min(q[0]), lo[1].min(q[1]), lo[2].min(q[2])], [hi[0].max(q[0]), hi[1].max(q[1]), hi[2].max(q[2])])
+    });
+    let origin = [((lo[0] + hi[0]) / 2.0 * 1e3).round() / 1e3, ((lo[1] + hi[1]) / 2.0 * 1e3).round() / 1e3, (lo[2] * 1e3).round() / 1e3];
+    let local: Vec<[[f64; 3]; 3]> = tris.iter().map(|t| t.map(|q| [q[0] - origin[0], q[1] - origin[1], q[2] - origin[2]])).collect();
+    crate::mesh::sealed(&local).map_err(|e| bad(c, format!("these triangles are no closed solid: {e}")))?;
+    let local = crate::family::forms::closed(local).map_err(|e| bad(c, format!("these triangles are no closed solid: {e}")))?;
+    let volume = local.iter().map(|[a, b, c]| view3d::dot(*a, view3d::cross(*b, *c))).sum::<f64>() / 6.0 / 1e9;
+    let m = Arc::make_mut(&mut s.model);
+    let stem = string(c, p, "name")?.map(|n| n.trim().to_string()).filter(|n| !n.is_empty()).unwrap_or_else(|| "Direct Model".into());
+    let name = (1..=1000)
+        .map(|n| if n == 1 { stem.clone() } else { format!("{} ({n})", stem.chars().take(MAX_TEXT - 8).collect::<String>()) })
+        .find(|n| !m.families.contains_key(n))
+        .ok_or_else(|| bad(c, format!("the project has too many families named `{stem}`")))?;
+    let mut family =
+        Family { category: Category::Generic, forms: vec![Form { mesh: Arc::new(local), ..Form::default() }], ..Family::default() };
+    family.types.insert("Default".into(), BTreeMap::new());
+    family.check(&|_| true).map_err(|e| bad(c, e))?;
+    m.families.insert(name.clone(), family);
+    let component = m.insert(Element::Component(Component {
+        adaptive: None,
+        family: name.clone(),
+        type_name: "Default".into(),
+        level,
+        at: P2(at.0 + origin[0], at.1 + origin[1]),
+        angle: 0.0,
+        offset: origin[2],
+        mirrored: false,
+        params: BTreeMap::new(),
+        host: None,
+        panel: None,
+    }));
+    Ok(json!({"family": name, "component": component, "origin": origin, "triangles": tris.len(), "volume": (volume * 1e6).round() / 1e6}))
+}
+
+/// The triangles of a mesh, as the three indices into `points` each that a command gives them.
+fn triangles(c: &str, p: &Value, points: &[[f64; 3]]) -> Result<Vec<[[f64; 3]; 3]>, String> {
+    let a = p
+        .get("triangles")
+        .and_then(Value::as_array)
+        .ok_or_else(|| bad(c, "`triangles` [[i, j, k], …] is required: three indices into `points` each"))?;
+    if a.is_empty() {
+        return Err(bad(c, "`triangles` is empty: a mesh is a triangle at least"));
+    }
+    if a.len() > crate::family::MAX_TRIANGLES {
+        return Err(bad(c, format!("a mesh is {} triangles at most", crate::family::MAX_TRIANGLES)));
+    }
+    a.iter()
+        .map(|t| {
+            let ix: Option<[usize; 3]> = t.as_array().and_then(|s| {
+                let [i, j, k] = s.as_slice() else { return None };
+                Some([usize::try_from(i.as_u64()?).ok()?, usize::try_from(j.as_u64()?).ok()?, usize::try_from(k.as_u64()?).ok()?])
+            });
+            let [i, j, k] = ix.ok_or_else(|| bad(c, format!("`triangles`: {t} is not three indices into `points`")))?;
+            let at = |n: usize| {
+                points
+                    .get(n)
+                    .copied()
+                    .ok_or_else(|| bad(c, format!("`triangles`: {t} names point {n}, and `points` holds {}", points.len())))
+            };
+            Ok([at(i)?, at(j)?, at(k)?])
+        })
+        .collect()
+}
+
+/// One flat face of a family's mesh pushed along its normal: a solid grown or shrunk by a hand, as SketchUp pulls one.
+fn mesh_push_pull(s: &mut Session, p: &Value) -> R {
+    let c = "mesh_push_pull";
+    let family = string(c, p, "family")?.ok_or_else(|| bad(c, "`family` is required: the family whose mesh is pushed"))?;
+    let at = point3_req(c, p, "at")?;
+    let distance = num(c, p, "distance")?.ok_or_else(|| bad(c, "`distance` in mm is required: how far the face moves along its normal"))?;
+    let want = match p.get("form") {
+        v if absent(v) => None,
+        Some(v) => {
+            let n = v.as_u64().filter(|n| *n >= 1).ok_or_else(|| bad(c, format!("`form` counts a family's forms from 1, got {v}")))?;
+            Some(usize::try_from(n - 1).map_err(|_| bad(c, format!("`form` counts a family's forms from 1, got {v}")))?)
+        }
+        None => None,
+    };
+    let m = Arc::make_mut(&mut s.model);
+    let f = m.families.get_mut(&family).ok_or_else(|| bad(c, format!("the project has no family `{family}`")))?;
+    let index = match want {
+        Some(n) => {
+            let form = f.forms.get(n).ok_or_else(|| bad(c, format!("`{family}` has {} forms, not {}", f.forms.len(), n + 1)))?;
+            if form.mesh.is_empty() {
+                return Err(bad(c, format!("form {} of `{family}` is no mesh: it is a sketch", n + 1)));
+            }
+            n
+        }
+        None => f
+            .forms
+            .iter()
+            .position(|form| !form.mesh.is_empty())
+            .ok_or_else(|| bad(c, format!("`{family}` has no mesh to push: its forms are sketches")))?,
+    };
+    let form = &mut f.forms[index];
+    let face = crate::mesh::face_at(&form.mesh, at).map_err(|e| bad(c, e))?;
+    let pushed = crate::mesh::push(&form.mesh, &face, distance).map_err(|e| bad(c, e))?;
+    let volume = pushed.iter().map(|[a, b, c]| view3d::dot(*a, view3d::cross(*b, *c))).sum::<f64>() / 6.0 / 1e9;
+    form.mesh = Arc::new(pushed);
+    Ok(json!({
+        "family": family,
+        "form": index + 1,
+        "normal": face.normal,
+        "distance": distance,
+        "triangles": face.tris.len(),
+        "volume": (volume * 1e6).round() / 1e6,
+    }))
 }
 
 fn import_cad(s: &mut Session, p: &Value) -> R {
