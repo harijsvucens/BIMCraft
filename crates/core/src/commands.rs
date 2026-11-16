@@ -637,7 +637,8 @@ other_files(
          the flat top; the top is shaped by them and by split lines as a floor's, so `add_point`, `edit_shape`, \
          `add_split_line` and `reset_shape` take it. Its contours are its type's (`type`, `contours`). Its type's top \
          material's surface pattern lies over the whole top from `pattern_origin` and turned by \
-         `pattern_angle`, as a floor's (`modify` sets both). Returns id, name, area_m2, volume_m3, thickness, top and bottom",
+         `pattern_angle`, as a floor's (`modify` sets both). Returns id, name, area_m2, volume_m3, thickness, top, \
+         bottom and `interval` (its contours')",
         toposolid,
     ),
     other(
@@ -3458,14 +3459,9 @@ pub fn element_json_with(m: &Model, id: Id, rooms: &crate::rooms::Rooms) -> Valu
             extra.insert("segments".into(), json!(segments));
         }
         Element::Toposolid(t) => {
-            let (lo, hi) = m.toposolid_range(t);
-            let thickness = m.toposolid_thickness(t);
-            extra.insert("area_m2".into(), json!(m2(geom::area(&t.boundary).abs())));
-            extra.insert("volume_m3".into(), json!((m.toposolid_volume(t) / 1e6).round() / 1e3));
-            extra.insert("top".into(), json!([hundredth(lo), hundredth(hi)]));
-            extra.insert("bottom".into(), json!([hundredth(lo - thickness), hundredth(hi - thickness)]));
-            extra.insert("thickness".into(), json!(thickness));
-            extra.insert("interval".into(), json!(m.toposolid_contour(t).interval));
+            if let Some(o) = toposolid_json(m, t).as_object() {
+                extra.extend(o.clone());
+            }
             // Where its top's model pattern starts and how far it's turned: shown at their defaults too, to be set by modify.
             extra.insert("pattern_origin".into(), json!(t.pattern_origin));
             extra.insert("pattern_angle".into(), json!(t.pattern_angle));
@@ -8739,6 +8735,21 @@ fn property_line(s: &mut Session, p: &Value) -> R {
     Ok(json!({"id": id, "name": name, "area_m2": area}))
 }
 
+/// What a toposolid's replies say about it: its area, its volume, how thick it is, its top and its bottom, and the
+/// interval its plan draws contours at — one place, so `elements` and the `toposolid` command cannot drift apart.
+fn toposolid_json(m: &Model, t: &Toposolid) -> Value {
+    let (lo, hi) = m.toposolid_range(t);
+    let thickness = m.toposolid_thickness(t);
+    json!({
+        "area_m2": m2(geom::area(&t.boundary).abs()),
+        "volume_m3": (m.toposolid_volume(t) / 1e6).round() / 1e3,
+        "thickness": thickness,
+        "top": [hundredth(lo), hundredth(hi)],
+        "bottom": [hundredth(lo - thickness), hundredth(hi - thickness)],
+        "interval": m.toposolid_contour(t).interval,
+    })
+}
+
 fn toposolid(s: &mut Session, p: &Value) -> R {
     let c = "toposolid";
     only(c, p, &["type", "boundary", "sketch", "points", "level", "offset", "name"])?;
@@ -8775,7 +8786,6 @@ fn toposolid(s: &mut Session, p: &Value) -> R {
             (1..).map(|k| format!("{word} {k}")).find(|n| !taken.contains(n.as_str())).unwrap_or_default()
         }
     };
-    let area = m2(geom::area(&boundary).abs());
     let solid = Toposolid {
         type_name,
         level,
@@ -8791,18 +8801,10 @@ fn toposolid(s: &mut Session, p: &Value) -> R {
     let Some(Element::Toposolid(t)) = s.model.elements.get(id) else {
         return Err(bad(c, "the toposolid went missing as it was made"));
     };
-    let (lo, hi) = s.model.toposolid_range(t);
-    let volume = (s.model.toposolid_volume(t) / 1e6).round() / 1e3;
-    let thickness = s.model.toposolid_thickness(t);
-    Ok(json!({
-        "id": id,
-        "name": name,
-        "area_m2": area,
-        "volume_m3": volume,
-        "thickness": thickness,
-        "top": [hundredth(lo), hundredth(hi)],
-        "bottom": [hundredth(lo - thickness), hundredth(hi - thickness)],
-    }))
+    let mut out = toposolid_json(&s.model, t);
+    out["id"] = json!(id);
+    out["name"] = json!(name);
+    Ok(out)
 }
 
 fn contours(s: &mut Session, p: &Value) -> R {

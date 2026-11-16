@@ -368,9 +368,38 @@ impl Contour {
         *self == Contour::default()
     }
 
-    /// How many contour lines apart the major ones are: 0 when none is drawn heavier. `Model::check` holds `major` to a
-    /// whole number of intervals, and the lines are counted by that number rather than by comparing elevations, which
-    /// drift apart from it far from the origin.
+    /// Why plans can't draw it as it says, if they can't: the interval is 0 (no lines) or at least
+    /// [`MIN_CONTOUR_INTERVAL`] mm, and the major is 0 (no heavier line) or a positive whole number of intervals.
+    fn check(&self, who: &str) -> Result<(), String> {
+        let Contour { interval, major } = *self;
+        coord(&format!("{who} contour interval"), interval)?;
+        coord(&format!("{who} major contour interval"), major)?;
+        if interval != 0.0 && interval < MIN_CONTOUR_INTERVAL {
+            return Err(format!("{who}: its contour interval is {interval} mm: it must be 0, or at least {MIN_CONTOUR_INTERVAL} mm"));
+        }
+        if major == 0.0 {
+            return Ok(());
+        }
+        if interval <= 0.0 {
+            return Err(format!("{who}: its major contour interval is {major} mm, but it draws no contours: its contour interval is 0"));
+        }
+        if major < 0.0 {
+            return Err(format!("{who}: its major contour interval is {major} mm: it must be 0, or a multiple of its contour interval"));
+        }
+        // One that no contour line falls on would draw nothing heavier, and the lines it draws heavier are every whole
+        // number of the interval (`every`), so that is what it must be: a float's tolerance, not a millimetre's, so
+        // 2000.5 mm is not 2000.
+        if (major - self.every() as f64 * interval).abs() > 1e-6 {
+            return Err(format!(
+                "{who}: its major contour interval is {major} mm: it must be a multiple of its contour interval, {interval} mm"
+            ));
+        }
+        Ok(())
+    }
+
+    /// How many contour lines apart the major ones are: 0 when none is drawn heavier. `check` holds `major` to a whole
+    /// number of intervals, and the lines are counted by that number rather than by comparing elevations, which drift
+    /// apart from it far from the origin.
     fn every(&self) -> i64 {
         if self.interval <= 0.0 || self.major <= 0.0 {
             return 0;
@@ -5976,8 +6005,9 @@ impl Model {
     }
 
     /// A toposolid's contour lines: at each multiple of its type's interval between its top's lowest and highest (not at
-    /// either), the segments where its top crosses that height, and whether that height is a multiple of the type's
-    /// major interval. At most [`MAX_CONTOURS`] levels, and [`MAX_CONTOUR_SEGMENTS`] segments in all.
+    /// either), a `ContourLine`: the height, the segments where its top crosses it, and whether it is one of the major
+    /// contours, counted every `major`/`interval` lines (`Contour::every`). At most [`MAX_CONTOURS`] levels, and
+    /// [`MAX_CONTOUR_SEGMENTS`] segments in all.
     pub fn toposolid_contours(&self, t: &Toposolid) -> Vec<ContourLine> {
         let contour = self.toposolid_contour(t);
         let Contour { interval, .. } = contour;
@@ -7789,30 +7819,7 @@ impl Model {
             }
         }
         for (n, t) in &self.types.toposolid {
-            let who = format!("toposolid type `{n}`");
-            let Contour { interval, major } = t.contours;
-            coord(&format!("{who} contour interval"), interval)?;
-            coord(&format!("{who} major contour interval"), major)?;
-            if interval != 0.0 && interval < MIN_CONTOUR_INTERVAL {
-                return Err(format!("{who}: its contour interval is {interval} mm: it must be 0, or at least {MIN_CONTOUR_INTERVAL} mm"));
-            }
-            if major != 0.0 {
-                if interval <= 0.0 {
-                    return Err(format!(
-                        "{who}: its major contour interval is {major} mm, but it draws no contours: its contour interval is 0"
-                    ));
-                }
-                if major < 0.0 {
-                    return Err(format!("{who}: its major contour interval is {major} mm: it must be 0, or a multiple of its contour interval"));
-                }
-                // One that no contour line falls on would draw nothing heavier, and the lines it draws heavier are every
-                // whole number of the interval (`Contour::every`), so that is what it must be.
-                if (major / interval - (major / interval).round()).abs() * interval > TOL {
-                    return Err(format!(
-                        "{who}: its major contour interval is {major} mm: it must be a multiple of its contour interval, {interval} mm"
-                    ));
-                }
-            }
+            t.contours.check(&format!("toposolid type `{n}`"))?;
         }
         for (cat, types) in
             [("column", &self.types.column), ("structural column", &self.types.structural_column), ("footing", &self.types.footing)]

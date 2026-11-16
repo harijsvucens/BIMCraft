@@ -7572,6 +7572,14 @@ fn a_toposolid_types_contours_are_checked() {
         )
         .unwrap_err();
     assert!(e.contains("major contour interval"), "{e}");
+    // 2000.5 mm is not a whole number of 1000 mm intervals, and is not rounded to one.
+    let e = s
+        .execute(
+            "type",
+            &json!({"category": "toposolid", "name": "Fine", "thickness": 300, "contours": {"interval": 1000.0, "major": 2000.5}}),
+        )
+        .unwrap_err();
+    assert!(e.contains("major contour interval"), "{e}");
     // A major is a positive number of intervals: one below zero is refused, not ignored.
     let e = s
         .execute(
@@ -7582,7 +7590,11 @@ fn a_toposolid_types_contours_are_checked() {
     assert!(e.contains("major contour interval"), "{e}");
     assert!(!s.model.types.toposolid.contains_key("Fine"), "a refused type is not made");
     // 0 for the interval means no contour lines at all, so the major goes with it rather than being refused.
-    run(&mut s, "type", json!({"category": "toposolid", "name": "Fine", "thickness": 300, "contours": {"interval": 1000.0, "major": 5000.0}}));
+    run(
+        &mut s,
+        "type",
+        json!({"category": "toposolid", "name": "Fine", "thickness": 300, "contours": {"interval": 1000.0, "major": 5000.0}}),
+    );
     run(&mut s, "type", json!({"category": "toposolid", "name": "Fine", "contours": {"interval": 0.0}}));
     let c = &s.model.types.toposolid["Fine"].contours;
     assert_eq!((c.interval, c.major), (0.0, 0.0));
@@ -7635,6 +7647,16 @@ fn a_file_with_the_elements_old_interval_opens_with_its_types_contours() {
         })
         .unwrap();
     assert_eq!(m.toposolid_contour(t).interval, 1000.0, "the type's, which has none of its own");
+}
+
+#[test]
+fn a_toposolids_command_and_elements_replies_agree_on_its_numbers() {
+    let mut s = Session::new();
+    let made = run(&mut s, "toposolid", json!({"boundary": plot(), "points": [[0, 0, 2000]]}));
+    let listed = run(&mut s, "elements", json!({"category": "toposolid"}))["elements"][0].clone();
+    for key in ["area_m2", "volume_m3", "thickness", "top", "bottom", "interval"] {
+        assert_eq!(made[key], listed[key], "{key}: {} against {}", made[key], listed[key]);
+    }
 }
 
 #[test]
