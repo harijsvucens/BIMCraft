@@ -12490,17 +12490,11 @@ fn sketch_lines(_: &mut Session, p: &Value) -> R {
 }
 
 /// An element's sketch: the one it keeps, while that still draws its outline and holes; else their edges, as new lines.
-fn boundary_now(e: &Element) -> Option<Vec<SketchLine>> {
-    let (outline, holes) = match e {
-        Element::Floor(f) => (f.boundary.clone(), f.openings.clone()),
-        Element::Ceiling(x) => (x.boundary.clone(), x.openings.clone()),
-        Element::Roof(r) if r.extrusion.is_none() => (r.boundary.clone(), r.courtyards.clone()),
-        Element::Shaft(sh) => (sh.boundary.clone(), Vec::new()),
-        Element::Toposolid(t) => (t.boundary.clone(), Vec::new()),
-        _ => return None,
-    };
-    let kept = e.sketch().filter(|ls| sketch::draws(ls, &outline, &holes)).cloned();
-    let mut lines = kept.unwrap_or_else(|| sketch::lines_of(&outline, &holes));
+fn boundary_now(m: &Model, id: impl Key) -> Option<Vec<SketchLine>> {
+    let (outline, holes) = m.boundary_of(id)?;
+    let e = m.elements.get(id)?;
+    let kept = e.sketch().filter(|ls| sketch::draws(ls, outline, holes)).cloned();
+    let mut lines = kept.unwrap_or_else(|| sketch::lines_of(outline, holes));
     // A roof's lines say the slope their edges share, when they have one of their own.
     if let Element::Roof(r) = e
         && !r.slopes.is_empty()
@@ -12541,7 +12535,7 @@ fn edit_boundary(s: &mut Session, p: &Value) -> R {
         s.model_mut().elements.insert(id, Element::FilledRegion(FilledRegion { sketch: lines, ..r }));
         return Ok(json!({"id": id, "area_m2": m2(profile.area())}));
     }
-    let now = boundary_now(&e)
+    let now = boundary_now(m, id)
         .ok_or_else(|| bad(c, format!("{id} isn't a floor, a ceiling, a roof's footprint, a shaft, a toposolid or a filled region")))?;
     if !absent(p.get("sketch"))
         && let Some((room, part)) = m.finish_of(id)

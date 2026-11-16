@@ -7678,6 +7678,20 @@ fn a_wall_stands_on_a_toposolid_and_keeps_under_its_underside() {
 }
 
 #[test]
+fn the_model_says_what_edit_boundary_takes() {
+    let mut s = Session::new();
+    let hill = run(&mut s, "toposolid", json!({"boundary": plot()}))["id"].as_u64().unwrap_or_default();
+    let wall = run(&mut s, "wall", json!({"points": [[0, 0], [5000, 0]]}))["id"].as_u64().unwrap_or_default();
+    // Its outline, and the plan it lies in: the desktop offers Edit Boundary from these two answers rather than a list.
+    let (outline, holes) = s.model.boundary_of(hill).expect("a toposolid's outline");
+    assert_eq!((outline.len(), holes.len()), (4, 0));
+    // A shape that is its own surface has no work plane, so the 3D view offers no sketch on it.
+    assert!(s.model.boundary_editable(hill) && s.model.sketch_plane(hill).is_none());
+    // A wall has no outline to redraw, and no claim to one.
+    assert!(s.model.boundary_of(wall).is_none() && !s.model.boundary_editable(wall));
+}
+
+#[test]
 fn a_column_stands_on_a_toposolid_and_keeps_under_its_underside() {
     let mut s = Session::new();
     // A 10 x 10 m plot rising 1 m across it, 300 mm thick: its top is 0.1 x, its underside 300 mm under that.

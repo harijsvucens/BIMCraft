@@ -117,7 +117,7 @@ msgid "<By Sketch>"
 msgstr ""
 
 #: crates/ui-egui/src/properties.rs:2122
-#: crates/ui-egui/src/sketch.rs:903
+#: crates/ui-egui/src/sketch.rs:901
 msgid "<Invisible lines>"
 msgstr ""
 
@@ -253,7 +253,7 @@ msgstr ""
 msgid "A loop encloses no area."
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:638
+#: crates/ui-egui/src/sketch.rs:636
 msgid "A loop needs three lines: click a point that isn't the start."
 msgstr ""
 
@@ -588,7 +588,7 @@ msgid "Add Text"
 msgstr ""
 
 #: crates/ui-egui/src/draw.rs:1071
-#: crates/ui-egui/src/sketch.rs:1021
+#: crates/ui-egui/src/sketch.rs:1019
 msgid "Add Vertex"
 msgstr ""
 
@@ -718,12 +718,12 @@ msgstr ""
 #: crates/ui-egui/src/editor/sketch.rs:1520
 #: crates/ui-egui/src/editor.rs:1109
 #: crates/ui-egui/src/lib.rs:419
-#: crates/ui-egui/src/sketch.rs:740
+#: crates/ui-egui/src/sketch.rs:738
 msgid "Align"
 msgstr ""
 
 #: crates/ui-egui/src/lib.rs:5176
-#: crates/ui-egui/src/sketch.rs:740
+#: crates/ui-egui/src/sketch.rs:738
 msgid "Align (AL): pick a reference line, then what to line up with it"
 msgstr ""
 
@@ -1324,7 +1324,7 @@ msgstr ""
 #: crates/ui-egui/src/editor.rs:1313
 #: crates/ui-egui/src/editor.rs:1469
 #: crates/ui-egui/src/editor.rs:1493
-#: crates/ui-egui/src/sketch.rs:820
+#: crates/ui-egui/src/sketch.rs:818
 msgid "BIMCraft family"
 msgstr ""
 
@@ -1595,19 +1595,19 @@ msgid "Boundary"
 msgstr ""
 
 #: crates/ui-egui/src/editor/sketch.rs:1470
-#: crates/ui-egui/src/sketch.rs:876
+#: crates/ui-egui/src/sketch.rs:874
 msgid "Boundary Line"
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:876
+#: crates/ui-egui/src/sketch.rs:874
 msgid "Boundary Line: sketch the floor's outline, and any openings in it"
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:884
+#: crates/ui-egui/src/sketch.rs:882
 msgid "Boundary Line: sketch the roof's footprint, on the level above, and any courtyards in it"
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:886
+#: crates/ui-egui/src/sketch.rs:884
 msgid "Boundary Line: sketch the shaft opening's outline"
 msgstr ""
 
@@ -2306,7 +2306,7 @@ msgstr ""
 msgid "Click a wall, a beam, a pipe or another element drawn along a line: its level is the work plane. Esc goes back to the dialog."
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:968
+#: crates/ui-egui/src/sketch.rs:966
 msgid "Click a wall: a boundary line along it."
 msgstr ""
 
@@ -2483,7 +2483,7 @@ msgstr ""
 msgid "Click the line's end: the profile rises from it at the Options Bar's slope."
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:967
+#: crates/ui-egui/src/sketch.rs:965
 msgid "Click the line's end; the next starts there. The first point again closes the loop; Esc stops."
 msgstr ""
 
@@ -3850,7 +3850,7 @@ msgstr ""
 msgid "Demolition"
 msgstr ""
 
-#: crates/core/src/commands.rs:13286
+#: crates/core/src/commands.rs:13280
 msgid "Dependent"
 msgstr ""
 
@@ -4526,7 +4526,7 @@ msgstr ""
 msgid "Edit Blend: sketch its base and its top again"
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:812
+#: crates/ui-egui/src/sketch.rs:810
 msgid "Edit Boundary"
 msgstr ""
 
@@ -4551,11 +4551,11 @@ msgstr ""
 
 #: crates/ui-egui/src/editor/nested.rs:365
 #: crates/ui-egui/src/editor/nested.rs:389
-#: crates/ui-egui/src/sketch.rs:827
+#: crates/ui-egui/src/sketch.rs:825
 msgid "Edit Family"
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:826
+#: crates/ui-egui/src/sketch.rs:824
 msgid "Edit Family: the family of what is selected, or of the component being placed"
 msgstr ""
 
@@ -5242,11 +5242,11 @@ msgstr ""
 msgid "Filled Arrowhead"
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:934
+#: crates/ui-egui/src/sketch.rs:932
 msgid "Filled Region"
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:935
+#: crates/ui-egui/src/sketch.rs:933
 msgid "Filled Region (FR): sketch an area filled with a pattern, in this view"
 msgstr ""
 
@@ -5365,7 +5365,7 @@ msgstr ""
 msgid "Finish Edit Mode: the lines, closed into loops, become the form"
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:799
+#: crates/ui-egui/src/sketch.rs:797
 msgid "Finish Edit Mode: the lines, closed into loops, become the outline and its holes"
 msgstr ""
 
@@ -5377,7 +5377,7 @@ msgstr ""
 msgid "Finish Face: Interior"
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:513
+#: crates/ui-egui/src/sketch.rs:511
 msgid "Finish or cancel the sketch before leaving its plan."
 msgstr ""
 
@@ -6482,7 +6482,7 @@ msgstr ""
 msgid "Its origin on the project's origin, where its file's coordinates put it"
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:811
+#: crates/ui-egui/src/sketch.rs:809
 msgid "Its outline is its room's: disconnect it in Properties to sketch it"
 msgstr ""
 
@@ -6864,13 +6864,13 @@ msgstr ""
 
 #: crates/ui-egui/src/linestyles.rs:409
 #: crates/ui-egui/src/linestyles.rs:427
-#: crates/ui-egui/src/sketch.rs:914
+#: crates/ui-egui/src/sketch.rs:912
 msgid "Line Style"
 msgstr ""
 
 #: crates/ui-egui/src/linestyles.rs:401
 #: crates/ui-egui/src/linestyles.rs:419
-#: crates/ui-egui/src/sketch.rs:902
+#: crates/ui-egui/src/sketch.rs:900
 msgid "Line Style:"
 msgstr ""
 
@@ -7036,7 +7036,7 @@ msgid "Load AREI Symbols: the Belgian AREI/RGIE's plan symbols (Table 2.23) as f
 msgstr ""
 
 #: crates/ui-egui/src/editor/document.rs:571
-#: crates/ui-egui/src/sketch.rs:819
+#: crates/ui-egui/src/sketch.rs:817
 msgid "Load Family"
 msgstr ""
 
@@ -7044,7 +7044,7 @@ msgstr ""
 msgid "Load Family: a family file loaded into this family, to place with Component"
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:818
+#: crates/ui-egui/src/sketch.rs:816
 msgid "Load Family: a family saved as a .bimf file (or an earlier .json), BIMCraft's own"
 msgstr ""
 
@@ -7389,11 +7389,11 @@ msgstr ""
 msgid "Masking"
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:940
+#: crates/ui-egui/src/sketch.rs:938
 msgid "Masking Region"
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:941
+#: crates/ui-egui/src/sketch.rs:939
 msgid "Masking Region: sketch an area that hides what's under it, in this view"
 msgstr ""
 
@@ -8281,7 +8281,7 @@ msgstr ""
 msgid "No texture"
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:858
+#: crates/ui-egui/src/sketch.rs:856
 msgid "No walls on this level enclose an area: sketch the outline."
 msgstr ""
 
@@ -8572,14 +8572,14 @@ msgstr ""
 #: crates/ui-egui/src/editor/nested.rs:296
 #: crates/ui-egui/src/editor/sketch.rs:1345
 #: crates/ui-egui/src/linestyles/creator.rs:89
-#: crates/ui-egui/src/sketch.rs:760
-#: crates/ui-egui/src/sketch.rs:1023
+#: crates/ui-egui/src/sketch.rs:758
+#: crates/ui-egui/src/sketch.rs:1021
 #: crates/ui-egui/src/workplane.rs:340
 msgid "Offset"
 msgstr ""
 
 #: crates/ui-egui/src/lib.rs:5183
-#: crates/ui-egui/src/sketch.rs:760
+#: crates/ui-egui/src/sketch.rs:758
 msgid "Offset (OF): pick a wall or a line; a copy goes to the cursor's side"
 msgstr ""
 
@@ -9260,7 +9260,7 @@ msgstr ""
 msgid "Pick a face of a wall, a floor, a ceiling or a roof to place it on."
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:959
+#: crates/ui-egui/src/sketch.rs:957
 msgid "Pick a highlighted model edge or sketch line as the alignment reference."
 msgstr ""
 
@@ -9359,11 +9359,11 @@ msgstr ""
 msgid "Pick a session in the list, or type the host's address, to ask to join"
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:963
+#: crates/ui-egui/src/sketch.rs:961
 msgid "Pick a sketch line as the trim/extend boundary."
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:964
+#: crates/ui-egui/src/sketch.rs:962
 msgid "Pick a sketch line to trim or extend, on the part to keep. Esc clears the boundary."
 msgstr ""
 
@@ -9399,11 +9399,11 @@ msgstr ""
 msgid "Pick more references, or click away from them where the dimension line goes; Tab steps over the faces, axes and corners of the element under the cursor. A picked reference clicked again is taken out, Backspace takes out the last, Esc starts over. Space steps Auto, Aligned, Horizontal, Vertical."
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:971
+#: crates/ui-egui/src/sketch.rs:969
 msgid "Pick sketch lines (a box picks several); drag a picked line's end over its plane to move it; Shift and the middle button orbit; Delete removes them. Finish Edit Mode when every loop is closed."
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:976
+#: crates/ui-egui/src/sketch.rs:974
 msgid "Pick sketch lines (a box picks several); drag a picked line's end to move it; Delete removes them. Finish Edit Mode when every loop is closed."
 msgstr ""
 
@@ -9423,7 +9423,7 @@ msgstr ""
 msgid "Pick the first line, on the part to keep."
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:961
+#: crates/ui-egui/src/sketch.rs:959
 msgid "Pick the first sketch line, on the part to keep."
 msgstr ""
 
@@ -9431,7 +9431,7 @@ msgstr ""
 msgid "Pick the first wall or line, on the part to keep."
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:960
+#: crates/ui-egui/src/sketch.rs:958
 msgid "Pick the highlighted sketch line to move and turn onto the reference; joined ends follow."
 msgstr ""
 
@@ -9459,7 +9459,7 @@ msgstr ""
 msgid "Pick the second point on the arc. Esc cancels."
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:962
+#: crates/ui-egui/src/sketch.rs:960
 msgid "Pick the second sketch line, on the part to keep."
 msgstr ""
 
@@ -10537,7 +10537,7 @@ msgstr ""
 msgid "Regenerate Floor"
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:930
+#: crates/ui-egui/src/sketch.rs:928
 msgid "Region"
 msgstr ""
 
@@ -11917,11 +11917,11 @@ msgstr ""
 msgid "Sketch"
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:879
+#: crates/ui-egui/src/sketch.rs:877
 msgid "Sketch Ceiling"
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:879
+#: crates/ui-egui/src/sketch.rs:877
 msgid "Sketch Ceiling: sketch the ceiling's outline, and any openings in it"
 msgstr ""
 
@@ -12216,13 +12216,13 @@ msgstr ""
 
 #: crates/ui-egui/src/editor/document.rs:678
 #: crates/ui-egui/src/lib.rs:5203
-#: crates/ui-egui/src/sketch.rs:759
-#: crates/ui-egui/src/sketch.rs:1022
+#: crates/ui-egui/src/sketch.rs:757
+#: crates/ui-egui/src/sketch.rs:1020
 msgid "Split Element"
 msgstr ""
 
 #: crates/ui-egui/src/lib.rs:5204
-#: crates/ui-egui/src/sketch.rs:759
+#: crates/ui-egui/src/sketch.rs:757
 msgid "Split Element (SL): click a wall or a line where to split it"
 msgstr ""
 
@@ -13698,29 +13698,29 @@ msgid "Trim/Extend"
 msgstr ""
 
 #: crates/ui-egui/src/lib.rs:5242
-#: crates/ui-egui/src/sketch.rs:755
+#: crates/ui-egui/src/sketch.rs:753
 msgid "Trim/Extend Multiple Elements"
 msgstr ""
 
 #: crates/ui-egui/src/lib.rs:5244
-#: crates/ui-egui/src/sketch.rs:756
+#: crates/ui-egui/src/sketch.rs:754
 msgid "Trim/Extend Multiple Elements: pick the line to trim or extend to, then each line to change, on the part to keep"
 msgstr ""
 
 #: crates/ui-egui/src/lib.rs:5217
-#: crates/ui-egui/src/sketch.rs:749
+#: crates/ui-egui/src/sketch.rs:747
 msgid "Trim/Extend Single Element"
 msgstr ""
 
 #: crates/ui-egui/src/lib.rs:5218
-#: crates/ui-egui/src/sketch.rs:750
+#: crates/ui-egui/src/sketch.rs:748
 msgid "Trim/Extend Single Element: pick the line to trim or extend to, then the line to change, on the part to keep"
 msgstr ""
 
 #: crates/core/src/commands.rs:1953
 #: crates/ui-egui/src/editor/sketch.rs:1515
-#: crates/ui-egui/src/sketch.rs:743
-#: crates/ui-egui/src/sketch.rs:1024
+#: crates/ui-egui/src/sketch.rs:741
+#: crates/ui-egui/src/sketch.rs:1022
 msgid "Trim/Extend to Corner"
 msgstr ""
 
@@ -13729,7 +13729,7 @@ msgid "Trim/Extend to Corner (TR): pick two lines, on the parts to keep"
 msgstr ""
 
 #: crates/ui-egui/src/lib.rs:5236
-#: crates/ui-egui/src/sketch.rs:744
+#: crates/ui-egui/src/sketch.rs:742
 msgid "Trim/Extend to Corner (TR): pick two walls or two lines, on the parts to keep"
 msgstr ""
 
@@ -14011,7 +14011,7 @@ msgstr ""
 msgid "Unlock alignment"
 msgstr ""
 
-#: crates/core/src/commands.rs:13457
+#: crates/core/src/commands.rs:13451
 msgid "Unnamed"
 msgstr ""
 
@@ -14453,15 +14453,15 @@ msgid "Wall layers"
 msgstr ""
 
 #: crates/ui-egui/src/properties.rs:489
-#: crates/ui-egui/src/sketch.rs:847
+#: crates/ui-egui/src/sketch.rs:845
 msgid "Walls"
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:849
+#: crates/ui-egui/src/sketch.rs:847
 msgid "Walls' Outline"
 msgstr ""
 
-#: crates/ui-egui/src/sketch.rs:848
+#: crates/ui-egui/src/sketch.rs:846
 msgid "Walls' Outline: the outline the level's walls enclose, along their centre lines, as sketch lines to edit"
 msgstr ""
 

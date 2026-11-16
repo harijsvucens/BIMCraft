@@ -388,13 +388,11 @@ impl BimApp {
     /// The one element selected, when it has an outline Edit Boundary redraws.
     pub(crate) fn boundary_selected(&self) -> bool {
         match self.selection.as_slice() {
-            [id] => match self.session.model.elements.get(*id) {
-                Some(Element::Floor(_) | Element::Ceiling(_) | Element::Shaft(_)) => true,
-                Some(Element::Roof(r)) => r.extrusion.is_none(),
-                // An outline that lies in plan: the 3D view has no plane to redraw one on (`Model::sketch_plane`).
-                Some(Element::Toposolid(_) | Element::FilledRegion(_)) => self.sheet != Sheet::View3D,
-                _ => false,
-            },
+            [id] => {
+                let m = &self.session.model;
+                // A sketch needs a work plane, and a shape that is its own surface has none in 3D (`Model::sketch_plane`).
+                m.boundary_editable(*id) && (self.sheet != Sheet::View3D || m.sketch_plane(*id).is_some())
+            }
             _ => false,
         }
     }

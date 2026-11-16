@@ -5556,6 +5556,25 @@ impl Model {
         }
     }
 
+    /// The outline Edit Boundary redraws an element from: its boundary and its holes, or none for an element that has none
+    /// to redraw (a roof extruded from a profile, or anything but the five kinds with an outline).
+    pub fn boundary_of(&self, id: impl Key) -> Option<(&[P2], &[Vec<P2>])> {
+        match self.elements.get(id)? {
+            Element::Floor(f) => Some((&f.boundary, &f.openings)),
+            Element::Ceiling(x) => Some((&x.boundary, &x.openings)),
+            Element::Roof(r) if r.extrusion.is_none() => Some((&r.boundary, &r.courtyards)),
+            Element::Shaft(sh) => Some((&sh.boundary, &[])),
+            Element::Toposolid(t) => Some((&t.boundary, &[])),
+            _ => None,
+        }
+    }
+
+    /// Whether it has an outline Edit Boundary redraws: one of the kinds `boundary_of` gives, or a filled region, whose
+    /// outline is its sketch rather than a ring of its own.
+    pub fn boundary_editable(&self, id: impl Key) -> bool {
+        self.boundary_of(id).is_some() || matches!(self.elements.get(id), Some(Element::FilledRegion(_)))
+    }
+
     /// A roof's slopes. Over its footprint, flat at its base, or each edge but its gables sloping
     /// up from its eaves until the slopes meet (the footprint's straight skeleton), round its
     /// courtyards too; or its extrusion's profile, each stretch swept across. Where it runs into
