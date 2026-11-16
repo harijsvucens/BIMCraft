@@ -40,7 +40,7 @@ msgstr ""
 msgid "Brick 225 x 75"
 msgstr ""
 
-#: crates/core/src/commands.rs:5409
+#: crates/core/src/commands.rs:5410
 msgid "Camera"
 msgstr ""
 
@@ -99,7 +99,7 @@ msgstr ""
 msgid "Copper"
 msgstr ""
 
-#: crates/core/src/commands.rs:1927
+#: crates/core/src/commands.rs:1928
 msgid "Copy"
 msgstr ""
 
@@ -132,7 +132,7 @@ msgstr ""
 msgid "Demand Factor"
 msgstr ""
 
-#: crates/core/src/commands.rs:13284
+#: crates/core/src/commands.rs:13303
 msgid "Dependent"
 msgstr ""
 
@@ -217,9 +217,9 @@ msgstr ""
 msgid "Electrical Power"
 msgstr ""
 
-#: crates/core/src/commands.rs:13031
-#: crates/core/src/commands.rs:13046
-#: crates/core/src/commands.rs:17468
+#: crates/core/src/commands.rs:13050
+#: crates/core/src/commands.rs:13065
+#: crates/core/src/commands.rs:17487
 msgid "Elevation"
 msgstr ""
 
@@ -349,7 +349,7 @@ msgstr ""
 msgid "Length"
 msgstr ""
 
-#: crates/core/src/commands.rs:7985
+#: crates/core/src/commands.rs:7986
 #: crates/core/src/model.rs:3716
 msgid "Level"
 msgstr ""
@@ -390,7 +390,7 @@ msgstr ""
 msgid "Masking"
 msgstr ""
 
-#: crates/core/src/commands.rs:10566
+#: crates/core/src/commands.rs:10585
 msgid "Mass"
 msgstr ""
 
@@ -406,8 +406,8 @@ msgstr ""
 msgid "Membrane"
 msgstr ""
 
-#: crates/core/src/commands.rs:3556
-#: crates/core/src/commands.rs:16074
+#: crates/core/src/commands.rs:3557
+#: crates/core/src/commands.rs:16093
 #: crates/core/src/family.rs:3429
 #: crates/core/src/model.rs:5177
 msgid "Metal"
@@ -503,11 +503,11 @@ msgstr ""
 msgid "Profile"
 msgstr ""
 
-#: crates/core/src/commands.rs:3819
+#: crates/core/src/commands.rs:3820
 msgid "Project"
 msgstr ""
 
-#: crates/core/src/commands.rs:8835
+#: crates/core/src/commands.rs:8854
 msgid "Property Line"
 msgstr ""
 
@@ -539,7 +539,7 @@ msgstr ""
 msgid "Roof tiles"
 msgstr ""
 
-#: crates/core/src/commands.rs:10791
+#: crates/core/src/commands.rs:10810
 msgid "Room"
 msgstr ""
 
@@ -575,8 +575,8 @@ msgstr ""
 msgid "Seat Height"
 msgstr ""
 
-#: crates/core/src/commands.rs:12966
-#: crates/core/src/commands.rs:17467
+#: crates/core/src/commands.rs:12985
+#: crates/core/src/commands.rs:17486
 msgid "Section"
 msgstr ""
 
@@ -746,7 +746,7 @@ msgstr ""
 msgid "Unclassified"
 msgstr ""
 
-#: crates/core/src/commands.rs:13455
+#: crates/core/src/commands.rs:13474
 msgid "Unnamed"
 msgstr ""
 

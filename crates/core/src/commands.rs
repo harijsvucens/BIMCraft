@@ -1809,12 +1809,12 @@ other_files(
         ui_msg!("Mesh"),
         &[],
         "{points, triangles, name?, level?, at?: [x, y]} makes a free-form mesh a family of its own, a Generic Model with \
-         one form of its triangles, and places it: `points` are [x, y, z] in mm, `triangles` three indices into them each, \
-         wound counter-clockwise seen from outside, so the triangles close a solid. The family is about the middle of its \
-         plan and its lowest point, and the component stands where the points are, on `level` (the lowest by default), its \
-         plan moved by `at`. `name` names the family (Direct Model by default, numbered if the project has one). Returns \
-         the family's name, the component's id, the `origin` its mesh's axes are about and its `volume` in m³. Push a face \
-         of it with `mesh_push_pull`",
+         one form of its triangles, and places it: `points` are [x, y, z] in mm, up to 10,000, and `triangles` three indices \
+         into them each, wound counter-clockwise seen from outside, so the triangles close a solid: every edge walked once \
+         each way. The family is about the middle of its plan and its lowest point; the component stands where the points are \
+         in the world, on `level` (the lowest by default), its plan moved by `at`. `name` names the family (Direct Model by \
+         default, numbered if the project has one). Returns the family's `name`, the `component`'s id, the `origin` its \
+         mesh's axes are about, its `triangles` and its `volume` in m³. Push a face of it with `mesh_push_pull`",
         mesh,
     ),
     edit(
@@ -1826,8 +1826,9 @@ other_files(
          corner the face shares with the triangles beside it moves with it and those triangles stretch, so a box grows or \
          shrinks and nothing comes apart. `at` is in the form's own axes, the `origin` `mesh` replies with: the point a pick \
          on the face gives, taken back to the family. `form` counts the family's forms from 1, its first mesh by default. A \
-         curved side, such as a cylinder's, is no flat face: it has no plane of its own and nothing pushes it. Returns the \
-         form it changed, the face's normal, the triangles of it and the solid's `volume` in m³",
+         curved side, such as a cylinder's, is no flat face: it has no plane of its own and nothing pushes it; a push of 0, or \
+         one that would turn the solid inside out, is refused. Returns the `family` and `form` it changed, the `distance`, the \
+         face's `normal`, the `triangles` of it and the solid's `volume` in m³",
         mesh_push_pull,
     ),
     edit(
@@ -8379,6 +8380,7 @@ fn mesh(s: &mut Session, p: &Value) -> R {
     use crate::family::{Category, Family, Form};
     let c = "mesh";
     let level = level_param(c, &s.model, p, "level")?;
+    let elevation = s.model.elevation(level);
     let at = point_opt(c, p, "at")?.unwrap_or(P2(0.0, 0.0));
     let points = points3(c, p, "points")?;
     if points.len() < 3 {
@@ -8412,7 +8414,7 @@ fn mesh(s: &mut Session, p: &Value) -> R {
         level,
         at: P2(at.0 + origin[0], at.1 + origin[1]),
         angle: 0.0,
-        offset: origin[2],
+        offset: origin[2] - elevation,
         mirrored: false,
         params: BTreeMap::new(),
         host: None,
@@ -8465,35 +8467,52 @@ fn mesh_push_pull(s: &mut Session, p: &Value) -> R {
         }
         None => None,
     };
-    let m = Arc::make_mut(&mut s.model);
-    let f = m.families.get_mut(&family).ok_or_else(|| bad(c, format!("the project has no family `{family}`")))?;
-    let index = match want {
-        Some(n) => {
-            let form = f.forms.get(n).ok_or_else(|| bad(c, format!("`{family}` has {} forms, not {}", f.forms.len(), n + 1)))?;
-            if form.mesh.is_empty() {
-                return Err(bad(c, format!("form {} of `{family}` is no mesh: it is a sketch", n + 1)));
+    if distance == 0.0 {
+        return Err(bad(c, "`distance` is 0: a push of nothing moves no face"));
+    }
+    // Nothing is copied until the push is known to be one: `Arc::make_mut` alone would make an undo step.
+    let (index, face, pushed, volume, same) = {
+        let f = s.model.families.get(&family).ok_or_else(|| bad(c, format!("the project has no family `{family}`")))?;
+        let index = match want {
+            Some(n) => {
+                let form = f.forms.get(n).ok_or_else(|| bad(c, format!("`{family}` has {} forms, not {}", f.forms.len(), n + 1)))?;
+                if form.mesh.is_empty() {
+                    return Err(bad(c, format!("form {} of `{family}` has no mesh: it is a sketch", n + 1)));
+                }
+                n
             }
-            n
-        }
-        None => f
-            .forms
-            .iter()
-            .position(|form| !form.mesh.is_empty())
-            .ok_or_else(|| bad(c, format!("`{family}` has no mesh to push: its forms are sketches")))?,
+            None => f
+                .forms
+                .iter()
+                .position(|form| !form.mesh.is_empty())
+                .ok_or_else(|| bad(c, format!("`{family}` has no mesh to push: its forms are sketches")))?,
+        };
+        let form = &f.forms[index];
+        let face = crate::mesh::face_at(&form.mesh, at).map_err(|e| bad(c, e))?;
+        let pushed = crate::mesh::push(&form.mesh, &face, distance).map_err(|e| bad(c, e))?;
+        let volume = pushed.iter().map(|[a, b, c]| view3d::dot(*a, view3d::cross(*b, *c))).sum::<f64>() / 6.0 / 1e9;
+        let same = *form.mesh == pushed;
+        (index, face, pushed, volume, same)
     };
-    let form = &mut f.forms[index];
-    let face = crate::mesh::face_at(&form.mesh, at).map_err(|e| bad(c, e))?;
-    let pushed = crate::mesh::push(&form.mesh, &face, distance).map_err(|e| bad(c, e))?;
-    let volume = pushed.iter().map(|[a, b, c]| view3d::dot(*a, view3d::cross(*b, *c))).sum::<f64>() / 6.0 / 1e9;
-    form.mesh = Arc::new(pushed);
-    Ok(json!({
+    let reply = json!({
         "family": family,
         "form": index + 1,
         "normal": face.normal,
         "distance": distance,
         "triangles": face.tris.len(),
         "volume": (volume * 1e6).round() / 1e6,
-    }))
+    });
+    if same {
+        return Ok(reply);
+    }
+    let m = Arc::make_mut(&mut s.model);
+    let form = m
+        .families
+        .get_mut(&family)
+        .and_then(|f| f.forms.get_mut(index))
+        .ok_or_else(|| bad(c, format!("the project has no family `{family}`")))?;
+    form.mesh = Arc::new(pushed);
+    Ok(reply)
 }
 
 fn import_cad(s: &mut Session, p: &Value) -> R {

@@ -15,7 +15,8 @@ use crate::view3d::{P3, add, cross, dot, mul, sub, unit};
 /// for a pick's rounding.
 pub const ON_FACE: f64 = 1e-3;
 
-/// A flat face of a mesh: the triangles it is made of, and the way it faces, unit and out of the solid.
+/// A flat face of a mesh: the triangles it is made of, and the way it faces, unit out of the solid as its triangles wound
+/// it.
 #[derive(Debug)]
 pub struct Face {
     pub tris: Vec<usize>,
@@ -52,31 +53,48 @@ pub fn face_at(tris: &[[P3; 3]], at: P3) -> Result<Face, String> {
     Ok(Face { tris: group, normal: n })
 }
 
-/// Why these triangles are no closed surface, if they are not: every edge of the welded mesh is shared by two triangles,
-/// no more (a fold or two solids meeting) and no fewer (a hole), so what a push moves stays a solid.
+/// Why these triangles are no closed surface, if they are not: every edge of the welded mesh is walked once each way, by
+/// one triangle in each direction. That is two triangles an edge, no fewer (a hole) and no more (a fold or two solids
+/// meeting), facing the same way — which is what a shell IFC writes and a shaded face both take for granted.
 pub fn sealed(tris: &[[P3; 3]]) -> Result<(), String> {
-    let mut edges: HashMap<([i64; 3], [i64; 3]), usize> = HashMap::new();
+    let mut pairs: HashMap<([i64; 3], [i64; 3]), usize> = HashMap::new();
+    let mut ways: HashMap<([i64; 3], [i64; 3]), usize> = HashMap::new();
     for k in crate::view3d::weld(tris) {
         for j in 0..3 {
             let (a, b) = (k[j], k[(j + 1) % 3]);
             if a == b {
                 return Err("a triangle of it is folded on itself, two of its corners being one".into());
             }
-            *edges.entry((a.min(b), a.max(b))).or_default() += 1;
+            *pairs.entry((a.min(b), a.max(b))).or_default() += 1;
+            *ways.entry((a, b)).or_default() += 1;
         }
     }
-    match edges.values().find(|n| **n != 2) {
-        Some(n) => Err(format!("an edge of it is shared by {n} triangles, not two: the triangles do not close a solid")),
-        None if edges.is_empty() => Err("it has no triangles".into()),
-        None => Ok(()),
+    if pairs.is_empty() {
+        return Err("it has no triangles".into());
     }
+    if let Some(n) = pairs.values().find(|n| **n != 2) {
+        return Err(format!("an edge of it is shared by {n} triangles, not two: the triangles do not close a solid"));
+    }
+    if ways.values().any(|n| *n != 1) {
+        return Err("an edge of it is walked the same way by both triangles beside it: one of them is turned round".into());
+    }
+    Ok(())
+}
+
+/// The volume the triangles enclose, mm³: only meaningful where they close a solid.
+fn volume(tris: &[[P3; 3]]) -> f64 {
+    tris.iter().map(|[a, b, c]| dot(*a, cross(*b, *c))).sum::<f64>() / 6.0
 }
 
 /// `tris` with `face` moved `distance` mm along its normal, out of the solid where that is positive: every corner welded
-/// to one of the face's moves with it, so the faces round it stretch as a hand pulling a SketchUp face's does.
+/// to one of the face's moves with it, so the faces round it stretch as a hand pulling a SketchUp face's does. A solid
+/// that closes may not be pushed through itself, into an inside-out shell.
 pub fn push(tris: &[[P3; 3]], face: &Face, distance: f64) -> Result<Vec<[P3; 3]>, String> {
     if !distance.is_finite() || distance.abs() > MAX_COORD {
         return Err(format!("a distance is a number of mm within {MAX_COORD}, not {distance}"));
+    }
+    if face.tris.iter().any(|i| *i >= tris.len()) {
+        return Err("that face is no face of these triangles".into());
     }
     let keys = crate::view3d::weld(tris);
     let mut moving: HashSet<[i64; 3]> = HashSet::new();
@@ -91,6 +109,9 @@ pub fn push(tris: &[[P3; 3]], face: &Face, distance: f64) -> Result<Vec<[P3; 3]>
     if out.iter().flatten().flatten().any(|v| !v.is_finite() || v.abs() > MAX_COORD) {
         return Err(format!("that would put a corner past {MAX_COORD} mm"));
     }
+    if sealed(tris).is_ok() && volume(&out) <= 1.0 {
+        return Err("that would turn the solid inside out: push it less far".into());
+    }
     Ok(out)
 }
 
@@ -100,7 +121,7 @@ fn normal([a, b, c]: [P3; 3]) -> P3 {
 }
 
 /// Whether `at`, in the plane of triangle `t`, lies inside it, an edge counting as inside: the triangle flattened along
-/// the axis its normal leans on least, so its area does not collapse.
+/// the axis its normal leans on most, so its area does not collapse, and each side read as a distance in mm.
 fn holds([a, b, c]: [P3; 3], n: P3, at: P3) -> bool {
     let axis = (0..3).max_by(|i, j| n[*i].abs().total_cmp(&n[*j].abs())).unwrap_or(2);
     let flat = |v: P3| match axis {
@@ -109,7 +130,13 @@ fn holds([a, b, c]: [P3; 3], n: P3, at: P3) -> bool {
         _ => P2(v[0], v[1]),
     };
     let (a, b, c, p) = (flat(a), flat(b), flat(c), flat(at));
-    let side = |u: P2, v: P2| (v.0 - u.0) * (p.1 - u.1) - (v.1 - u.1) * (p.0 - u.0);
+    // How far p stands to one side of the line uv: the cross product is twice the area, so dividing by the line's own
+    // length gives a length.
+    let side = |u: P2, v: P2| {
+        let cross = (v.0 - u.0) * (p.1 - u.1) - (v.1 - u.1) * (p.0 - u.0);
+        let len = (v - u).length();
+        if len > 0.0 { cross / len } else { cross }
+    };
     let (ab, bc, ca) = (side(a, b), side(b, c), side(c, a));
     (ab >= -ON_FACE && bc >= -ON_FACE && ca >= -ON_FACE) || (ab <= ON_FACE && bc <= ON_FACE && ca <= ON_FACE)
 }
@@ -169,22 +196,34 @@ mod tests {
         assert!(push(&tris, &top, f64::NAN).is_err(), "a distance that is not a number");
         assert!(push(&tris, &top, 1e300).is_err(), "a distance past the model");
         assert!(push(&tris, &top, MAX_COORD).is_err(), "a push that would leave the model");
+        let e = push(&tris, &top, -2000.0).expect_err("the top would pass the bottom");
+        assert!(e.contains("inside out"), "{e}");
     }
 
     #[test]
-    fn a_mesh_is_sealed_only_where_every_edge_meets_two_triangles() {
+    fn a_mesh_is_sealed_only_where_every_edge_meets_two_triangles_facing_apart() {
         let tris = box_tris(1000.0);
         assert!(sealed(&tris).is_ok(), "a box closes");
         let mut open = tris.clone();
         open.pop();
         let e = sealed(&open).unwrap_err();
-        assert!(e.contains("not two"), "{e}");
+        assert!(e.contains("not two"), "a hole: {e}");
+        // The same triangles with one turned round: every edge still meets two, and they face the same way.
+        let mut turned = tris.clone();
+        turned[2].swap(1, 2);
+        let e = sealed(&turned).unwrap_err();
+        assert!(e.contains("turned round"), "{e}");
+        // A third triangle on an edge: a fold, which no push can keep a solid.
+        let mut folded = tris.clone();
+        folded.push(tris[0]);
+        let e = sealed(&folded).unwrap_err();
+        assert!(e.contains("not two"), "a fold: {e}");
     }
 
     #[test]
     fn a_curved_side_is_no_face_while_its_caps_are() {
         // A 24-sided prism: its sides turn 15 degrees into one another, under the scene's 20, so they are one curved
-        // surface; each cap is 24 coplanar triangles and one flat face.
+        // surface; each cap is a fan of 22 coplanar triangles and one flat face.
         let n = 24;
         let ring = |z: f64| -> Vec<P3> {
             (0..n)
