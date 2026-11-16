@@ -8395,9 +8395,8 @@ fn mesh(s: &mut Session, p: &Value) -> R {
     });
     let origin = [((lo[0] + hi[0]) / 2.0 * 1e3).round() / 1e3, ((lo[1] + hi[1]) / 2.0 * 1e3).round() / 1e3, (lo[2] * 1e3).round() / 1e3];
     let local: Vec<[[f64; 3]; 3]> = tris.iter().map(|t| t.map(|q| [q[0] - origin[0], q[1] - origin[1], q[2] - origin[2]])).collect();
-    crate::mesh::sealed(&local).map_err(|e| bad(c, format!("these triangles are no closed solid: {e}")))?;
-    let local = crate::family::forms::closed(local).map_err(|e| bad(c, format!("these triangles are no closed solid: {e}")))?;
-    let volume = local.iter().map(|[a, b, c]| view3d::dot(*a, view3d::cross(*b, *c))).sum::<f64>() / 6.0 / 1e9;
+    let made = crate::mesh::solid(local).map_err(|e| bad(c, format!("these triangles are no closed solid: {e}")))?;
+    let (local, volume) = (made.tris, made.measure.volume / 1e9);
     let m = Arc::make_mut(&mut s.model);
     let stem = string(c, p, "name")?.map(|n| n.trim().to_string()).filter(|n| !n.is_empty()).unwrap_or_else(|| "Direct Model".into());
     let name = (1..=1000)
@@ -8492,7 +8491,7 @@ fn mesh_push_pull(s: &mut Session, p: &Value) -> R {
         let form = &f.forms[index];
         let face = crate::mesh::face_at(&form.mesh, at).map_err(|e| bad(c, e))?;
         let pushed = crate::mesh::push(&form.mesh, &face, distance).map_err(|e| bad(c, e))?;
-        let volume = pushed.iter().map(|[a, b, c]| view3d::dot(*a, view3d::cross(*b, *c))).sum::<f64>() / 6.0 / 1e9;
+        let volume = crate::mesh::measure(&pushed).map(|m| m.volume / 1e9).map_err(|e| bad(c, e))?;
         let same = *form.mesh == pushed;
         (index, face, pushed, volume, same)
     };

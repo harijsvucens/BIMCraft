@@ -52,32 +52,129 @@ pub fn face_at(tris: &[[P3; 3]], at: P3) -> Result<Face, String> {
     Ok(Face { tris: group, normal: n })
 }
 
+/// What a mesh's triangles make of themselves.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    /// A closed surface: every welded edge is walked by two triangles, one each way — a solid.
+    Solid,
+    /// An open surface, as a sheet is: some edge is walked by one triangle only.
+    Sheet,
+    /// An edge walked by this many triangles: no surface, let alone a solid (three triangles meeting on an edge, or more).
+    Crowded(usize),
+    /// Two triangles walk one edge the same way: one of them is turned round.
+    Reversed,
+}
+
+impl Kind {
+    /// A word or two for what this is, for a command's reply.
+    pub fn word(self) -> String {
+        match self {
+            Kind::Solid => "solid".into(),
+            Kind::Sheet => "open sheet".into(),
+            Kind::Crowded(n) => format!("an edge shared by {n} triangles"),
+            Kind::Reversed => "a triangle turned round".into(),
+        }
+    }
+}
+
+/// A mesh measured: what it makes, how much space it holds and how much surface it has.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Measure {
+    pub kind: Kind,
+    /// The space it encloses, mm³, as its triangles are wound: positive for a solid turned out, and close to 0 for a sheet,
+    /// which encloses nothing.
+    pub volume: f64,
+    /// Its surface, mm².
+    pub area: f64,
+    pub triangles: usize,
+}
+
+impl Measure {
+    /// Whether these triangles close a solid.
+    pub fn is_solid(&self) -> bool {
+        self.kind == Kind::Solid
+    }
+}
+
 /// Why these triangles are no closed surface, if they are not: every edge of the welded mesh is walked once each way, by
 /// one triangle in each direction. That is two triangles an edge, no fewer (a hole) and no more (a fold or two solids
 /// meeting), facing the same way — which is what a shell IFC writes and a shaded face both take for granted.
 pub fn sealed(tris: &[[P3; 3]]) -> Result<(), String> {
-    let mut pairs: HashMap<([i64; 3], [i64; 3]), usize> = HashMap::new();
-    let mut ways: HashMap<([i64; 3], [i64; 3]), usize> = HashMap::new();
+    match measure(tris)?.kind {
+        Kind::Solid => Ok(()),
+        Kind::Sheet => Err("an edge of it is shared by 1 triangles, not two: the triangles do not close a solid".into()),
+        Kind::Crowded(n) => Err(format!("an edge of it is shared by {n} triangles, not two: the triangles do not close a solid")),
+        Kind::Reversed => Err("an edge of it is walked the same way by both triangles beside it: one of them is turned round".into()),
+    }
+}
+
+/// `tris` measured: which of [`Kind`] they make, the space they enclose and the surface they have. The one place a mesh's
+/// solidity and its numbers are worked out, so `mesh`, a push, `mesh_check` and `forms::closed` all read the same answer.
+pub fn measure(tris: &[[P3; 3]]) -> Result<Measure, String> {
+    if tris.iter().flatten().flatten().any(|x| !x.is_finite() || x.abs() > MAX_COORD) {
+        return Err("it reaches past where the model may go".into());
+    }
+    let mut pairs: HashMap<Edge, usize> = HashMap::new();
+    let mut ways: HashMap<(Corner, Corner), usize> = HashMap::new();
     for k in weld(tris) {
         for j in 0..3 {
             let (a, b) = (k[j], k[(j + 1) % 3]);
             if a == b {
                 return Err("a triangle of it is folded on itself, two of its corners being one".into());
             }
-            *pairs.entry((a.min(b), a.max(b))).or_default() += 1;
+            *pairs.entry(edge(a, b)).or_default() += 1;
             *ways.entry((a, b)).or_default() += 1;
         }
     }
     if pairs.is_empty() {
         return Err("it has no triangles".into());
     }
-    if let Some(n) = pairs.values().find(|n| **n != 2) {
-        return Err(format!("an edge of it is shared by {n} triangles, not two: the triangles do not close a solid"));
+    let crowded = pairs.values().copied().max().unwrap_or_default();
+    let reversed = ways.values().any(|n| *n > 1);
+    let open = pairs.values().any(|n| *n == 1);
+    let kind = if crowded > 2 {
+        Kind::Crowded(crowded)
+    } else if reversed {
+        Kind::Reversed
+    } else if open {
+        Kind::Sheet
+    } else {
+        Kind::Solid
+    };
+    let area = tris.iter().map(|[a, b, c]| dot(cross(sub(*b, *a), sub(*c, *a)), cross(sub(*b, *a), sub(*c, *a))).sqrt() / 2.0).sum();
+    Ok(Measure { kind, volume: volume(tris), area, triangles: tris.len() })
+}
+
+/// A mesh's triangles as the closed solid a form made by a command must be: measured once, held to closing and to a volume,
+/// and turned out. A sheet is refused here — `mesh` makes solids — though a mesh that comes from a file may be one.
+pub(crate) struct Solid {
+    pub tris: Vec<[P3; 3]>,
+    pub measure: Measure,
+}
+
+pub(crate) fn solid(mut tris: Vec<[P3; 3]>) -> Result<Solid, String> {
+    if tris.len() > crate::family::MAX_TRIANGLES {
+        return Err(format!("it would be more than {} triangles", crate::family::MAX_TRIANGLES));
     }
-    if ways.values().any(|n| *n != 1) {
-        return Err("an edge of it is walked the same way by both triangles beside it: one of them is turned round".into());
+    let mut measure = measure(&tris)?;
+    match measure.kind {
+        Kind::Solid => {}
+        Kind::Sheet => return Err("it is an open surface, not a solid: every edge must be shared by two triangles".into()),
+        Kind::Crowded(n) => {
+            return Err(format!("an edge of it is shared by {n} triangles, not two: the triangles do not close a solid"));
+        }
+        Kind::Reversed => {
+            return Err("an edge of it is walked the same way by both triangles beside it: one of them is turned round".into());
+        }
     }
-    Ok(())
+    if !measure.volume.is_finite() || measure.volume.abs() < 1.0 {
+        return Err("it has no volume".into());
+    }
+    if measure.volume < 0.0 {
+        tris.iter_mut().for_each(|t| t.swap(1, 2));
+        measure.volume = -measure.volume;
+    }
+    Ok(Solid { tris, measure })
 }
 
 /// The volume the triangles enclose, mm³: only meaningful where they close a solid.
@@ -307,7 +404,7 @@ pub fn push(tris: &[[P3; 3]], face: &Face, distance: f64) -> Result<Vec<[P3; 3]>
     let out: Vec<[P3; 3]> =
         tris.iter().zip(&keys).map(|(t, k)| std::array::from_fn(|j| if moving.contains(&k[j]) { add(t[j], step) } else { t[j] })).collect();
     let out = held(out)?;
-    if sealed(tris).is_ok() && volume(&out) <= 1.0 {
+    if measure(tris).is_ok_and(|m| m.is_solid()) && volume(&out) <= 1.0 {
         return Err("that would turn the solid inside out: push it less far".into());
     }
     Ok(out)
@@ -537,6 +634,35 @@ mod tests {
         assert_eq!(face.tris.len(), 3, "one flat face of three triangles");
         let e = push(&tris, &face, 500.0).expect_err("no solid rises from it");
         assert!(e.contains("no surface a solid can rise from"), "{e}");
+    }
+
+    #[test]
+    fn a_mesh_is_measured_once_as_a_solid_a_sheet_or_a_broken_surface() {
+        let box_ = box_tris(1000.0);
+        let m = measure(&box_).expect("measured");
+        assert_eq!((m.kind, m.triangles), (Kind::Solid, 12));
+        assert!((m.volume - 1e9).abs() < 1.0 && (m.area - 6e6).abs() < 1.0, "{m:?}");
+        // A sheet encloses nothing; a box one triangle short is a sheet too; one turned round is no surface.
+        assert_eq!(measure(&pane(1000.0, 0.0)).expect("a sheet").kind, Kind::Sheet);
+        let mut hole = box_.clone();
+        hole.pop();
+        assert_eq!(measure(&hole).expect("open").kind, Kind::Sheet);
+        let mut turned = box_.clone();
+        turned[2].swap(1, 2);
+        assert_eq!(measure(&turned).expect("turned").kind, Kind::Reversed);
+        // Three triangles on one edge have no surface at all.
+        let fan = [
+            [[0.0, 0.0, 0.0], [1000.0, 0.0, 0.0], [500.0, 500.0, 0.0]],
+            [[0.0, 0.0, 0.0], [1000.0, 0.0, 0.0], [500.0, 1000.0, 0.0]],
+            [[0.0, 0.0, 0.0], [1000.0, 0.0, 0.0], [500.0, 1500.0, 0.0]],
+        ];
+        assert_eq!(measure(&fan).expect("a fan").kind, Kind::Crowded(3));
+        assert!(sealed(&fan).unwrap_err().contains("shared by 3 triangles"));
+        // A form made by a command is a solid, turned out: an inside-out box comes back positive.
+        let inside_out: Vec<[P3; 3]> = box_.iter().map(|[a, b, c]| [*a, *c, *b]).collect();
+        let made = solid(inside_out).expect("turned out");
+        assert!((made.measure.volume - 1e9).abs() < 1.0, "{:?}", made.measure);
+        assert!(solid(pane(1000.0, 0.0)).err().unwrap_or_default().contains("open surface"));
     }
 
     #[test]

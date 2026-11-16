@@ -453,24 +453,6 @@ fn cap(ring: &[P2]) -> Result<Vec<[usize; 3]>, String> {
     Ok(tris)
 }
 
-/// Triangles of a closed solid turned out by its signed volume; refused where it has none, or is too big.
-pub(crate) fn closed(mut tris: Vec<[P3; 3]>) -> Result<Vec<[P3; 3]>, String> {
-    if tris.len() > super::MAX_TRIANGLES {
-        return Err(format!("it would be more than {} triangles", super::MAX_TRIANGLES));
-    }
-    if tris.iter().flatten().flatten().any(|x| !x.is_finite() || x.abs() > crate::model::MAX_COORD) {
-        return Err("it reaches past where the model may go".into());
-    }
-    let volume: f64 = tris.iter().map(|[a, b, c]| dot(*a, cross(*b, *c))).sum::<f64>() / 6.0;
-    if !volume.is_finite() || volume.abs() < 1.0 {
-        return Err("it has no volume".into());
-    }
-    if volume < 0.0 {
-        tris.iter_mut().for_each(|t| t.swap(1, 2));
-    }
-    Ok(tris)
-}
-
 /// Rings `a` (at `from`) and `b` (at `to`) of a Blend on `frame`, mapped ([`mapped`]): its triangles, turned out.
 pub fn blend(a: &[P2], b: &[P2], (from, to): (f64, f64), twist: i32, frame: &Frame) -> Result<Vec<[P3; 3]>, String> {
     let (ra, rb) = mapped(a, b, twist);
@@ -487,7 +469,7 @@ pub fn blend(a: &[P2], b: &[P2], (from, to): (f64, f64), twist: i32, frame: &Fra
         tris.push([top[x], top[y], top[z]]);
     }
     bands(&mut tris, &[base, top], false);
-    closed(tris.into_iter().filter(|t| area3(t) > 1e-6).collect())
+    Ok(crate::mesh::solid(tris.into_iter().filter(|t| area3(t) > 1e-6).collect())?.tris)
 }
 
 /// Each quad between ring `k` and ring `k + 1` of `rings` (all of one count) as two triangles; `wrap`, the last back to the
@@ -628,7 +610,7 @@ pub fn sweep(regions: &[Region], path: &Path, host: &Frame) -> Result<(Vec<[P3; 
     }
     let width = span(regions.iter().flat_map(|r| r.outer.iter()));
     let plan = band(&st, &vec![width; st.len()], path.closed, host);
-    Ok((closed(tris.into_iter().filter(|t| area3(t) > 1e-6).collect())?, plan))
+    Ok((crate::mesh::solid(tris.into_iter().filter(|t| area3(t) > 1e-6).collect())?.tris, plan))
 }
 
 /// A Swept Blend: profile `a` at `path`'s start turning into `b` at its end (each one loop, in its profile plane's axes,
@@ -672,7 +654,7 @@ pub fn swept_blend(a: &[P2], b: &[P2], twist: i32, path: &Path, host: &Frame) ->
         tris.push([placed(last, rb[x]), placed(last, rb[y]), placed(last, rb[z])]);
     }
     let plan = band(&st, &spans, false, host);
-    Ok((closed(tris.into_iter().filter(|t| area3(t) > 1e-6).collect())?, plan))
+    Ok((crate::mesh::solid(tris.into_iter().filter(|t| area3(t) > 1e-6).collect())?.tris, plan))
 }
 
 /// Form `form`'s triangles when it is a Blend, a Sweep or a Swept Blend (none for another kind), on `host`, its numbers
