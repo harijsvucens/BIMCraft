@@ -1821,13 +1821,16 @@ other_files(
         "mesh_push_pull",
         ui_msg!("Push/Pull"),
         &[],
-        "{family, at: [x, y, z], distance, form?} moves the flat face of one of a family's meshes that `at` lies on, \
+        "{family, at: [x, y, z], distance, form?} or {component, at: [x, y, z], distance, form?} moves the flat face of one of a \
+         family's meshes that `at` lies on, `distance` mm along the face's normal, out of the solid where that is positive, as \
+         SketchUp's Push/Pull: every \
          `distance` mm along the face's normal, out of the solid where that is positive, as SketchUp's Push/Pull: every \
          corner the face shares with the triangles beside it moves with it and those triangles stretch, so a box grows or \
          shrinks and nothing comes apart. A face with no other face beside it, as an imported sheet has, rises into a solid \
          instead: it stays as the near end, a copy stands at the far end and walls run round its boundary, so one push turns a \
-         flat sheet into a box. `at` is in the form's own axes, the `origin` `mesh` replies with: the point a pick \
-         on the face gives, taken back to the family. `form` counts the family's forms from 1, its first mesh by default. A \
+         flat sheet into a box. With `family`, `at` is in the form's own axes, the `origin` `mesh` replies with; with `component` \
+         (a component's GUID) it is a point of the model, taken back through where the component stands, its turn, level and \
+         mirroring, so a pick in a view can be given as it is. `form` counts the family's forms from 1, its first mesh by default. A \
          curved side, such as a cylinder's, is no flat face: it has no plane of its own and nothing pushes it; a push of 0, or \
          one that would turn the solid inside out, is refused. Returns the `family` and `form` it changed, the `distance`, the \
          face's `normal`, the `triangles` of it and the form's signed `volume` in m³",
@@ -8457,8 +8460,33 @@ fn triangles(c: &str, p: &Value, points: &[[f64; 3]]) -> Result<Vec<[[f64; 3]; 3
 /// One flat face of a family's mesh pushed along its normal: a solid grown or shrunk by a hand, as SketchUp pulls one.
 fn mesh_push_pull(s: &mut Session, p: &Value) -> R {
     let c = "mesh_push_pull";
-    let family = string(c, p, "family")?.ok_or_else(|| bad(c, "`family` is required: the family whose mesh is pushed"))?;
-    let at = point3_req(c, p, "at")?;
+    let family = string(c, p, "family")?;
+    let component = id_opt(c, p, "component")?;
+    // A component places the family's axes, so its point is the model's, taken back through them: what a pick gives.
+    let (family, at) = match (family, component) {
+        (given, Some(guid)) => {
+            let world = point3_req(c, p, "at")?;
+            let Some(id) = s.model.elements.id(guid) else { return Err(bad(c, "the project has no `component` of that GUID")) };
+            let Some(crate::model::Element::Component(comp)) = s.model.elements.get(id) else {
+                return Err(bad(c, "`component` must be a component, the one whose family's mesh is pushed"));
+            };
+            let local =
+                s.model.form_point(id, world).ok_or_else(|| bad(c, "that component has no place to take the point back through"))?;
+            if let Some(name) = given
+                && name != comp.family
+            {
+                return Err(bad(c, format!("component {id} is of `{}`, not `{name}`", comp.family)));
+            }
+            (comp.family.clone(), local)
+        }
+        (Some(name), None) => (name, point3_req(c, p, "at")?),
+        (None, None) => {
+            return Err(bad(
+                c,
+                "`family` (with `at` a point of its mesh's axes) or `component` (with `at` a point of the model) is required",
+            ));
+        }
+    };
     let distance = num(c, p, "distance")?.ok_or_else(|| bad(c, "`distance` in mm is required: how far the face moves along its normal"))?;
     let want = match p.get("form") {
         v if absent(v) => None,

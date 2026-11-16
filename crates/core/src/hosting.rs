@@ -234,6 +234,14 @@ impl Placement {
         std::array::from_fn(|i| self.origin[i] + p[0] * a[i] + p[1] * b[i] + p[2] * c[i])
     }
 
+    /// Point `p` of the model in the family's axes: the inverse of [`place`](Self::place). The axes are unit and square to
+    /// one another, so a length along each is its dot product with the point from the origin, and the two are exact turns of
+    /// one another.
+    pub fn into_local(&self, p: P3) -> P3 {
+        let d = sub(p, self.origin);
+        self.axes.map(|a| dot(d, a))
+    }
+
     /// A piece of the family's (mirrored already, if it is) where the component stands. Upright, its outline is placed and
     /// its bottom and top are its own over the origin's height; tilted, its outline is what its triangles cover seen from
     /// above (their hull) and its bottom and top theirs.
@@ -271,6 +279,14 @@ fn tilted(v: P3, n: P3) -> P3 {
 }
 
 impl Model {
+    /// A point of the model in component `id`'s family axes, as the form is stored (unmirrored): the inverse of the
+    /// placement a pick's point came through, so a command can take the point a click gives. None for what is no component.
+    pub fn form_point(&self, id: Id, p: P3) -> Option<P3> {
+        let Element::Component(c) = self.elements.get(id)? else { return None };
+        let local = self.component_placement(c).into_local(p);
+        Some(if c.mirrored { [local[0], -local[1], local[2]] } else { local })
+    }
+
     /// The plane host `h` names, in the model's axes; none where it names no reference plane.
     pub fn host_frame(&self, h: &HostRef) -> Option<Frame> {
         match (h, self.elements.get(h.guid())) {
@@ -707,5 +723,27 @@ mod tests {
         let uv = Model::hosted_uv(&f, [300.0, 400.0, 0.0], 0.0);
         let w = Model::hosted_point(&f, uv, 0.0);
         assert!((w[0] - 300.0).abs() < 1e-9 && (w[1] - 400.0).abs() < 1e-9 && (w[2] - 400.0).abs() < 1e-9, "{w:?}");
+    }
+
+    #[test]
+    fn a_points_place_in_the_model_and_back_is_the_same_point() {
+        let up = Placement { origin: [1000.0, 2000.0, 500.0], axes: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], upright: true };
+        let turned = Placement {
+            origin: [-250.0, 70.0, 3000.0],
+            axes: [[0.5_f64.cos(), 0.5_f64.sin(), 0.0], [-0.5_f64.sin(), 0.5_f64.cos(), 0.0], [0.0, 0.0, 1.0]],
+            upright: true,
+        };
+        let n = [0.0, -0.5, 0.75_f64.sqrt()];
+        let sloped = Placement {
+            origin: [0.0; 3],
+            axes: [tilted([1.0, 0.0, 0.0], n), tilted([0.0, 1.0, 0.0], n), tilted([0.0, 0.0, 1.0], n)],
+            upright: false,
+        };
+        for placement in [up, turned, sloped] {
+            for p in [[300.0, -450.0, 1250.0], [0.0, 0.0, 0.0], [-2e4, 1.5e3, -7.0]] {
+                let back = placement.into_local(placement.place(p));
+                assert!(back.iter().zip(p).all(|(a, b)| (a - b).abs() < 1e-9), "{p:?} went to {back:?} in {placement:?}");
+            }
+        }
     }
 }

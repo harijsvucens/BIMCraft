@@ -7435,6 +7435,35 @@ fn a_sheet_imported_from_a_file_is_pulled_up_into_a_solid() {
 }
 
 #[test]
+fn a_meshed_component_s_face_is_pushed_by_a_point_of_the_model() {
+    // A box whose plan middle is the origin, so the component stands where the form's own axes are; then turned 30°.
+    let mut p = box_mesh();
+    for q in p["points"].as_array_mut().unwrap() {
+        q[0] = json!(q[0].as_i64().unwrap() - 500);
+        q[1] = json!(q[1].as_i64().unwrap() - 500);
+    }
+    let mut s = Session::new();
+    let made = run(&mut s, "mesh", p);
+    assert_eq!(made["origin"], json!([0.0, 0.0, 0.0]));
+    let id = made["component"].as_u64().expect("the component's id");
+    let guid = s.model.guid(id);
+    run(&mut s, "modify", json!({"id": id, "angle": 30}));
+    // A point on the top face, 300 mm along the family's x, where that stands in the model.
+    let (sin, cos) = 30.0_f64.to_radians().sin_cos();
+    let at = [300.0 * cos, 300.0 * sin, 1000.0];
+    let pushed = run(&mut s, "mesh_push_pull", json!({"component": guid, "at": at, "distance": 500}));
+    assert_eq!(pushed["normal"], json!([0.0, 0.0, 1.0]), "the face is the same one, found through the component's turn");
+    assert_eq!(pushed["volume"], json!(1.5));
+    // A point of the model that no face holds, and a GUID that is no component, are refused with what to give instead.
+    let e = s.execute("mesh_push_pull", &json!({"component": guid, "at": [1e5, 1e5, 1e5], "distance": 1})).unwrap_err();
+    assert!(e.contains("no flat face"), "{e}");
+    let e = s.execute("mesh_push_pull", &json!({"component": s.model.guid(100_000), "at": [0, 0, 0], "distance": 1})).unwrap_err();
+    assert!(e.contains("no `component`") || e.contains("must be a component"), "{e}");
+    let e = s.execute("mesh_push_pull", &json!({"at": [0, 0, 0], "distance": 1})).unwrap_err();
+    assert!(e.contains("`family`") && e.contains("`component`"), "{e}");
+}
+
+#[test]
 fn a_mesh_given_world_heights_stands_on_a_level_that_is_not_at_zero() {
     let mut s = Session::new();
     let mut p = box_mesh();

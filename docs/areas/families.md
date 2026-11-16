@@ -1253,7 +1253,10 @@ holds the count, `MAX_COORD`, the volume and the winding (turning a mesh inside 
 rest: which triangles make one face, and pushing one.
 
 `mesh_push_pull` is SketchUp's Push/Pull on one flat face of a family's mesh: `at` is a point on the face, in the form's own
-axes, and the face moves `distance` millimetres along its normal, out of the solid where that is positive. Every corner the
+axes, and the face moves `distance` millimetres along its normal, out of the solid where that is positive. Given `component`
+(a component's GUID) instead of `family`, `at` is a point of the model and is taken back through where the component stands —
+its level and offset, its angle, a host's tilt, its mirroring — by `Placement::into_local` and `Model::form_point`, so a pick in
+a view can be given as it is. Every corner the
 face shares with the triangles beside it moves too, so a box's top rises and its sides stretch: no boolean, no new face, and
 nothing comes apart. A face is what `mesh::facets` groups, as the 3D scene groups one too: triangles that share a welded corner's edge and
 lie in one plane, however they wind. Triangles that turn into one another by less than `SMOOTH` are one curved
