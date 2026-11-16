@@ -1821,8 +1821,8 @@ other_files(
         "mesh_push_pull",
         ui_msg!("Push/Pull"),
         &[],
-        "{family, at: [x, y, z], distance, form?} or {component, at: [x, y, z], distance, form?} moves the flat face of one of a \
-         family's meshes that `at` lies on, `distance` mm along the face's normal, out of the solid where that is positive, as \
+        "{family, at: [x, y, z] | face, distance, form?} or {component, at: [x, y, z] | face, distance, form?} moves the flat face of one of a \
+         family's meshes that `at` lies on, or that `face` names (the id `mesh_check` lists), `distance` mm along the face's normal, out of the solid where that is positive, as \
          SketchUp's Push/Pull: every \
          `distance` mm along the face's normal, out of the solid where that is positive, as SketchUp's Push/Pull: every \
          corner the face shares with the triangles beside it moves with it and those triangles stretch, so a box grows or \
@@ -8510,6 +8510,10 @@ fn mesh_check(s: &mut Session, p: &Value) -> R {
         .ok_or_else(|| bad(c, format!("the project has no family `{family}`")))?;
     let m = crate::mesh::measure(&form.mesh).map_err(|e| bad(c, e))?;
     let round = |v: f64| (v * 1e6).round() / 1e6;
+    let faces: Vec<Value> = crate::mesh::faces(&form.mesh)
+        .into_iter()
+        .map(|f| json!({"id": f.id, "area": round(f.area / 1e6), "normal": f.normal, "triangles": f.tris.len()}))
+        .collect();
     Ok(json!({
         "family": family,
         "form": index + 1,
@@ -8518,6 +8522,7 @@ fn mesh_check(s: &mut Session, p: &Value) -> R {
         "volume": round(m.volume / 1e9),
         "area": round(m.area / 1e6),
         "triangles": m.triangles,
+        "faces": faces,
     }))
 }
 
@@ -8526,24 +8531,47 @@ fn mesh_push_pull(s: &mut Session, p: &Value) -> R {
     let c = "mesh_push_pull";
     let family = string(c, p, "family")?;
     let component = id_opt(c, p, "component")?;
+    // The face a pick or `mesh_check` named, instead of a point on it.
+    let face_id = match p.get("face") {
+        v if absent(v) => None,
+        Some(v) => {
+            let n = v.as_u64().ok_or_else(|| bad(c, format!("`face` is the id `mesh_check` lists, a number, not {v}")))?;
+            Some(usize::try_from(n).map_err(|_| bad(c, format!("`face` is the id `mesh_check` lists, a number, not {v}")))?)
+        }
+        None => None,
+    };
     // A component places the family's axes, so its point is the model's, taken back through them: what a pick gives.
     let (family, at) = match (family, component) {
         (given, Some(guid)) => {
-            let world = point3_req(c, p, "at")?;
             let Some(id) = s.model.elements.id(guid) else { return Err(bad(c, "the project has no `component` of that GUID")) };
             let Some(crate::model::Element::Component(comp)) = s.model.elements.get(id) else {
                 return Err(bad(c, "`component` must be a component, the one whose family's mesh is pushed"));
             };
-            let local =
-                s.model.form_point(id, world).ok_or_else(|| bad(c, "that component has no place to take the point back through"))?;
             if let Some(name) = given
                 && name != comp.family
             {
                 return Err(bad(c, format!("component {id} is of `{}`, not `{name}`", comp.family)));
             }
-            (comp.family.clone(), local)
+            let at = match face_id {
+                Some(_) => None,
+                None => {
+                    let world = point3_req(c, p, "at")?;
+                    Some(
+                        s.model
+                            .form_point(id, world)
+                            .ok_or_else(|| bad(c, "that component has no place to take the point back through"))?,
+                    )
+                }
+            };
+            (comp.family.clone(), at)
         }
-        (Some(name), None) => (name, point3_req(c, p, "at")?),
+        (Some(name), None) => {
+            let at = match face_id {
+                Some(_) => None,
+                None => Some(point3_req(c, p, "at")?),
+            };
+            (name, at)
+        }
         (None, None) => {
             return Err(bad(
                 c,
@@ -8560,7 +8588,11 @@ fn mesh_push_pull(s: &mut Session, p: &Value) -> R {
     let (face, pushed, volume, same) = {
         let f = s.model.families.get(&family).ok_or_else(|| bad(c, format!("the project has no family `{family}`")))?;
         let form = &f.forms[index];
-        let face = crate::mesh::face_at(&form.mesh, at).map_err(|e| bad(c, e))?;
+        let face = match (face_id, at) {
+            (Some(id), _) => crate::mesh::face_of(&form.mesh, id).map_err(|e| bad(c, e))?,
+            (None, Some(at)) => crate::mesh::face_at(&form.mesh, at).map_err(|e| bad(c, e))?,
+            (None, None) => return Err(bad(c, "`at`, a point on the face, or `face`, the id `mesh_check` lists, is required")),
+        };
         let pushed = crate::mesh::push(&form.mesh, &face, distance).map_err(|e| bad(c, e))?;
         let volume = crate::mesh::measure(&pushed).map(|m| m.volume / 1e9).map_err(|e| bad(c, e))?;
         let same = *form.mesh == pushed;
@@ -8569,6 +8601,7 @@ fn mesh_push_pull(s: &mut Session, p: &Value) -> R {
     let reply = json!({
         "family": family,
         "form": index + 1,
+        "face": face.id,
         "normal": face.normal,
         "distance": distance,
         "triangles": face.tris.len(),

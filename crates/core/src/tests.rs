@@ -7499,6 +7499,28 @@ fn a_mesh_is_checked_for_what_it_makes_and_what_is_wrong_with_it() {
 }
 
 #[test]
+fn a_mesh_s_face_is_named_by_its_id_and_pushed_by_it() {
+    let mut s = Session::new();
+    run(&mut s, "mesh", box_mesh());
+    let checked = run(&mut s, "mesh_check", json!({"family": "Direct Model"}));
+    let faces = checked["faces"].as_array().expect("its faces");
+    assert_eq!(faces.len(), 6, "a box's six faces: {faces:?}");
+    let top = faces.iter().find(|f| f["normal"] == json!([0.0, 0.0, 1.0])).expect("the top");
+    assert_eq!((top["triangles"].as_u64(), top["area"].as_f64()), (Some(2), Some(1.0)), "{top}");
+    let id = top["id"].as_u64().expect("its id");
+    // The face an id names is the face a point on it does: the same push either way.
+    let by_id = run(&mut s, "mesh_push_pull", json!({"family": "Direct Model", "face": id, "distance": 500}));
+    assert_eq!((by_id["face"].as_u64(), by_id["volume"].as_f64()), (Some(id), Some(1.5)));
+    run(&mut s, "undo", json!({}));
+    let by_point = run(&mut s, "mesh_push_pull", json!({"family": "Direct Model", "at": [500, 500, 1000], "distance": 500}));
+    assert_eq!(by_point["face"], json!(id), "the same face, found by a point of it");
+    let e = s.execute("mesh_push_pull", &json!({"family": "Direct Model", "face": 9999, "distance": 1})).unwrap_err();
+    assert!(e.contains("no flat face 9999"), "{e}");
+    let e = s.execute("mesh_push_pull", &json!({"family": "Direct Model", "face": "x", "distance": 1})).unwrap_err();
+    assert!(e.contains("`mesh_check` lists"), "{e}");
+}
+
+#[test]
 fn a_mesh_given_world_heights_stands_on_a_level_that_is_not_at_zero() {
     let mut s = Session::new();
     let mut p = box_mesh();

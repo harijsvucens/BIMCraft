@@ -14,12 +14,17 @@ use crate::vec3::{P3, add, cross, dot, mul, sub, unit};
 /// for a pick's rounding.
 pub const ON_FACE: f64 = 1e-3;
 
-/// A flat face of a mesh: the triangles it is made of, and the way it faces, unit out of the solid as its triangles wound
-/// it.
+/// A flat face of a mesh: the triangles it is made of, the way it faces, unit out of the solid as its triangles wound it, and
+/// how much surface it has.
 #[derive(Debug)]
 pub struct Face {
+    /// Which face of the mesh it is: the place of its first triangle, as [`facets`] numbers one, so `mesh_check` can list it
+    /// and a command name it again.
+    pub id: usize,
     pub tris: Vec<usize>,
     pub normal: P3,
+    /// Its surface, mm².
+    pub area: f64,
 }
 
 /// The flat face `at` lies on, in the mesh's own axes: the face of the triangle under it nearest its plane, if one holds
@@ -49,7 +54,37 @@ pub fn face_at(tris: &[[P3; 3]], at: P3) -> Result<Face, String> {
         return Err("that point is on a curved side, which has no plane of its own to push: pick a flat face".into());
     };
     let group: Vec<usize> = (0..tris.len()).filter(|j| faces.get(*j).copied().flatten() == Some(face)).collect();
-    Ok(Face { tris: group, normal: n })
+    Ok(Face { id: face, tris: group.clone(), normal: n, area: area(tris, &group) })
+}
+
+/// Every flat face of a mesh, by id: what `mesh_check` lists and what a push can name instead of a point.
+pub fn faces(tris: &[[P3; 3]]) -> Vec<Face> {
+    let (_, ids) = facets(tris);
+    let mut seen: HashSet<usize> = HashSet::new();
+    let mut out = Vec::new();
+    for (i, id) in ids.iter().enumerate() {
+        let Some(id) = *id else { continue };
+        if !seen.insert(id) {
+            continue;
+        }
+        let group: Vec<usize> = (0..tris.len()).filter(|j| ids.get(*j).copied().flatten() == Some(id)).collect();
+        out.push(Face { id, normal: normal(tris[i]), area: area(tris, &group), tris: group });
+    }
+    out.sort_by_key(|f| f.id);
+    out
+}
+
+/// The flat face `id` of a mesh: the one [`faces`] lists and `mesh_check` names.
+pub fn face_of(tris: &[[P3; 3]], id: usize) -> Result<Face, String> {
+    faces(tris).into_iter().find(|f| f.id == id).ok_or_else(|| format!("this mesh has no flat face {id}: `mesh_check` lists them"))
+}
+
+/// The surface `group`'s triangles cover, mm².
+fn area(tris: &[[P3; 3]], group: &[usize]) -> f64 {
+    group
+        .iter()
+        .map(|i| tris.get(*i).map_or(0.0, |[a, b, c]| dot(cross(sub(*b, *a), sub(*c, *a)), cross(sub(*b, *a), sub(*c, *a))).sqrt() / 2.0))
+        .sum()
 }
 
 /// What a mesh's triangles make of themselves.

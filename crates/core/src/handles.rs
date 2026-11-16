@@ -6,7 +6,7 @@
 use serde_json::{Value, json};
 
 use crate::geom::P2;
-use crate::model::{Column, Element, Id, Model, Wall};
+use crate::model::{Element, Id, Model};
 use crate::view3d::P3;
 use crate::walls::{self, Axis};
 
@@ -32,50 +32,151 @@ impl Handle {
     }
 }
 
+/// The handles an element of one kind has: where they stand, the command a drag makes and how it would stand meanwhile. One
+/// implementation for each kind, so another kind adds an impl rather than an arm in three matches.
+trait Grips {
+    fn of(&self, m: &Model, id: Id) -> Vec<(Handle, P3)>;
+    fn command(&self, m: &Model, id: Id, handle: Handle, to: P2, z: f64) -> Option<(&'static str, Value)>;
+    fn preview(&self, m: &Model, id: Id, handle: Handle, to: P2, z: f64) -> Vec<Vec<P3>>;
+}
+
+/// The grips of element `e`, if its kind has any.
+fn grips(e: &Element) -> Option<&'static dyn Grips> {
+    match e {
+        Element::Wall(_) => Some(&WALL),
+        Element::Column(_) | Element::StructuralColumn(_) => Some(&COLUMN),
+        _ => None,
+    }
+}
+
 /// The handles of element `id`, each where it stands. None for what has none, and for an attached top's or base's arrow.
 pub fn of(m: &Model, id: Id) -> Vec<(Handle, P3)> {
-    match m.elements.get(id) {
-        Some(Element::Wall(w)) => wall_handles(m, w),
-        Some(e @ (Element::Column(c) | Element::StructuralColumn(c))) => column_handles(m, e, c),
-        _ => Vec::new(),
+    m.elements.get(id).and_then(grips).map_or_else(Vec::new, |g| g.of(m, id))
+}
+
+static WALL: WallGrips = WallGrips;
+static COLUMN: ColumnGrips = ColumnGrips;
+struct WallGrips;
+struct ColumnGrips;
+
+impl Grips for WallGrips {
+    fn of(&self, m: &Model, id: Id) -> Vec<(Handle, P3)> {
+        let Some(w) = m.wall(id) else { return Vec::new() };
+        let axis = Axis::of(w);
+        let (ext, int) = walls::faces(m, w);
+        let (mid, long) = ((ext + int) / 2.0, axis.length());
+        let on = |s: f64, z: f64| {
+            let q = axis.at(s, mid);
+            [q.0, q.1, z]
+        };
+        // Its ends where Revit has them, at its base on its location line.
+        let end = |s: f64| {
+            let q = axis.at(s, 0.0);
+            [q.0, q.1, walls::base_at(m, w, s)]
+        };
+        let mut out = vec![(Handle::Start, end(0.0)), (Handle::End, end(long))];
+        if w.attach_top.is_none() {
+            out.push((Handle::Top, on(long / 2.0, m.own_top(w))));
+        }
+        if w.attach_base.is_none() {
+            out.push((Handle::Base, on(long / 2.0, m.own_base(w))));
+        }
+        out
+    }
+
+    fn command(&self, m: &Model, id: Id, handle: Handle, to: P2, z: f64) -> Option<(&'static str, Value)> {
+        let w = m.wall(id)?;
+        match handle {
+            Handle::Start | Handle::End => {
+                let start = handle == Handle::Start;
+                let by = to - if start { w.start } else { w.end };
+                (by.length() > EPS).then(|| ("move", json!({"ids": [id], "by": [by.0, by.1], "end": if start { "start" } else { "end" }})))
+            }
+            Handle::Top | Handle::Base => {
+                vertical(id, z, handle, m.own_base(w), m.own_top(w), w.top_level.is_some(), w.height, w.base_offset, w.top_offset)
+                    .map(|p| ("modify", p))
+            }
+            _ => None,
+        }
+    }
+
+    fn preview(&self, m: &Model, id: Id, handle: Handle, to: P2, z: f64) -> Vec<Vec<P3>> {
+        let Some(w) = m.wall(id) else { return Vec::new() };
+        let (lo, hi) = span(m.base_z(w), m.top_z(w), handle, z);
+        let (a, b) = match handle {
+            Handle::Start => (to, w.end),
+            Handle::End => (w.start, to),
+            _ => (w.start, w.end),
+        };
+        vec![vec![[a.0, a.1, lo], [b.0, b.1, lo], [b.0, b.1, hi], [a.0, a.1, hi]]]
     }
 }
 
-fn wall_handles(m: &Model, w: &Wall) -> Vec<(Handle, P3)> {
-    let axis = Axis::of(w);
-    let (ext, int) = walls::faces(m, w);
-    let (mid, long) = ((ext + int) / 2.0, axis.length());
-    let on = |s: f64, z: f64| {
-        let q = axis.at(s, mid);
-        [q.0, q.1, z]
-    };
-    // Its ends where Revit has them, at its base on its location line.
-    let end = |s: f64| {
-        let q = axis.at(s, 0.0);
-        [q.0, q.1, walls::base_at(m, w, s)]
-    };
-    let mut out = vec![(Handle::Start, end(0.0)), (Handle::End, end(long))];
-    if w.attach_top.is_none() {
-        out.push((Handle::Top, on(long / 2.0, m.own_top(w))));
+impl Grips for ColumnGrips {
+    fn of(&self, m: &Model, id: Id) -> Vec<(Handle, P3)> {
+        let Some(e) = m.elements.get(id) else { return Vec::new() };
+        let Some(c) = (match e {
+            Element::Column(c) | Element::StructuralColumn(c) => Some(c),
+            _ => None,
+        }) else {
+            return Vec::new();
+        };
+        let (bottom, top) = m.column_span(e);
+        let on = |z: f64| [c.at.0, c.at.1, z];
+        let mut out = vec![(Handle::Place, on(bottom))];
+        if c.attach_top.is_none() {
+            out.push((Handle::Top, on(top)));
+        }
+        if c.attach_base.is_none() {
+            out.push((Handle::Base, on(bottom)));
+        }
+        out
     }
-    if w.attach_base.is_none() {
-        out.push((Handle::Base, on(long / 2.0, m.own_base(w))));
+
+    fn command(&self, m: &Model, id: Id, handle: Handle, to: P2, z: f64) -> Option<(&'static str, Value)> {
+        let e = m.elements.get(id)?;
+        let c = match e {
+            Element::Column(c) | Element::StructuralColumn(c) => c,
+            _ => return None,
+        };
+        match handle {
+            Handle::Place => {
+                let by = to - c.at;
+                (by.length() > EPS).then(|| ("move", json!({"ids": [id], "by": [by.0, by.1]})))
+            }
+            Handle::Top | Handle::Base => vertical(
+                id,
+                z,
+                handle,
+                m.column_own_base(c),
+                m.column_own_top(c),
+                c.top_level.is_some(),
+                c.height,
+                c.base_offset,
+                c.top_offset,
+            )
+            .map(|p| ("modify", p)),
+            _ => None,
+        }
     }
-    out
+
+    fn preview(&self, m: &Model, id: Id, handle: Handle, to: P2, z: f64) -> Vec<Vec<P3>> {
+        let Some(e) = m.elements.get(id) else { return Vec::new() };
+        let Some(c) = (match e {
+            Element::Column(c) | Element::StructuralColumn(c) => Some(c),
+            _ => None,
+        }) else {
+            return Vec::new();
+        };
+        let (lo, hi) = span(m.column_span(e).0, m.column_span(e).1, handle, z);
+        let by = if handle == Handle::Place { to - c.at } else { P2(0.0, 0.0) };
+        let ring = m.column_outline(e);
+        [lo, hi].iter().map(|h| ring.iter().map(|q| [q.0 + by.0, q.1 + by.1, *h]).collect()).collect()
+    }
 }
 
-fn column_handles(m: &Model, e: &Element, c: &Column) -> Vec<(Handle, P3)> {
-    let (bottom, top) = m.column_span(e);
-    let on = |z: f64| [c.at.0, c.at.1, z];
-    let mut out = vec![(Handle::Place, on(bottom))];
-    if c.attach_top.is_none() {
-        out.push((Handle::Top, on(top)));
-    }
-    if c.attach_base.is_none() {
-        out.push((Handle::Base, on(bottom)));
-    }
-    out
-}
+/// A hand's width, in mm: a drag under it changes nothing.
+const EPS: f64 = 1e-6;
 
 /// A selected wall's location line in a 3D view, as a plan shows it: along its base, from its start to its end; on a curved
 /// wall, along its arc. None for what isn't a wall.
@@ -111,8 +212,39 @@ pub fn settled(m: &Model, z: f64, reach: f64) -> f64 {
 /// element's top where it is, as far as its top constraint lets it. None for a drag that changes nothing, or what has no such
 /// handle.
 pub fn command(m: &Model, id: Id, handle: Handle, to: P2, z: f64) -> Option<(&'static str, Value)> {
-    const EPS: f64 = 1e-6;
-    let vertical = |own_base: f64, own_top: f64, top_level: bool, height: f64, base_offset: f64, top_offset: f64| match handle {
+    m.elements.get(id).and_then(grips)?.command(m, id, handle, to, z)
+}
+
+/// How element `id` would stand with `handle` dragged there, as closed outlines in space: a wall's rectangle along its line, a
+/// column's outline at its base and its top.
+pub fn preview(m: &Model, id: Id, handle: Handle, to: P2, z: f64) -> Vec<Vec<P3>> {
+    m.elements.get(id).and_then(grips).map_or_else(Vec::new, |g| g.preview(m, id, handle, to, z))
+}
+
+/// The heights a dragged arrow spans: a top up to `z`, a base from it, anything else as it stands.
+fn span(lo: f64, hi: f64, handle: Handle, z: f64) -> (f64, f64) {
+    match handle {
+        Handle::Top => (lo, z),
+        Handle::Base => (z, hi),
+        _ => (lo, hi),
+    }
+}
+
+/// The `modify` a dragged arrow makes, keeping its element's other end as far as its constraints let it, or none for a drag to
+/// where it already stands.
+#[allow(clippy::too_many_arguments)]
+fn vertical(
+    id: Id,
+    z: f64,
+    handle: Handle,
+    own_base: f64,
+    own_top: f64,
+    top_level: bool,
+    height: f64,
+    base_offset: f64,
+    top_offset: f64,
+) -> Option<Value> {
+    match handle {
         Handle::Top if (z - own_top).abs() <= EPS => None,
         Handle::Top if top_level => Some(json!({"id": id, "top_offset": top_offset + z - own_top})),
         Handle::Top => Some(json!({"id": id, "height": height + z - own_top})),
@@ -120,54 +252,6 @@ pub fn command(m: &Model, id: Id, handle: Handle, to: P2, z: f64) -> Option<(&'s
         Handle::Base if top_level => Some(json!({"id": id, "base_offset": base_offset + z - own_base})),
         Handle::Base => Some(json!({"id": id, "base_offset": base_offset + z - own_base, "height": height - (z - own_base)})),
         _ => None,
-    };
-    match (m.elements.get(id)?, handle) {
-        (Element::Wall(w), Handle::Start | Handle::End) => {
-            let start = handle == Handle::Start;
-            let by = to - if start { w.start } else { w.end };
-            (by.length() > EPS).then(|| ("move", json!({"ids": [id], "by": [by.0, by.1], "end": if start { "start" } else { "end" }})))
-        }
-        (Element::Wall(w), Handle::Top | Handle::Base) => {
-            vertical(m.own_base(w), m.own_top(w), w.top_level.is_some(), w.height, w.base_offset, w.top_offset).map(|p| ("modify", p))
-        }
-        (Element::Column(c) | Element::StructuralColumn(c), Handle::Place) => {
-            let by = to - c.at;
-            (by.length() > EPS).then(|| ("move", json!({"ids": [id], "by": [by.0, by.1]})))
-        }
-        (Element::Column(c) | Element::StructuralColumn(c), Handle::Top | Handle::Base) => {
-            vertical(m.column_own_base(c), m.column_own_top(c), c.top_level.is_some(), c.height, c.base_offset, c.top_offset)
-                .map(|p| ("modify", p))
-        }
-        _ => None,
-    }
-}
-
-/// How element `id` would stand with `handle` dragged there, as closed outlines in space: a wall's rectangle along its line, a
-/// column's outline at its base and its top.
-pub fn preview(m: &Model, id: Id, handle: Handle, to: P2, z: f64) -> Vec<Vec<P3>> {
-    let mid = |lo: f64, hi: f64| match handle {
-        Handle::Top => (lo, z),
-        Handle::Base => (z, hi),
-        _ => (lo, hi),
-    };
-    match m.elements.get(id) {
-        Some(Element::Wall(w)) => {
-            let (lo, hi) = mid(m.base_z(w), m.top_z(w));
-            let (a, b) = match handle {
-                Handle::Start => (to, w.end),
-                Handle::End => (w.start, to),
-                _ => (w.start, w.end),
-            };
-            vec![vec![[a.0, a.1, lo], [b.0, b.1, lo], [b.0, b.1, hi], [a.0, a.1, hi]]]
-        }
-        Some(e @ (Element::Column(c) | Element::StructuralColumn(c))) => {
-            let (lo, hi) = m.column_span(e);
-            let (lo, hi) = mid(lo, hi);
-            let by = if handle == Handle::Place { to - c.at } else { P2(0.0, 0.0) };
-            let ring = m.column_outline(e);
-            [lo, hi].iter().map(|h| ring.iter().map(|q| [q.0 + by.0, q.1 + by.1, *h]).collect()).collect()
-        }
-        _ => Vec::new(),
     }
 }
 
