@@ -238,6 +238,7 @@ mod titleblock_tests;
 pub mod triad;
 pub mod triangulation;
 pub mod units;
+pub mod vec3;
 pub mod view3d;
 #[cfg(test)]
 mod wall_top_offset_tests;

@@ -14,7 +14,7 @@ one side and not the other, and a loop inside another a hole); furniture, fixtur
 the line and never cuts, as Revit does. The section's work holds no component's triangles: it makes those of a component it
 cuts when the line's plane crosses its box, as it does a round run's. The
 3D view takes a form's triangles that share an edge and turn under 20° there as one curved surface, so a curve draws no
-edge between its facets (`view3d::facets`) and shades smoothly across them, each corner lit by the angle-weighted mean of
+edge between its facets (`mesh::facets`) and shades smoothly across them, each corner lit by the angle-weighted mean of
 its own surface's normals there, so a crease keeps its step (`corner_normals`); IFC writes each form as a closed face set,
 triangles turned out, and reads one family per family name the file gives.
 
@@ -1255,8 +1255,8 @@ rest: which triangles make one face, and pushing one.
 `mesh_push_pull` is SketchUp's Push/Pull on one flat face of a family's mesh: `at` is a point on the face, in the form's own
 axes, and the face moves `distance` millimetres along its normal, out of the solid where that is positive. Every corner the
 face shares with the triangles beside it moves too, so a box's top rises and its sides stretch: no boolean, no new face, and
-nothing comes apart. A face is what the 3D scene groups (`view3d::facets`): triangles that share a welded corner's edge and
-lie in one plane, however they wind. Triangles that turn into one another by less than the scene's smooth angle are one curved
+nothing comes apart. A face is what `mesh::facets` groups, as the 3D scene groups one too: triangles that share a welded corner's edge and
+lie in one plane, however they wind. Triangles that turn into one another by less than `SMOOTH` are one curved
 surface — a cylinder's side — which has no plane of its own, so a pick there is refused with what to pick instead. Both the
 weld and the grouping are the scene's, so the face a pick selects is the face a push moves. A push of nothing, or one that
 would turn the solid inside out, is refused.

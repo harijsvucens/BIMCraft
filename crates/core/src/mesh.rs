@@ -1,15 +1,14 @@
 //! Direct modeling: the flat faces a form's triangles make, and pushing one along its normal.
 //!
-//! A face is grouped the way the 3D scene groups one ([`crate::view3d::facets`]): triangles that share a welded corner's
-//! edge and lie in one plane are one face, however they are wound; triangles that turn into one another less than the
-//! scene's smooth angle are one curved surface, which has no single plane to push. The weld is the scene's too, so a
-//! corner a pick can select is the corner a push moves.
+//! A face is grouped here ([`facets`]): triangles that share a welded corner's edge and lie in one plane are one face,
+//! however they are wound; triangles that turn into one another less than [`SMOOTH`] degrees are one curved surface, which
+//! has no single plane to push. The scene draws by the same grouping, so a face a pick can select is the face a push moves.
 
 use std::collections::{HashMap, HashSet};
 
 use crate::geom::P2;
 use crate::model::MAX_COORD;
-use crate::view3d::{P3, add, cross, dot, mul, sub, unit};
+use crate::vec3::{P3, add, cross, dot, mul, sub, unit};
 
 /// How far off a face's plane a point may lie and still be on it, and how far outside it: the weld's micron, with room
 /// for a pick's rounding.
@@ -29,7 +28,7 @@ pub fn face_at(tris: &[[P3; 3]], at: P3) -> Result<Face, String> {
     if !at.iter().all(|v| v.is_finite() && v.abs() <= MAX_COORD) {
         return Err(format!("a point to push is [x, y, z] in mm within {MAX_COORD}"));
     }
-    let (_, faces) = crate::view3d::facets(tris);
+    let (_, faces) = facets(tris);
     let mut under: Option<(f64, usize, P3)> = None;
     for (i, t) in tris.iter().enumerate() {
         let n = normal(*t);
@@ -59,7 +58,7 @@ pub fn face_at(tris: &[[P3; 3]], at: P3) -> Result<Face, String> {
 pub fn sealed(tris: &[[P3; 3]]) -> Result<(), String> {
     let mut pairs: HashMap<([i64; 3], [i64; 3]), usize> = HashMap::new();
     let mut ways: HashMap<([i64; 3], [i64; 3]), usize> = HashMap::new();
-    for k in crate::view3d::weld(tris) {
+    for k in weld(tris) {
         for j in 0..3 {
             let (a, b) = (k[j], k[(j + 1) % 3]);
             if a == b {
@@ -87,10 +86,112 @@ fn volume(tris: &[[P3; 3]]) -> f64 {
 }
 
 /// A corner of the weld, as the scene's own: a micron's grid.
-type Corner = [i64; 3];
+pub(crate) type Corner = [i64; 3];
 
 /// An edge of the weld, either way round: both ends sorted, so a walk from one and a walk from the other name one edge.
 type Edge = (Corner, Corner);
+
+/// How far, in degrees, two triangles may turn at the edge they share and still be one surface: the facets a curve is cut
+/// into turn less, a crease like a seat's rim more.
+const SMOOTH: f64 = 20.0;
+
+/// The curved surfaces and the flat faces a mesh's triangles make: those that share an edge and turn less than [`SMOOTH`]
+/// degrees there are one. A surface with a bend in it is a curve, each triangle's as its first triangle's index; one with
+/// none is a face, numbered the same way, so two faces in one plane that do not touch are two. None for a triangle with no
+/// area, which has no plane to be one.
+pub(crate) fn facets(tris: &[[P3; 3]]) -> (Vec<Option<usize>>, Vec<Option<usize>>) {
+    /// The first triangle of `i`'s surface, as `up` links them, shortening the way as it goes.
+    fn first(up: &mut [usize], mut i: usize) -> usize {
+        while let Some(&p) = up.get(i)
+            && p != i
+        {
+            let grand = up.get(p).copied().unwrap_or(p);
+            if let Some(slot) = up.get_mut(i) {
+                *slot = grand;
+            }
+            i = grand;
+        }
+        i
+    }
+    let limit = SMOOTH.to_radians().cos();
+    let normals: Vec<P3> = tris.iter().map(|[a, b, c]| unit(cross(sub(*b, *a), sub(*c, *a)))).collect();
+    let normal = |i: usize| normals.get(i).copied().unwrap_or_default();
+    let mut up: Vec<usize> = (0..tris.len()).collect();
+    let corners = weld(tris);
+    // The first triangle on each side, whose corners a micron's grid names and [`welded`] joins to a twin in the cells
+    // around it.
+    // ponytail: a third triangle on a side meets only the first; pair them all if facet lines show.
+    let mut edges: HashMap<Edge, usize> = HashMap::new();
+    let mut bent = Vec::new();
+    for (i, _) in tris.iter().enumerate() {
+        let c = corners.get(i).copied().unwrap_or_default();
+        for k in 0..3 {
+            let (a, b) = (c[k], c[(k + 1) % 3]);
+            let j = *edges.entry(edge(a, b)).or_insert(i);
+            // A triangle with no area has no normal, so it turns 90° from every other.
+            let turn = dot(normal(i), normal(j));
+            // One plane, whichever way round each triangle is wound, is one face; turning little the same way is one
+            // surface. A fold (normals near opposite, so `turn` near -1) is neither.
+            let flat = turn.abs() >= 1.0 - 1e-9;
+            if j != i && a != b && (turn > limit || flat) {
+                let (ri, rj) = (first(&mut up, i), first(&mut up, j));
+                if let Some(slot) = up.get_mut(ri.max(rj)) {
+                    *slot = ri.min(rj);
+                }
+                if !flat {
+                    bent.push(i);
+                }
+            }
+        }
+    }
+    let curved: HashSet<usize> = bent.into_iter().map(|i| first(&mut up, i)).collect();
+    let mut curves = Vec::with_capacity(tris.len());
+    let mut faces = Vec::with_capacity(tris.len());
+    for (i, n) in normals.iter().enumerate() {
+        let root = first(&mut up, i);
+        let (curve, face) = if curved.contains(&root) { (Some(root), None) } else { (None, (dot(*n, *n) > 0.5).then_some(root)) };
+        curves.push(curve);
+        faces.push(face);
+    }
+    (curves, faces)
+}
+
+/// The corner each triangle corner of a mesh welds to, by a micron's grid: the same point written twice, or twice within
+/// the weld, gets one. The scene groups a mesh's faces by these corners, so what a pick selects is what a push moves.
+pub(crate) fn weld(tris: &[[P3; 3]]) -> Vec<[Corner; 3]> {
+    let mut canon: HashMap<Corner, Corner> = HashMap::new();
+    tris.iter().map(|t| t.map(|p| welded(&mut canon, p.map(|x| (x * 1e3).round() as i64), p))).collect()
+}
+
+/// The corner a rounded `q` stands for: itself, or the first corner already met within the weld, which a cell's edge may
+/// have put next door. `p` is `q` before it was rounded: a corner within a micron of another can land either side of a
+/// cell's edge, and the two are one point.
+fn welded(canon: &mut HashMap<Corner, Corner>, q: Corner, p: P3) -> Corner {
+    if let Some(c) = canon.get(&q) {
+        return *c;
+    }
+    for dx in -1..=1 {
+        for dy in -1..=1 {
+            for dz in -1..=1 {
+                if dx == 0 && dy == 0 && dz == 0 {
+                    continue;
+                }
+                // Saturated: a corner of 1e300 (or an infinity) rounds to the key's end, where `+` would overflow.
+                let next = [q[0].saturating_add(dx), q[1].saturating_add(dy), q[2].saturating_add(dz)];
+                if let Some(&c) = canon.get(&next) {
+                    // The weld, and the half micron the cell's own rounding may add.
+                    let at = c.map(|v| v as f64 * 1e-3);
+                    if sub(p, at).iter().all(|v| v.abs() <= 1.5e-3) {
+                        canon.insert(q, c);
+                        return c;
+                    }
+                }
+            }
+        }
+    }
+    canon.insert(q, q);
+    q
+}
 
 /// An edge on a face's boundary: which edge it is, and the way round the face's triangles walk it.
 struct OnRim {
@@ -191,7 +292,7 @@ pub fn push(tris: &[[P3; 3]], face: &Face, distance: f64) -> Result<Vec<[P3; 3]>
     if face.tris.iter().any(|i| *i >= tris.len()) {
         return Err("that face is no face of these triangles".into());
     }
-    let keys = crate::view3d::weld(tris);
+    let keys = weld(tris);
     let rim = rim(&keys, &face.tris);
     if !rim.is_empty() && alone(tris, &keys, &face.tris, &rim, face) {
         return extrude(tris, &keys, face, &rim, distance).and_then(held);

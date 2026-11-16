@@ -31,7 +31,8 @@ fn render_pool() -> Option<&'static rayon::ThreadPool> {
 }
 
 /// A model point in mm: x east, y north, z up.
-pub type P3 = [f64; 3];
+pub use crate::vec3::P3;
+pub(crate) use crate::vec3::{add, cross, dot, mul, sub, unit};
 
 /// Revit's default 3D view looks from the south-east, from above.
 pub const AZIMUTH: f64 = -45.0;
@@ -106,26 +107,6 @@ const AMBIENT: [(i32, i32); 8] = [(12, 0), (0, 12), (8, 8), (8, -8), (6, 0), (0,
 const AMBIENT_REACH: f64 = 4.0;
 /// How dark the deepest ambient shadow is: the share of the light it takes.
 const AMBIENT_DARK: f64 = 0.6;
-
-pub(crate) fn add(a: P3, b: P3) -> P3 {
-    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
-}
-pub(crate) fn sub(a: P3, b: P3) -> P3 {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-pub(crate) fn mul(a: P3, k: f64) -> P3 {
-    [a[0] * k, a[1] * k, a[2] * k]
-}
-pub(crate) fn dot(a: P3, b: P3) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-pub(crate) fn cross(a: P3, b: P3) -> P3 {
-    [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
-}
-pub(crate) fn unit(a: P3) -> P3 {
-    let l = dot(a, a).sqrt();
-    if l > 0.0 { mul(a, 1.0 / l) } else { [0.0; 3] }
-}
 
 /// A triangle of an element's surface; on a curved one, which (its element's, and which of its
 /// curved surfaces: a wall's outside or inside, a component's by its first triangle's place in the
@@ -530,7 +511,7 @@ impl Solid {
                 let (surfaces, faces) = if *round {
                     ((0..tris.len()).map(|i| (i >= *caps).then_some(*caps)).collect(), vec![None; tris.len()])
                 } else {
-                    facets(tris)
+                    crate::mesh::facets(tris)
                 };
                 for ((p, s), f) in tris.iter().zip(surfaces).zip(faces) {
                     out.push(Tri {
@@ -649,108 +630,6 @@ pub(crate) fn slice(tris: &[[P3; 3]], p: P2, u: P2, len: f64) -> Option<Vec<Vec<
         }
     }
     Some(out)
-}
-
-/// How far, in degrees, two triangles may turn at the edge they share and still be one surface:
-/// the facets a curve is cut into turn less, a crease like a seat's rim more.
-const SMOOTH: f64 = 20.0;
-
-/// The curved surfaces and the flat faces a mesh's triangles make: those that share an edge and turn less than
-/// [`SMOOTH`] degrees there are one. A surface with a bend in it is a curve, each triangle's as its first triangle's
-/// index; one with none is a face, numbered the same way, so two faces in one plane that do not touch are two. None for a
-/// triangle with no area, which has no plane to be one.
-pub(crate) fn facets(tris: &[[P3; 3]]) -> (Vec<Option<usize>>, Vec<Option<usize>>) {
-    /// The first triangle of `i`'s surface, as `up` links them, shortening the way as it goes.
-    fn first(up: &mut [usize], mut i: usize) -> usize {
-        while let Some(&p) = up.get(i)
-            && p != i
-        {
-            let grand = up.get(p).copied().unwrap_or(p);
-            if let Some(slot) = up.get_mut(i) {
-                *slot = grand;
-            }
-            i = grand;
-        }
-        i
-    }
-    let limit = SMOOTH.to_radians().cos();
-    let normals: Vec<P3> = tris.iter().map(|[a, b, c]| unit(cross(sub(*b, *a), sub(*c, *a)))).collect();
-    let normal = |i: usize| normals.get(i).copied().unwrap_or_default();
-    let mut up: Vec<usize> = (0..tris.len()).collect();
-    let corners = weld(tris);
-    // The first triangle on each side, whose corners a micron's grid names and [`welded`] joins to a twin in the cells
-    // around it.
-    // ponytail: a third triangle on a side meets only the first; pair them all if facet lines show.
-    let mut edges: HashMap<([i64; 3], [i64; 3]), usize> = HashMap::new();
-    let mut bent = Vec::new();
-    for (i, _) in tris.iter().enumerate() {
-        let c = corners.get(i).copied().unwrap_or_default();
-        for k in 0..3 {
-            let (a, b) = (c[k], c[(k + 1) % 3]);
-            let j = *edges.entry((a.min(b), a.max(b))).or_insert(i);
-            // A triangle with no area has no normal, so it turns 90° from every other.
-            let turn = dot(normal(i), normal(j));
-            // One plane, whichever way round each triangle is wound, is one face; turning little the same way is one
-            // surface. A fold (normals near opposite, so `turn` near -1) is neither.
-            let flat = turn.abs() >= 1.0 - 1e-9;
-            if j != i && a != b && (turn > limit || flat) {
-                let (ri, rj) = (first(&mut up, i), first(&mut up, j));
-                if let Some(slot) = up.get_mut(ri.max(rj)) {
-                    *slot = ri.min(rj);
-                }
-                if !flat {
-                    bent.push(i);
-                }
-            }
-        }
-    }
-    let curved: HashSet<usize> = bent.into_iter().map(|i| first(&mut up, i)).collect();
-    let mut curves = Vec::with_capacity(tris.len());
-    let mut faces = Vec::with_capacity(tris.len());
-    for (i, n) in normals.iter().enumerate() {
-        let root = first(&mut up, i);
-        let (curve, face) = if curved.contains(&root) { (Some(root), None) } else { (None, (dot(*n, *n) > 0.5).then_some(root)) };
-        curves.push(curve);
-        faces.push(face);
-    }
-    (curves, faces)
-}
-
-/// The corner each triangle corner of a mesh welds to, by a micron's grid: the same point written twice, or twice within
-/// the weld, gets one. The scene groups a mesh's faces by these corners, so what a pick selects is what a push moves.
-pub(crate) fn weld(tris: &[[P3; 3]]) -> Vec<[[i64; 3]; 3]> {
-    let mut canon: HashMap<[i64; 3], [i64; 3]> = HashMap::new();
-    tris.iter().map(|t| t.map(|p| welded(&mut canon, p.map(|x| (x * 1e3).round() as i64), p))).collect()
-}
-
-/// The corner a rounded `q` stands for: itself, or the first corner already met within the weld, which a cell's edge may
-/// have put next door. `p` is `q` before it was rounded: a corner within a micron of another can land either side of a
-/// cell's edge, and the two are one point.
-fn welded(canon: &mut HashMap<[i64; 3], [i64; 3]>, q: [i64; 3], p: P3) -> [i64; 3] {
-    if let Some(c) = canon.get(&q) {
-        return *c;
-    }
-    for dx in -1..=1 {
-        for dy in -1..=1 {
-            for dz in -1..=1 {
-                if dx == 0 && dy == 0 && dz == 0 {
-                    continue;
-                }
-                // Saturated: a corner of 1e300 (or an infinity) rounds to the key's end, where `+` would overflow.
-                let next = [q[0].saturating_add(dx), q[1].saturating_add(dy), q[2].saturating_add(dz)];
-                if let Some(&c) = canon.get(&next) {
-                    // The weld, and the half micron the cell's own rounding may add.
-                    let at = c.map(|v| v as f64 * 1e-3);
-                    if sub(p, at).iter().all(|v| v.abs() <= 1.5e-3) {
-                        canon.insert(q, c);
-                        return c;
-                    }
-                }
-            }
-        }
-    }
-    canon.insert(q, q);
-    q
 }
 
 /// The corner normals of each triangle of a curved surface, for it to shade smoothly across its
@@ -4921,7 +4800,7 @@ mod tests {
         assert_eq!(normals.iter().flatten().count(), 50_000, "its sides, and not its caps");
         // Corners that aren't numbers, and triangles with no area, join nothing, and don't crash it.
         let odd = [[[f64::NAN; 3]; 3], [[f64::INFINITY; 3]; 3], [[1e300, 0.0, 0.0], [-1e300, 1e300, 0.0], [0.0; 3]], [[0.0; 3]; 3]];
-        let (curves, faces) = facets(&odd);
+        let (curves, faces) = crate::mesh::facets(&odd);
         assert!(curves.iter().all(Option::is_none));
         assert_eq!(faces, vec![None; 4]);
     }
@@ -4933,7 +4812,7 @@ mod tests {
         let b = [[0.0, 0.0, 0.0], [1000.0, 1000.0, 0.0], [0.0, 1000.0, 0.0]];
         let c = [[5000.0, 0.0, 0.0], [6000.0, 0.0, 0.0], [6000.0, 1000.0, 0.0]];
         let d = [[5000.0, 0.0, 0.0], [6000.0, 1000.0, 0.0], [5000.0, 1000.0, 0.0]];
-        let (curves, faces) = facets(&[a, b, c, d]);
+        let (curves, faces) = crate::mesh::facets(&[a, b, c, d]);
         assert!(curves.iter().all(Option::is_none), "no bend, no curved surface");
         assert_eq!(faces[0], faces[1], "the halves of one square are one face");
         assert_eq!(faces[2], faces[3]);
@@ -4947,19 +4826,19 @@ mod tests {
         let over = [[0.0, 0.0, 0.0], [1000.0, 1000.0, 0.0], [0.0, 1000.0, 0.0]];
         let flipped = [[0.0, 0.0, 0.0], [0.0, 1000.0, 0.0], [1000.0, 1000.0, 0.0]];
         for half in [over, flipped] {
-            let (curves, faces) = facets(&[up, half]);
+            let (curves, faces) = crate::mesh::facets(&[up, half]);
             assert!(curves.iter().all(Option::is_none), "no bend, no curved surface");
             assert_eq!(faces[0], faces[1], "{half:?} is the square's other half, not a face of its own");
         }
         // A corner a cell's edge falls between, within the weld: one face.
         let a = [[0.0005, 0.0005, 0.0], [1000.0005, 0.0005, 0.0], [1000.0005, 1000.0005, 0.0]];
         let b = [[0.0004, 0.0004, 0.0], [1000.0004, 0.0004, 0.0], [500.0, 1000.0004, 0.0]];
-        let (_, faces) = facets(&[a, b]);
+        let (_, faces) = crate::mesh::facets(&[a, b]);
         assert_eq!(faces[0], faces[1], "within a micron the corner is one: {faces:?}");
         // Five times the weld apart: two faces, as the wire pass draws the crack too.
         let c = [[0.005, 0.005, 0.0], [1000.005, 0.005, 0.0], [1000.005, 1000.005, 0.0]];
         let d = [[0.0, 0.0, 0.0], [1000.0, 0.0, 0.0], [500.0, 1000.0, 0.0]];
-        let (_, faces) = facets(&[c, d]);
+        let (_, faces) = crate::mesh::facets(&[c, d]);
         assert_ne!(faces[0], faces[1], "a crack wider than the weld is two faces: {faces:?}");
     }
 
