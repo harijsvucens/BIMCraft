@@ -369,6 +369,18 @@ fn alone(tris: &[[P3; 3]], keys: &[[Corner; 3]], group: &[usize], rim: &[OnRim],
     }
     let inside: HashSet<usize> = group.iter().copied().collect();
     let boundary: HashSet<Edge> = rim.iter().map(|e| e.edge).collect();
+    let others: Vec<usize> = (0..tris.len()).filter(|i| !inside.contains(i)).collect();
+    // A rim edge with another triangle walking it whole makes the face part of a surface, and no corner need be asked: that is
+    // every edge of a solid, so a push on one pays nothing for this question.
+    if others.iter().any(|i| keys.get(*i).is_some_and(|k| (0..3).any(|j| boundary.contains(&edge(k[j], k[(j + 1) % 3]))))) {
+        return false;
+    }
+    // Only a face that still looks alone is asked whether another triangle's corner stands on its boundary. shortcut: that asks
+    // every corner of the mesh against every rim edge, so a form of two coplanar panels past a few million pairs is taken for a
+    // surface rather than searched; grid the corners if a sheet that big is ever pushed.
+    if others.len().saturating_mul(rim.len()) > 4_000_000 {
+        return false;
+    }
     let mut place: HashMap<Corner, P3> = HashMap::new();
     for i in group {
         let (Some(t), Some(k)) = (tris.get(*i), keys.get(*i)) else { continue };
@@ -377,10 +389,7 @@ fn alone(tris: &[[P3; 3]], keys: &[[Corner; 3]], group: &[usize], rim: &[OnRim],
         }
     }
     let start = group.first().and_then(|i| tris.get(*i)).map_or([0.0; 3], |t| t[0]);
-    for (i, k) in keys.iter().enumerate().filter(|(i, _)| !inside.contains(i)) {
-        if (0..3).any(|j| boundary.contains(&edge(k[j], k[(j + 1) % 3]))) {
-            return false;
-        }
+    for i in others {
         let t = tris.get(i).copied().unwrap_or_default();
         for p in t {
             // Only a corner in the face's own plane can stand on its boundary.
