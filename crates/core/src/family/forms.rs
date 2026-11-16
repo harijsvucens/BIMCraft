@@ -454,7 +454,7 @@ fn cap(ring: &[P2]) -> Result<Vec<[usize; 3]>, String> {
 }
 
 /// Triangles of a closed solid turned out by its signed volume; refused where it has none, or is too big.
-fn closed(mut tris: Vec<[P3; 3]>) -> Result<Vec<[P3; 3]>, String> {
+pub(crate) fn closed(mut tris: Vec<[P3; 3]>) -> Result<Vec<[P3; 3]>, String> {
     if tris.len() > super::MAX_TRIANGLES {
         return Err(format!("it would be more than {} triangles", super::MAX_TRIANGLES));
     }
