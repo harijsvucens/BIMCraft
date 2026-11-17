@@ -209,9 +209,9 @@ pub(crate) fn primitive(m: &Model, id: Id) -> Bounds {
         // Steel sections have upright ends, enclosed by prism(); plain round runs use tube().
         if g.round && m.run_type(e).is_some_and(|t| t.profile.is_none()) {
             // The exact same basis as tube(), but bound all angles without triangles.
-            let d = crate::view3d::unit(crate::view3d::sub(g.b, g.a));
-            let u = if g.vertical() { [1.0, 0.0, 0.0] } else { crate::view3d::unit([-d[1], d[0], 0.0]) };
-            let v = crate::view3d::cross(d, u);
+            let d = crate::vec3::unit(crate::vec3::sub(g.b, g.a));
+            let u = if g.vertical() { [1.0, 0.0, 0.0] } else { crate::vec3::unit([-d[1], d[0], 0.0]) };
+            let v = crate::vec3::cross(d, u);
             let reach: P3 = std::array::from_fn(|i| (u[i].abs() + v[i].abs()) * (g.width / 2.0));
             return padded(
                 [g.a, g.b].into_iter().flat_map(|p| [std::array::from_fn(|i| p[i] - reach[i]), std::array::from_fn(|i| p[i] + reach[i])]),

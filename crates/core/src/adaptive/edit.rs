@@ -8,7 +8,8 @@ use super::{
     PointType, Transform, WorkPlane, plane_of,
 };
 use crate::family::{Expr, PlaneRef, Planes, REF_LEVEL};
-use crate::view3d::{P3, add, dot, mul, sub};
+use crate::vec3::{add, dot, mul, sub};
+use crate::view3d::P3;
 use std::collections::BTreeSet;
 
 /// A segment as it shows on screen, its two ends' pixels.
@@ -582,7 +583,7 @@ impl Definition {
             let from = evaluation.origin(&id).ok_or_else(|| format!("`{id}` did not evaluate"))?;
             // Rodrigues: v cos + (k x v) sin + k (k . v)(1 - cos), about the centre.
             let v = sub(from, centre);
-            let kv = crate::view3d::cross(k, v);
+            let kv = crate::vec3::cross(k, v);
             let turned = add(add(mul(v, cos), mul(kv, sin)), mul(k, dot(k, v) * (1. - cos)));
             self.move_point(&id, evaluation, add(centre, turned))?;
         }

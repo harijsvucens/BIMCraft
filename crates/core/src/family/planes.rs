@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::ids::{Guid, Id};
-use crate::view3d::{dot, sub};
+use crate::vec3::{dot, sub};
 use serde_json::json;
 
 /// Ref. Level's GUID, the same in every family: the family's xy, where its base stands.

@@ -547,7 +547,8 @@ pub struct Targets {
 
 /// The edges of solid `tris` as drawn: where two faces meet at more than [`CREASE`], or where a face has no neighbour.
 pub fn creases(tris: &[[crate::view3d::P3; 3]]) -> Vec<(crate::view3d::P3, crate::view3d::P3)> {
-    use crate::view3d::{P3, cross, dot};
+    use crate::vec3::{cross, dot};
+    use crate::view3d::P3;
     use std::collections::HashMap;
     let key = |p: &P3| p.map(|x| (x * 1e3).round() as i64);
     // Each edge by its ends to the micron: its ends, and the normals of the faces that share it.
@@ -618,7 +619,7 @@ impl super::Family {
         host: &super::PlaneRef,
         skip: Option<usize>,
     ) -> Targets {
-        use crate::view3d::{cross, dot};
+        use crate::vec3::{cross, dot};
         let Ok(f) = self.frame(host) else { return Targets::default() };
         let mut t = Targets::default();
         for plane in &self.planes {

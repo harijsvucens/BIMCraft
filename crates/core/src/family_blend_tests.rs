@@ -11,7 +11,8 @@ use crate::family::Family;
 use crate::family::forms::{FormKind, mapped};
 use crate::geom::P2;
 use crate::model::Model;
-use crate::view3d::{P3, cross, dot};
+use crate::vec3::{cross, dot};
+use crate::view3d::P3;
 
 fn run(s: &mut Session, id: &str, p: Value) -> Value {
     s.execute(id, &p).unwrap_or_else(|e| panic!("{id} {p}: {e}"))

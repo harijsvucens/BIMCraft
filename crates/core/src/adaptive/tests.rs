@@ -1,6 +1,6 @@
 use super::frame::norm;
 use super::*;
-use crate::view3d::sub;
+use crate::vec3::sub;
 fn scalar(n: f64) -> Expr {
     Expr::Number(n)
 }

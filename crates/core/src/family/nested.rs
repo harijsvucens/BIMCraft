@@ -11,7 +11,7 @@
 //! shared instance as an element of its own in the project (scheduled, tagged, selected apart) is T6b's.
 use super::*;
 use crate::ids::{Guid, Id};
-use crate::view3d::{dot, sub};
+use crate::vec3::{dot, sub};
 
 /// How many levels of nested families a project's family may hold under it.
 pub const MAX_NESTING: usize = 5;

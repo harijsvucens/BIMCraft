@@ -15046,7 +15046,7 @@ fn family(s: &mut Session, p: &Value) -> R {
             .iter()
             .filter(|q| !q.datum())
             .map(|q| {
-                json!({"guid": q.guid, "id": q.id, "name": q.name, "offset": crate::view3d::dot(q.start, q.frame().z), "start": q.start, "end": q.end})
+                json!({"guid": q.guid, "id": q.id, "name": q.name, "offset": crate::vec3::dot(q.start, q.frame().z), "start": q.start, "end": q.end})
             })
             .collect();
         // Each form's ends and its sketch's lines, worked out for the type.

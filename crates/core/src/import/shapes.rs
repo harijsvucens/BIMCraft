@@ -27,7 +27,8 @@ use crate::geom::P2;
 use crate::model::{MAX_COORD, MAX_POINTS, TOL};
 use crate::step::{Entity, V};
 use crate::triangulation;
-use crate::view3d::{P3, add, cross, dot, mul, sub, unit};
+use crate::vec3::{add, cross, dot, mul, sub, unit};
+use crate::view3d::P3;
 use crate::walls;
 
 /// The most faces one representation item builds: as many as a family's mesh holds triangles.

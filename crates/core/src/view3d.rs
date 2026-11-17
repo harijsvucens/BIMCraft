@@ -32,7 +32,7 @@ fn render_pool() -> Option<&'static rayon::ThreadPool> {
 
 /// A model point in mm: x east, y north, z up.
 pub use crate::vec3::P3;
-pub(crate) use crate::vec3::{add, cross, dot, mul, sub, unit};
+use crate::vec3::{add, cross, dot, mul, sub, unit};
 
 /// Revit's default 3D view looks from the south-east, from above.
 pub const AZIMUTH: f64 = -45.0;

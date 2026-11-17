@@ -3,7 +3,8 @@
 
 use crate::model::TOL;
 use crate::runs::Geom;
-use crate::view3d::{P3, sub};
+use crate::vec3::sub;
+use crate::view3d::P3;
 
 /// Steel's density, kg per m³.
 pub const STEEL: f64 = 7850.0;

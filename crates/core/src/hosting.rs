@@ -15,7 +15,8 @@ use serde::{Deserialize, Serialize};
 use crate::family::{Frame, Piece};
 use crate::geom::{self, P2};
 use crate::model::{Component, Element, Guid, Id, MAX_COORD, MAX_TEXT, Model, TOL};
-use crate::view3d::{P3, cross, dot, sub, unit as view3d_unit};
+use crate::vec3::{cross, dot, sub, unit as view3d_unit};
+use crate::view3d::P3;
 use crate::walls::{self, Axis};
 
 /// How far apart two numbers of a derived place may be and still be the same, mm.

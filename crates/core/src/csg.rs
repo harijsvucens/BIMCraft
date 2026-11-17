@@ -3,7 +3,8 @@
 //! surface of many faces makes a tree as deep as it has faces), and everything done is counted
 //! against a [`Meter`], so a hostile shape ends in an error, not a hang.
 
-use crate::view3d::{P3, add, cross, dot, mul, sub};
+use crate::vec3::{add, cross, dot, mul, sub};
+use crate::view3d::P3;
 
 /// Triangles either solid may have.
 pub const MAX_TRIANGLES: usize = 20_000;

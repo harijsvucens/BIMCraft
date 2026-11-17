@@ -17,7 +17,8 @@ use super::{Expr, Form, Frame};
 use crate::geom::{P2, Region};
 use crate::model::TOL;
 use crate::sketch::SketchLine;
-use crate::view3d::{P3, add, cross, dot, mul, sub};
+use crate::vec3::{add, cross, dot, mul, sub};
+use crate::view3d::P3;
 
 /// Points a built ring or path may have: past it, a form is refused rather than built.
 pub const MAX_RING: usize = 4096;

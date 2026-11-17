@@ -2,7 +2,8 @@ use super::frame::{EPS, norm, unit};
 use super::{Curve, Frame};
 use crate::family::Piece;
 use crate::geom::{self, P2};
-use crate::view3d::{P3, add, cross, dot, mul, sub};
+use crate::vec3::{add, cross, dot, mul, sub};
+use crate::view3d::P3;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 
@@ -22,9 +23,9 @@ impl Mesh {
     pub fn folds(&self, angle: f64) -> Vec<(P3, P3)> {
         let normal = |f: &[usize; 3]| {
             let [a, b, c] = f.map(|i| self.vertices[i]);
-            let n = crate::view3d::cross(crate::view3d::sub(b, a), crate::view3d::sub(c, a));
-            let l = crate::view3d::dot(n, n).sqrt();
-            if l > 0. { crate::view3d::mul(n, 1. / l) } else { n }
+            let n = crate::vec3::cross(crate::vec3::sub(b, a), crate::vec3::sub(c, a));
+            let l = crate::vec3::dot(n, n).sqrt();
+            if l > 0. { crate::vec3::mul(n, 1. / l) } else { n }
         };
         let mut by_edge: std::collections::BTreeMap<(usize, usize), Vec<P3>> = std::collections::BTreeMap::new();
         for f in &self.faces {
@@ -37,7 +38,7 @@ impl Mesh {
         let fold = angle.to_radians().cos();
         by_edge
             .into_iter()
-            .filter(|(_, ns)| ns.len() != 2 || crate::view3d::dot(ns[0], ns[1]) < fold)
+            .filter(|(_, ns)| ns.len() != 2 || crate::vec3::dot(ns[0], ns[1]) < fold)
             .map(|((a, b), _)| (self.vertices[a], self.vertices[b]))
             .collect()
     }

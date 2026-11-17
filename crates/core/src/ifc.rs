@@ -1722,8 +1722,8 @@ pub(crate) fn export_with(m: &Model, reference_rooms: bool, at: Origin, schema: 
                 } else {
                     w.rectangle(P2(0.0, 0.0), P2(g.width, g.depth))
                 };
-                let axis = crate::view3d::unit(crate::view3d::sub(g.b, g.a));
-                let across = if g.vertical() { [1.0, 0.0, 0.0] } else { crate::view3d::unit([-axis[1], axis[0], 0.0]) };
+                let axis = crate::vec3::unit(crate::vec3::sub(g.b, g.a));
+                let across = if g.vertical() { [1.0, 0.0, 0.0] } else { crate::vec3::unit([-axis[1], axis[0], 0.0]) };
                 let along = w.aim(axis, across);
                 let shape = w.body_along(profile, along, g.length());
                 let ent = w.add(format!(

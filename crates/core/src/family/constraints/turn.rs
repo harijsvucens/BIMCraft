@@ -6,7 +6,7 @@
 
 use super::*;
 use crate::align::Placement;
-use crate::view3d::{add, cross, mul, sub};
+use crate::vec3::{add, cross, mul, sub};
 
 /// A turn of `angle` radians about the line through `about` along `axis` (right-handed), then a move by `by`.
 #[derive(Clone, Copy, Debug)]
