@@ -3335,7 +3335,7 @@ impl BimApp {
     fn escape(&mut self) {
         // A number being typed goes first, and the field back to Length: the point it is for is still wanted. A field
         // opened with no digits in it is nothing to drop, so the first Esc takes the chain as it always did.
-        if !self.typed_length.is_empty() || !self.drawing.other.is_empty() {
+        if self.typing() {
             self.clear_typed();
             return;
         }

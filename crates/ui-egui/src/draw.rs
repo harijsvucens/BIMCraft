@@ -504,6 +504,18 @@ impl BimApp {
         self.drawing.field = 0;
     }
 
+    /// Whether a number is being typed, in the length or in the other one — a shape's second number, or a segment's
+    /// angle. What Tab and Escape answer before anything else.
+    pub(crate) fn typing(&self) -> bool {
+        !self.typed_length.trim().is_empty() || !self.drawing.other.trim().is_empty()
+    }
+
+    /// Whether Tab has two numbers to swap here: a rectangle's width and height, or a line's or a wall's length and its
+    /// angle. One field, a circle's radius, has nothing to swap to.
+    pub(crate) fn two_fields(&self) -> bool {
+        self.typed_fields() == 2 || self.line_angle_field()
+    }
+
     /// Enter with a shape's numbers typed: its next point where they say, toward the cursor at `cursor`. False when
     /// the shape takes no numbers now (what's typed is a length).
     pub(crate) fn place_numbers(&mut self, level: Id, cursor: P2) -> bool {

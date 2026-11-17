@@ -591,12 +591,12 @@ msgstr ""
 msgid "Add Text"
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:1071
+#: crates/ui-egui/src/draw.rs:1083
 #: crates/ui-egui/src/sketch.rs:1019
 msgid "Add Vertex"
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:1072
+#: crates/ui-egui/src/draw.rs:1084
 msgid "Add Vertex: click a polyline or a spline where a vertex goes; a spline keeps its shape"
 msgstr ""
 
@@ -1086,7 +1086,7 @@ msgstr ""
 msgid "Arc Length Dimension: pick a curved wall or an arc, then click where the dimension's arc goes"
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:703
+#: crates/ui-egui/src/draw.rs:715
 msgid "Arc Length:"
 msgstr ""
 
@@ -2169,7 +2169,7 @@ msgstr ""
 msgid "Click a circle or an arc, then click where the dimension goes."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:584
+#: crates/ui-egui/src/draw.rs:596
 msgid "Click a corner of the rectangle."
 msgstr ""
 
@@ -2181,7 +2181,7 @@ msgstr ""
 msgid "Click a corner of the shaft opening."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:617
+#: crates/ui-egui/src/draw.rs:629
 msgid "Click a face of a mass: a wall stands on it."
 msgstr ""
 
@@ -2217,7 +2217,7 @@ msgstr ""
 msgid "Click a line to pick it, Shift to add; drag a picked line's end; Delete takes the lines picked away."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:616
+#: crates/ui-egui/src/draw.rs:628
 msgid "Click a line, a wall or a grid to draw along it."
 msgstr ""
 
@@ -2229,11 +2229,11 @@ msgstr ""
 msgid "Click a painted face to take its paint off."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:589
+#: crates/ui-egui/src/draw.rs:601
 msgid "Click a point on the circle. Esc cancels."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:593
+#: crates/ui-egui/src/draw.rs:605
 msgid "Click a point the arc passes through. Esc cancels."
 msgstr ""
 
@@ -2346,11 +2346,11 @@ msgstr ""
 msgid "Click how far across the roof is swept, to either side of the line. Esc cancels."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:613
+#: crates/ui-egui/src/draw.rs:625
 msgid "Click how far it bulges, on the side it goes. Esc cancels."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:610
+#: crates/ui-egui/src/draw.rs:622
 msgid "Click how far its other axis reaches. Esc cancels."
 msgstr ""
 
@@ -2378,11 +2378,11 @@ msgstr ""
 msgid "Click its head: the floor rises toward it at the Options Bar's slope. Esc cancels."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:605
+#: crates/ui-egui/src/draw.rs:617
 msgid "Click its next control point; Enter finishes it. Esc cancels."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:615
+#: crates/ui-egui/src/draw.rs:627
 msgid "Click its next point; Enter finishes it, the first point again closes it. Esc cancels."
 msgstr ""
 
@@ -2411,7 +2411,7 @@ msgstr ""
 msgid "Click on the work plane for a reference point, on a line for a point hosted on it."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:611
+#: crates/ui-egui/src/draw.rs:623
 msgid "Click one end of its axis."
 msgstr ""
 
@@ -2427,7 +2427,7 @@ msgstr ""
 msgid "Click points or the work plane; click the first point again to close the profile."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:594
+#: crates/ui-egui/src/draw.rs:606
 msgid "Click the arc's centre."
 msgstr ""
 
@@ -2439,19 +2439,19 @@ msgstr ""
 msgid "Click the centre the model turns about."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:586
+#: crates/ui-egui/src/draw.rs:598
 msgid "Click the centre."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:608
+#: crates/ui-egui/src/draw.rs:620
 msgid "Click the ellipse's centre."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:597
+#: crates/ui-egui/src/draw.rs:609
 msgid "Click the end of a line: the arc leaves it the way the line ran."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:609
+#: crates/ui-egui/src/draw.rs:621
 msgid "Click the end of its first axis."
 msgstr ""
 
@@ -2475,7 +2475,7 @@ msgstr ""
 msgid "Click the first corner of the mass's footprint."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:606
+#: crates/ui-egui/src/draw.rs:618
 msgid "Click the first point the spline passes through."
 msgstr ""
 
@@ -2507,7 +2507,7 @@ msgstr ""
 msgid "Click the next corner; Enter, or the first corner again, finishes the mass. Esc cancels."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:607
+#: crates/ui-egui/src/draw.rs:619
 msgid "Click the next point it passes through; Enter finishes it. Esc cancels."
 msgstr ""
 
@@ -2515,7 +2515,7 @@ msgstr ""
 msgid "Click the next point; the first again closes the profile; Enter or Escape finishes it open."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:585
+#: crates/ui-egui/src/draw.rs:597
 msgid "Click the opposite corner. Esc cancels."
 msgstr ""
 
@@ -2523,7 +2523,7 @@ msgstr ""
 msgid "Click the opposite corner: the shaft cuts the floors, ceilings and roofs up to its top. Esc cancels."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:612
+#: crates/ui-egui/src/draw.rs:624
 msgid "Click the other end."
 msgstr ""
 
@@ -2579,7 +2579,7 @@ msgstr ""
 msgid "Click the slope arrow's tail: where the floor's top stays at its height offset."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:604
+#: crates/ui-egui/src/draw.rs:616
 msgid "Click the spline's first control point."
 msgstr ""
 
@@ -2667,7 +2667,7 @@ msgstr ""
 msgid "Click to select, drag a box to select several. Shift and the middle button orbit, the middle button pans, the wheel zooms. Alt (Option on a Mac) and the left button stand in for the middle one."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:602
+#: crates/ui-egui/src/draw.rs:614
 msgid "Click to size the arc. Esc cancels."
 msgstr ""
 
@@ -2691,7 +2691,7 @@ msgstr ""
 msgid "Click what the camera looks at; its eye and target heights are the Options Bar's."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:587
+#: crates/ui-egui/src/draw.rs:599
 msgid "Click where a corner goes. Esc cancels."
 msgstr ""
 
@@ -2723,15 +2723,15 @@ msgstr ""
 msgid "Click where the angle ends."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:596
+#: crates/ui-egui/src/draw.rs:608
 msgid "Click where the arc ends, the shorter way round. Esc cancels."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:592
+#: crates/ui-egui/src/draw.rs:604
 msgid "Click where the arc ends."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:598
+#: crates/ui-egui/src/draw.rs:610
 msgid "Click where the arc ends. Esc cancels."
 msgstr ""
 
@@ -2739,7 +2739,7 @@ msgstr ""
 msgid "Click where the arc goes: the angle on that side. Esc cancels."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:591
+#: crates/ui-egui/src/draw.rs:603
 msgid "Click where the arc starts."
 msgstr ""
 
@@ -2787,7 +2787,7 @@ msgstr ""
 msgid "Click where the location line should run"
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:588
+#: crates/ui-egui/src/draw.rs:600
 msgid "Click where the middle of a side goes. Esc cancels."
 msgstr ""
 
@@ -2795,7 +2795,7 @@ msgstr ""
 msgid "Click where the note goes: its top left corner."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:614
+#: crates/ui-egui/src/draw.rs:626
 msgid "Click where the polyline starts."
 msgstr ""
 
@@ -3192,11 +3192,11 @@ msgstr ""
 msgid "Convert Lines: make the selected folding lines split lines, so the top keeps folding along them"
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:1098
+#: crates/ui-egui/src/draw.rs:1110
 msgid "Convert Spline"
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:1096
+#: crates/ui-egui/src/draw.rs:1108
 msgid "Convert Spline: a spline through points becomes the same curve by its control points, or one by its control points a spline through points"
 msgstr ""
 
@@ -3457,7 +3457,7 @@ msgstr ""
 msgid "Create Group"
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:687
+#: crates/ui-egui/src/draw.rs:699
 msgid "Create Group (GP): the selected detail lines, filled regions and text made one detail group"
 msgstr ""
 
@@ -3798,11 +3798,11 @@ msgstr ""
 msgid "Delete Type"
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:1077
+#: crates/ui-egui/src/draw.rs:1089
 msgid "Delete Vertex"
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:1078
+#: crates/ui-egui/src/draw.rs:1090
 msgid "Delete Vertex: click a polyline's corner or a spline's point to take it out"
 msgstr ""
 
@@ -3931,16 +3931,16 @@ msgstr ""
 msgid "Detach Top/Base: the tops and bases of the walls and columns their own again"
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:654
+#: crates/ui-egui/src/draw.rs:666
 #: crates/ui-egui/src/editor/document.rs:546
 msgid "Detail"
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:679
+#: crates/ui-egui/src/draw.rs:691
 msgid "Detail Group"
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:678
+#: crates/ui-egui/src/draw.rs:690
 msgid "Detail Group: click to place the group on the Options Bar"
 msgstr ""
 
@@ -3968,11 +3968,11 @@ msgstr ""
 msgid "Detail Levels"
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:659
+#: crates/ui-egui/src/draw.rs:671
 msgid "Detail Line"
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:656
+#: crates/ui-egui/src/draw.rs:668
 msgid "Detail Line (DL): each click makes a line from the one before, in the Options Bar's line style; the Draw panel has the other shapes"
 msgstr ""
 
@@ -6370,7 +6370,7 @@ msgid "Instances of {} are placed in the family: delete them first."
 msgstr ""
 
 #: crates/core/src/import.rs:1600
-#: crates/ui-egui/src/draw.rs:664
+#: crates/ui-egui/src/draw.rs:676
 msgid "Insulation"
 msgstr ""
 
@@ -6382,7 +6382,7 @@ msgstr ""
 msgid "Insulation:"
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:663
+#: crates/ui-egui/src/draw.rs:675
 msgid "Insulation: batt insulation drawn along each line, its width on the Options Bar"
 msgstr ""
 
@@ -6456,7 +6456,7 @@ msgstr ""
 msgid "Isolated Footing (FI): click where the footing goes"
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:1020
+#: crates/ui-egui/src/draw.rs:1032
 msgid "It can't be offset: give a distance, and pick a line, an arc, a polyline or a circle."
 msgstr ""
 
@@ -8674,7 +8674,7 @@ msgstr ""
 msgid "Only a parameter that labels a dimension, and that no formula works out, can be locked."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:1134
+#: crates/ui-egui/src/draw.rs:1146
 msgid "Only a polyline or a spline takes a vertex, and a line keeps its two ends."
 msgstr ""
 
@@ -9465,7 +9465,7 @@ msgstr ""
 msgid "Pick the element's highlighted edge to move and turn onto the reference."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:600
+#: crates/ui-egui/src/draw.rs:612
 msgid "Pick the first line to round."
 msgstr ""
 
@@ -9501,7 +9501,7 @@ msgstr ""
 msgid "Pick the second line, on the part to keep."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:601
+#: crates/ui-egui/src/draw.rs:613
 msgid "Pick the second line."
 msgstr ""
 
@@ -10771,11 +10771,11 @@ msgstr ""
 msgid "Reopen the views that were open"
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:684
+#: crates/ui-egui/src/draw.rs:696
 msgid "Repeating Detail"
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:682
+#: crates/ui-egui/src/draw.rs:694
 msgid "Repeating Detail: click its start and end; the group on the Options Bar repeats along it every spacing"
 msgstr ""
 
@@ -10933,11 +10933,11 @@ msgstr ""
 msgid "Revision"
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:671
+#: crates/ui-egui/src/draw.rs:683
 msgid "Revision Cloud"
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:669
+#: crates/ui-egui/src/draw.rs:681
 msgid "Revision Cloud: a cloud round what changed, of the revision on the Options Bar; a rectangle by default, any shape from the Draw panel"
 msgstr ""
 
@@ -10945,7 +10945,7 @@ msgstr ""
 msgid "Revision {}, changed {}"
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:705
+#: crates/ui-egui/src/draw.rs:717
 msgid "Revision:"
 msgstr ""
 
@@ -12300,7 +12300,7 @@ msgstr ""
 msgid "Split Element (SL): click a wall or a line where to split it"
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:972
+#: crates/ui-egui/src/draw.rs:984
 msgid "Split between the line's ends."
 msgstr ""
 
@@ -12968,7 +12968,7 @@ msgstr ""
 msgid "Texture Offset Up"
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:541
+#: crates/ui-egui/src/draw.rs:553
 msgid "That can't be drawn: an arc's radius is at least half the distance between its ends, and a centre-ends arc turns less than 180°."
 msgstr ""
 
@@ -13037,7 +13037,7 @@ msgstr ""
 msgid "The active location is set from the scan's instead, so it lands on the project's origin"
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:877
+#: crates/ui-egui/src/draw.rs:889
 msgid "The arc doesn't fit: pick two straight lines that meet at an angle, long enough for it."
 msgstr ""
 
@@ -13167,7 +13167,7 @@ msgstr ""
 msgid "The lines are shown in red."
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:1048
+#: crates/ui-egui/src/draw.rs:1060
 msgid "The lines don't meet: they're parallel, or an arc's circle misses the other."
 msgstr ""
 
@@ -14667,7 +14667,7 @@ msgstr ""
 msgid "Width Factor"
 msgstr ""
 
-#: crates/ui-egui/src/draw.rs:699
+#: crates/ui-egui/src/draw.rs:711
 #: crates/ui-egui/src/lib.rs:5549
 #: crates/ui-egui/src/lib.rs:5559
 #: crates/ui-egui/src/lib.rs:5580
@@ -14961,7 +14961,7 @@ msgstr ""
 #: crates/ui-egui/src/draw.rs:271
 #: crates/ui-egui/src/draw.rs:272
 #: crates/ui-egui/src/draw.rs:273
-#: crates/ui-egui/src/draw.rs:808
+#: crates/ui-egui/src/draw.rs:820
 #: crates/ui-egui/src/properties.rs:681
 #: crates/ui-egui/src/properties.rs:3651
 #: crates/ui-egui/src/section_box.rs:94

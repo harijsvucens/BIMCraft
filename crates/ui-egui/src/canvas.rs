@@ -2002,7 +2002,7 @@ impl BimApp {
         // face, its centre line and its interior face — starting from the one the pick has now, so the first press always
         // moves the point. A number already typed keeps Tab for the field it belongs to, and off every wall Tab steps
         // from the length to the angle.
-        let typing = !self.typed_length.trim().is_empty() || !self.drawing.other.trim().is_empty();
+        let typing = self.typing();
         let chain = matches!(
             self.tool,
             Tool::Wall(_)
@@ -2042,7 +2042,7 @@ impl BimApp {
             wall_tabbed = true;
         }
         // While a rectangle is drawn, Tab moves between its width and its height; a line's or a wall's, its length and its angle.
-        if tabbed && !wall_tabbed && (self.typed_fields() == 2 || self.line_angle_field()) {
+        if tabbed && !wall_tabbed && self.two_fields() {
             std::mem::swap(&mut self.typed_length, &mut self.drawing.other);
             self.drawing.field = 1 - self.drawing.field.min(1);
         }
@@ -4695,7 +4695,7 @@ impl BimApp {
             // The length and the angle, both shown while a segment is drawn, so Tab's move is seen before a digit is
             // typed: the field that takes the digits is the one in brackets, Length until Tab and the angle after it.
             // `(Enter)` says that field holds a number to place.
-            let angled = self.line_angle_field() || self.drawing.field == 1 || !self.drawing.other.is_empty();
+            let angled = self.line_angle_field();
             let text = match (self.typed_length.is_empty(), angled) {
                 (true, false) => m.units.with_unit(last.dist(next)),
                 (false, false) => format!("{} (Enter)", self.typed_length.trim()),
