@@ -1879,6 +1879,11 @@ impl BimApp {
             self.tool = Tool::PushPull(Some((s.id, s.at)));
             o.push_drag = Some((s.id, s.at, s.normal, origin));
         }
+        // A tool switched mid-drag takes the drag with it, as the box height's does: the release then pushes nothing
+        // and keeps the tool the user chose.
+        if !matches!(self.tool, Tool::PushPull(_)) {
+            o.push_drag = None;
+        }
         // How far the drag has pulled the face, in mm rounded, as the release takes it and the preview draws it.
         let push_by = match (&o.push_drag, latest) {
             (Some((_, at, n, from)), Some(now)) => cam.along_dir(*n, *at, px(*from), px(now)).map(f64::round),
@@ -2564,12 +2569,13 @@ impl BimApp {
         if let Some((qs, by)) = raise {
             self.shape_raise_all(&qs, by);
         }
-        // A Push/Pull drag let go: the face moves by what the drag showed. Esc during the drag let go of the pick
-        // first, and the push goes with it.
-        if let Some((id, at, by)) = pushed {
-            if matches!(&self.tool, Tool::PushPull(Some((held, _))) if *held == id) {
-                self.run("mesh_push_pull", json!({"component": id, "at": at, "distance": by}));
-            }
+        // A Push/Pull drag let go: the face moves by what the drag showed. Esc or a tool switch during the drag let
+        // go of the pick first, and the push goes with it - keeping whatever tool the user chose instead.
+        if let Some((id, at, by)) = pushed
+            && let Tool::PushPull(Some((held, _))) = &self.tool
+            && held == &id
+        {
+            self.run("mesh_push_pull", json!({"component": id, "at": at, "distance": by}));
             self.tool = Tool::PushPull(None);
         }
         if let Some((landed, at)) = landed {

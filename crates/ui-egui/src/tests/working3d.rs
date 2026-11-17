@@ -414,6 +414,23 @@ fn a_mesh_face_is_pushed_by_dragging_it_in_the_3d_view() {
         let still = mesh.iter().flatten().map(|p| p[2]).fold(f64::MIN, f64::max);
         assert_eq!(still, shrunk, "{name}: Esc mid-drag moved the face");
         assert!(matches!(&h.state().tool, Tool::PushPull(None)), "{name}: Esc mid-drag let go of the pick");
+        // A tool switched mid-drag survives the release: the drag goes with the tool, and nothing is pushed.
+        h.event(Event::PointerButton { pos: on, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+        h.run();
+        h.hover_at(on + vec2(0.0, -60.0));
+        h.run();
+        h.state_mut().set_tool(Tool::Wall(Vec::new()));
+        h.event(Event::PointerButton {
+            pos: on + vec2(0.0, -60.0),
+            button: PointerButton::Primary,
+            pressed: false,
+            modifiers: Modifiers::NONE,
+        });
+        h.run();
+        assert!(matches!(&h.state().tool, Tool::Wall(_)), "{name}: the release kept the chosen tool");
+        let mesh = &h.state().session.model.families["Direct Model"].forms[0].mesh;
+        let still = mesh.iter().flatten().map(|p| p[2]).fold(f64::MIN, f64::max);
+        assert_eq!(still, shrunk, "{name}: the release after a tool switch moved the face");
     }
 }
 
