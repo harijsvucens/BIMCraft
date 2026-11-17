@@ -2225,6 +2225,8 @@ impl BimApp {
             Tool::Level => {}
             // Direct Model takes its corners on a face in the 3D view; a plan click has nothing to put them on.
             Tool::DirectModel(_) => {}
+            // Push/Pull picks a mesh face in the 3D view; there is none in a plan.
+            Tool::PushPull(_) => {}
             Tool::Elevation => match hovered {
                 Some(id) => {
                     self.run("elevation", json!({"on": id, "at": point(round(v.mm(at)))}));

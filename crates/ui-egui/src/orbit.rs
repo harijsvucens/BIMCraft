@@ -27,7 +27,7 @@ use bimcraft_core::dims3d;
 use bimcraft_core::geom::{self, P2};
 use bimcraft_core::graphics::{Look, VisualStyle};
 use bimcraft_core::handles::{self, Handle};
-use bimcraft_core::model::{Dimension3D, Id, Model, Ref3, TOL, ViewCamera};
+use bimcraft_core::model::{Dimension3D, Element, Id, Model, Ref3, TOL, ViewCamera};
 use bimcraft_core::render::{self, Rgb};
 use bimcraft_core::snap::{self, Found, Kind, Reach, Snaps};
 use bimcraft_core::view3d;
@@ -641,6 +641,15 @@ fn draws_on_faces(tool: &Tool) -> bool {
         tool,
         Tool::Wall(_) | Tool::Run(..) | Tool::Column | Tool::Stand(_) | Tool::Component | Tool::Fixture(_) | Tool::DirectModel(_)
     )
+}
+
+/// Whether `id` is a component with a mesh form: the only thing a Push/Pull pick can change. The command edits
+/// the family's mesh, so a shared family changes every component of it; Direct Model boxes have their own.
+fn pushable(m: &Model, id: Id) -> bool {
+    match m.elements.get(id) {
+        Some(Element::Component(c)) => m.families.get(&c.family).is_some_and(|f| f.forms.iter().any(|f| !f.mesh.is_empty())),
+        _ => false,
+    }
 }
 
 /// The point the tool's next goes on from, in plan: a wall chain's last, a run's start.
@@ -2070,6 +2079,7 @@ impl BimApp {
         // a wall chain under way on the plane its first point found, a run's end on the face it is clicked on (where there is
         // none, the plane of its start). The point is shown as a plan shows a snap, and the wall or run from the point before.
         let drawing = draws_on_faces(&self.tool) && sketch_z.is_none();
+        let pushing = matches!(self.tool, Tool::PushPull(_)) && sketch_z.is_none();
         let last3 = o.plane.filter(|(q, _)| base_point(&self.tool) == Some(*q));
         let held = last3.filter(|_| matches!(self.tool, Tool::Wall(_))).map(|(_, p)| p);
         let fallback = last3.filter(|_| matches!(self.tool, Tool::Run(..))).map(|(_, p)| p);
@@ -2261,6 +2271,7 @@ impl BimApp {
         let measure_click = click.filter(|_| measuring).map(measure_pick);
         // Where on the face a Trim click is: the side of the wall it keeps.
         let trim_at = click.filter(|_| trimming).and_then(|at| surface(&o.picker, &cam, at)).map(|s| s.at);
+        let push_target = click.filter(|_| pushing).and_then(|at| surface(&o.picker, &cam, at));
         let specify_click = click.filter(|_| specifying).and_then(dim_pick);
         // The face of what's clicked, as paint names the faces of an element.
         let face = click.and_then(|at| pick(&o.picker, at).map(|h| h.face).filter(|f| !f.is_empty()));
@@ -2283,6 +2294,10 @@ impl BimApp {
                     self.status =
                         Status { text: t("Pick a face of a wall, a floor, a ceiling or a roof to place it on.").into(), error: true }
                 }
+            },
+            Some(_) if pushing => match push_target.filter(|s| pushable(&model, s.id)) {
+                Some(s) => self.tool = Tool::PushPull(Some((s.id, s.at))),
+                None => self.status = Status { text: t("Pick a face of a mesh component to push or pull it.").into(), error: true },
             },
             Some(_) if drawing => match target {
                 Some((q, plane, _)) => self.draw3d(q, plane),

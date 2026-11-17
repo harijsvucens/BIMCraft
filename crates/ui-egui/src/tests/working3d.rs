@@ -34,6 +34,9 @@ fn views(script: &str) -> Vec<(String, Harness<'static, BimApp>)> {
 /// A point on the south wall's outer face: `BOX`'s walls are 200 mm thick about their lines.
 const FACE: P3 = [5000.0, -100.0, 1500.0];
 
+/// A cubic metre of mesh, as the `mesh` command takes it: what a Push/Pull pick has to find.
+const MESH_BOX: &str = r#"mesh {"points": [[0,0,0],[1000,0,0],[1000,1000,0],[0,1000,0],[0,0,1000],[1000,0,1000],[1000,1000,1000],[0,1000,1000]], "triangles": [[0,2,1],[0,3,2],[4,5,6],[4,6,7],[0,1,5],[0,5,4],[1,2,6],[1,6,5],[2,3,7],[2,7,6],[3,0,4],[3,4,7]]}"#;
+
 #[test]
 fn shift_and_a_middle_drag_orbit_round_the_point_under_the_cursor_which_stays_where_it_is_on_screen() {
     for (name, mut h) in views(BOX) {
@@ -174,6 +177,51 @@ fn escape_drops_the_first_corner_of_a_direct_model_box() {
         let at = h.state().screen3([4500.0, 4000.0, 500.0]);
         click_at(&mut h, at);
         assert!(h.state().session.model.families.get("Direct Model").is_none(), "{name}: no box made");
+    }
+}
+
+#[test]
+fn a_mesh_face_is_pushed_by_a_typed_distance_in_the_3d_view() {
+    for (name, mut h) in views(MESH_BOX) {
+        h.state_mut().set_tool(Tool::PushPull(None));
+        let at = h.state().screen3([500.0, 500.0, 1000.0]);
+        click_at(&mut h, at);
+        assert!(matches!(&h.state().tool, Tool::PushPull(Some(_))), "{name}: a face was picked: {}", h.state().status.text);
+        h.event(Event::Text("500".into()));
+        h.run();
+        key(&mut h, Key::Enter);
+        assert!(!h.state().status.error, "{name}: {}", h.state().status.text);
+        let mesh = &h.state().session.model.families["Direct Model"].forms[0].mesh;
+        let top = mesh.iter().flatten().map(|p| p[2]).fold(f64::MIN, f64::max);
+        assert_eq!(top, 1500.0, "{name}: the top face moved up 500 mm");
+        assert!(matches!(&h.state().tool, Tool::PushPull(None)), "{name}: ready for the next face");
+        // A negative distance shrinks it back; the leading sign is captured for this tool.
+        let at = h.state().screen3([500.0, 500.0, 1500.0]);
+        click_at(&mut h, at);
+        h.event(Event::Text("-500".into()));
+        h.run();
+        key(&mut h, Key::Enter);
+        let mesh = &h.state().session.model.families["Direct Model"].forms[0].mesh;
+        let top = mesh.iter().flatten().map(|p| p[2]).fold(f64::MIN, f64::max);
+        assert_eq!(top, 1000.0, "{name}: the top face moved back down 500 mm");
+    }
+}
+
+#[test]
+fn escape_drops_the_picked_mesh_face() {
+    for (name, mut h) in views(MESH_BOX) {
+        h.state_mut().set_tool(Tool::PushPull(None));
+        let at = h.state().screen3([500.0, 500.0, 1000.0]);
+        click_at(&mut h, at);
+        assert!(matches!(&h.state().tool, Tool::PushPull(Some(_))), "{name}: a face was picked");
+        key(&mut h, Key::Escape);
+        assert!(matches!(&h.state().tool, Tool::PushPull(None)), "{name}: Esc drops it");
+        h.event(Event::Text("500".into()));
+        h.run();
+        key(&mut h, Key::Enter);
+        let mesh = &h.state().session.model.families["Direct Model"].forms[0].mesh;
+        let top = mesh.iter().flatten().map(|p| p[2]).fold(f64::MIN, f64::max);
+        assert_eq!(top, 1000.0, "{name}: no face picked, nothing pushed");
     }
 }
 

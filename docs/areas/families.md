@@ -1296,14 +1296,19 @@ are points of the model taken back through where it stands; one undo puts the ed
 level face — the top of a floor, a flat roof or a level — as opposite corners of a rectangle; the second click makes a
 3 m-tall box (the height in the Options Bar, 3 m by default) with one `mesh` command, in its own
 `Direct Model` family, on the face's level and offset. Esc drops the first corner. A click that finds no such face says
-what the tool needs instead. This is the creation path only: the box is a mesh form like any imported one, so all three
-commands above work on it at once.
+what the tool needs instead. The box is a mesh form like any imported one, so every command above works on it at once.
 
-What it does not do yet, and the slices that follow: a draft overlay before the second click, a height dragged or typed
-while the tool is on (it reads the Column field), push/pull from a pick in the viewport (a command takes the form's own
-point or a component's world point), a free-form outline on any face, holes and openings through a face, booleans between
-meshes, and
-bevels. The plan is [Discussion #468](https://github.com/IPedrax/BIMCraft/discussions/468).
+**Push/Pull**, beside it, takes one click on the face of a mesh component, then a typed distance in millimetres and Enter:
+the face moves along its normal, so a box grows on a positive distance and shrinks on a negative one, in one undo step.
+Any flat face of any mesh component works, not only the box's — the click gives a world point, and the command takes it
+back through the component's placement to find the face — but the edit is to the component's **family** and so reaches
+every instance of it; Direct Model boxes have a family of their own. A pick that is not a mesh component is refused with
+what to click instead. Esc drops the face.
+
+What it does not do yet, and the slices that follow: a draft overlay and a preview before the second click, a distance
+dragged in the view (it is typed), the live area/volume HUD, a free-form outline on any face, holes and openings through
+a face, booleans between meshes, and bevels. The plan is
+[Discussion #468](https://github.com/IPedrax/BIMCraft/discussions/468).
 ## Where the code lives
 
 Moved from the root `CLAUDE.md`'s module map, which names the files and points here for what each owns.

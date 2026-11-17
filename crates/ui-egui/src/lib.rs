@@ -114,6 +114,7 @@ use bimcraft_core::geom::P2;
 use bimcraft_core::model::{CEILING_HEIGHT, DimKind, Element, Id, Justify, Location, Model, RAMP_WIDTH, Reference, RoomArea, STAIR_WIDTH};
 use bimcraft_core::snap::{Kind as Snap, Snaps};
 use bimcraft_core::units::Units;
+use bimcraft_core::view3d::P3;
 use bimcraft_core::{element_json, render, schedule, stairs};
 use egui::containers::menu::{MenuButton, SubMenuButton};
 use egui::{
@@ -301,6 +302,8 @@ pub enum Tool {
     /// A free-form mesh box drawn in the 3D view from two opposite corners on a level face: its first corner, once clicked.
     /// Direct Model's first creation path.
     DirectModel(Option<P2>),
+    /// Push/Pull on a mesh face in the 3D view: the component and the world point picked, waiting for a typed distance.
+    PushPull(Option<(Id, P3)>),
     /// A detail line in the Options Bar's line style: its points, as clicked so far.
     DetailLine(Vec<P2>),
     /// The selected floor's slope arrow: its tail, once clicked.
@@ -1890,6 +1893,7 @@ impl BimApp {
             Tool::Shaft(_) => Some(msg!("Create Shaft Opening")),
             Tool::Mass(_) => Some(msg!("Create Mass")),
             Tool::DirectModel(_) => Some(msg!("Create Direct Model")),
+            Tool::PushPull(_) => Some(msg!("Push/Pull")),
         };
         if let Some(what) = place {
             return Some(format!("{} | {}", t("Modify"), t(what)));
@@ -2388,6 +2392,21 @@ impl BimApp {
             self.commit_dimension_refs();
             enter = false;
         }
+        // Push/Pull works in the 3D view, where there is no plan level: a picked face takes a typed distance.
+        if enter && let Tool::PushPull(Some((id, at))) = &self.tool {
+            let text = std::mem::take(&mut self.typed_length);
+            if text.trim().is_empty() {
+                // Bare Enter keeps the picked face, as other tools keep their chain.
+                self.typed_length = text;
+            } else if let Some(distance) = self.session.model.units.parse(&text).filter(|d| d.is_finite() && *d != 0.0) {
+                self.run("mesh_push_pull", json!({"component": id, "at": at, "distance": distance}));
+                self.tool = Tool::PushPull(None);
+            } else {
+                self.status = Status { text: tf("`{}` is not a distance to push", &[&text]), error: true };
+                self.tool = Tool::PushPull(None);
+            }
+            enter = false;
+        }
         if enter && let Some(level) = self.plan_level() {
             match (&self.tool, self.typed_length.is_empty() && self.drawing.other.is_empty()) {
                 (&Tool::Rotate { centre, .. }, false) if let Some(angle) = self.typed_angle() => {
@@ -2468,7 +2487,7 @@ impl BimApp {
         // without Ctrl are no shortcut.
         for ch in typed.chars() {
             let listening = self.base().is_some() || self.filleting() || self.rotating();
-            let sign = ch == '-' && self.rotating() && self.typed_length.is_empty();
+            let sign = ch == '-' && self.typed_length.is_empty() && (self.rotating() || matches!(self.tool, Tool::PushPull(Some(_))));
             if listening && (ch.is_ascii_digit() || ch == '.' || sign || !self.typed_length.is_empty()) {
                 self.typed_length.push(ch);
             }
@@ -2995,7 +3014,7 @@ impl BimApp {
             self.open_sheet(Sheet::View3D);
         }
         // Direct Model takes its corners on a level face in the 3D view: the Massing tab's tool opens it too.
-        if matches!(tool, Tool::DirectModel(_)) && self.sheet != Sheet::View3D {
+        if matches!(tool, Tool::DirectModel(_) | Tool::PushPull(_)) && self.sheet != Sheet::View3D {
             self.open_sheet(Sheet::View3D);
         }
         // Move, Copy, Rotate and Mirror take the selection; Align, Trim, Split and Offset pick walls, Demolish anything.
@@ -3294,6 +3313,8 @@ impl BimApp {
         match &self.tool {
             Tool::Wall(chain) => chain.last().copied(),
             Tool::Run(_, start) => *start,
+            // A picked mesh face takes a typed distance, as a chain's point takes a typed length.
+            Tool::PushPull(Some((_, at))) => Some(P2(at[0], at[1])),
             Tool::Grid(start)
             | Tool::ReferencePlane(start)
             | Tool::RoomSeparator(start)
@@ -3396,6 +3417,7 @@ impl BimApp {
             Tool::Railing(pts) if !pts.is_empty() => Tool::Railing(Vec::new()),
             Tool::Mass(pts) if !pts.is_empty() => Tool::Mass(Vec::new()),
             Tool::DirectModel(Some(_)) => Tool::DirectModel(None),
+            Tool::PushPull(Some(_)) => Tool::PushPull(None),
             Tool::DetailLine(pts) if !pts.is_empty() => Tool::DetailLine(Vec::new()),
             Tool::Shaft(Some(_)) => Tool::Shaft(None),
             Tool::SlopeArrow(Some(_)) => Tool::SlopeArrow(None),
@@ -4409,6 +4431,10 @@ impl BimApp {
                 msg!("Direct Model: click two opposite corners of a box on a level face, as high as the Options Bar says; Esc cancels");
             if big_button(ui, Icon::Mass, "Direct Model", structure::same_tool(&self.tool, &Tool::DirectModel(None)), tip).clicked() {
                 self.set_tool(Tool::DirectModel(None));
+            }
+            let tip = msg!("Push/Pull: click a face of a mesh component, type a distance and press Enter; Esc cancels");
+            if big_button(ui, Icon::Mass, "Push/Pull", structure::same_tool(&self.tool, &Tool::PushPull(None)), tip).clicked() {
+                self.set_tool(Tool::PushPull(None));
             }
             let tip = msg!("Show Mass (MH): hides the masses in this view, or shows them again");
             if big_button(ui, Icon::Visibility, "Show Mass", shown, tip).clicked() {
@@ -6042,6 +6068,8 @@ impl BimApp {
             Tool::Mass(_) => msg!("Click the next corner; Enter, or the first corner again, finishes the mass. Esc cancels."),
             Tool::DirectModel(None) => msg!("Click the first corner of the box on a level face."),
             Tool::DirectModel(Some(_)) => msg!("Click the opposite corner of the box; Esc cancels."),
+            Tool::PushPull(None) => msg!("Click a face of a mesh component to push or pull it."),
+            Tool::PushPull(Some(_)) => msg!("Type a distance (negative to shrink) and press Enter; Esc picks another face."),
             Tool::DetailLine(pts) if pts.is_empty() => msg!("Click where the detail line starts."),
             Tool::DetailLine(_) => "Click its next point; Enter finishes it, the first point again closes it. Esc cancels.",
             Tool::SlopeArrow(None) => msg!("Click the slope arrow's tail: where the floor's top stays at its height offset."),
