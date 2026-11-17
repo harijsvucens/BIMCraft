@@ -637,7 +637,10 @@ fn draw_chain(p: &egui::Painter, m: &bimcraft_core::model::Model, points: &[P3],
 
 /// Whether `tool` draws in the 3D view on the face under the cursor.
 fn draws_on_faces(tool: &Tool) -> bool {
-    matches!(tool, Tool::Wall(_) | Tool::Run(..) | Tool::Column | Tool::Stand(_) | Tool::Component | Tool::Fixture(_))
+    matches!(
+        tool,
+        Tool::Wall(_) | Tool::Run(..) | Tool::Column | Tool::Stand(_) | Tool::Component | Tool::Fixture(_) | Tool::DirectModel(_)
+    )
 }
 
 /// The point the tool's next goes on from, in plan: a wall chain's last, a run's start.
@@ -1438,6 +1441,13 @@ impl BimApp {
                 self.place_run_lifted(from.level, at, (from.offset, micron(plane.z - m.elevation(from.level))));
             }
             Tool::Column => self.place_column(plane.level, at, plane.offset),
+            Tool::DirectModel(None) => self.tool = Tool::DirectModel(Some(at)),
+            Tool::DirectModel(Some(first)) => {
+                // Its start's plane, where it was clicked here; else the end's, as a run's.
+                let from = self.orbit.plane.filter(|(p, _)| *p == first).map_or(plane, |(_, p)| p);
+                self.place_box(first, at, from.level, from.offset);
+                self.tool = Tool::DirectModel(None);
+            }
             Tool::Stand(category) => self.place_stand_lifted(plane.level, at, category, plane.offset),
             Tool::Component | Tool::Fixture(_) => {
                 if let Some((family, ty)) = self.placing() {
@@ -1492,6 +1502,7 @@ impl BimApp {
             Tool::Run(..) | Tool::Stand(_) => crate::structure::title(&self.tool),
             Tool::Component => Some(msg!("Place Component")),
             Tool::Fixture(key) => crate::mep::fixture(key).map(|f| f.title),
+            Tool::DirectModel(_) => Some(msg!("Create Direct Model")),
             _ => None,
         };
         let title = title.map(t).unwrap_or_default();

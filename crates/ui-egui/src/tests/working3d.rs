@@ -128,6 +128,55 @@ fn the_wall_tool_and_a_component_draw_on_a_floors_top_in_the_3d_view_and_stand_o
     }
 }
 
+#[test]
+fn a_direct_model_box_is_drawn_from_two_corners_in_the_3d_view() {
+    let script = format!("{BOX}\nfloor {{\"offset\": 500}}");
+    for (name, mut h) in views(&script) {
+        h.state_mut().set_tool(Tool::DirectModel(None));
+        for p in [[1500.0, 5000.0, 500.0], [4500.0, 4000.0, 500.0]] {
+            let at = h.state().screen3(p);
+            click_at(&mut h, at);
+        }
+        assert!(!h.state().status.error, "{name}: {}", h.state().status.text);
+        let m = &h.state().session.model;
+        let made: Vec<_> = m
+            .elements
+            .values()
+            .filter_map(|e| if let Element::Component(c) = e { Some(c) } else { None })
+            .filter(|c| c.family == "Direct Model")
+            .collect();
+        let c = made.first().unwrap_or_else(|| panic!("{name}: no Direct Model component: {}", h.state().status.text));
+        assert_eq!(c.at, P2(3000.0, 4500.0), "{name}: the box's plan middle");
+        assert_eq!(c.offset, 500.0, "{name}: on the floor's top");
+        let mesh = &m.families["Direct Model"].forms[0].mesh;
+        assert_eq!(mesh.len(), 12, "{name}: a closed box, one `mesh` command");
+        let span = |i: usize| {
+            let all: Vec<f64> = mesh.iter().flatten().map(|p| p[i]).collect();
+            (all.iter().fold(f64::MAX, |a, b| a.min(*b)), all.iter().fold(f64::MIN, |a, b| a.max(*b)))
+        };
+        assert_eq!(span(0), (-1500.0, 1500.0), "{name}: 3 m east-west");
+        assert_eq!(span(1), (-500.0, 500.0), "{name}: 1 m north-south");
+        assert_eq!(span(2), (0.0, 3000.0), "{name}: 3 m high, the Options Bar's height");
+    }
+}
+
+#[test]
+fn escape_drops_the_first_corner_of_a_direct_model_box() {
+    let script = format!("{BOX}\nfloor {{\"offset\": 500}}");
+    for (name, mut h) in views(&script) {
+        h.state_mut().set_tool(Tool::DirectModel(None));
+        let at = h.state().screen3([1500.0, 5000.0, 500.0]);
+        click_at(&mut h, at);
+        assert!(matches!(&h.state().tool, Tool::DirectModel(Some(_))), "{name}: the first corner is held");
+        key(&mut h, Key::Escape);
+        assert!(matches!(&h.state().tool, Tool::DirectModel(None)), "{name}: Esc drops it");
+        // A lone corner after that makes no box: the tool is waiting for its first pick again.
+        let at = h.state().screen3([4500.0, 4000.0, 500.0]);
+        click_at(&mut h, at);
+        assert!(h.state().session.model.families.get("Direct Model").is_none(), "{name}: no box made");
+    }
+}
+
 /// The runs of `category` in the model, as they are.
 fn runs(h: &Harness<BimApp>, category: &str) -> Vec<bimcraft_core::model::Run> {
     let m = &h.state().session.model;

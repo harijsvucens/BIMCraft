@@ -298,6 +298,9 @@ pub enum Tool {
     Shaft(Option<P2>),
     /// A mass: the corners of its footprint, as clicked so far.
     Mass(Vec<P2>),
+    /// A free-form mesh box drawn in the 3D view from two opposite corners on a level face: its first corner, once clicked.
+    /// Direct Model's first creation path.
+    DirectModel(Option<P2>),
     /// A detail line in the Options Bar's line style: its points, as clicked so far.
     DetailLine(Vec<P2>),
     /// The selected floor's slope arrow: its tail, once clicked.
@@ -1886,6 +1889,7 @@ impl BimApp {
             Tool::Ceiling => Some(msg!("Place Ceiling")),
             Tool::Shaft(_) => Some(msg!("Create Shaft Opening")),
             Tool::Mass(_) => Some(msg!("Create Mass")),
+            Tool::DirectModel(_) => Some(msg!("Create Direct Model")),
         };
         if let Some(what) = place {
             return Some(format!("{} | {}", t("Modify"), t(what)));
@@ -2990,6 +2994,10 @@ impl BimApp {
         if matches!(tool, Tool::Paint | Tool::Unpaint) && self.sheet != Sheet::View3D {
             self.open_sheet(Sheet::View3D);
         }
+        // Direct Model takes its corners on a level face in the 3D view: the Massing tab's tool opens it too.
+        if matches!(tool, Tool::DirectModel(_)) && self.sheet != Sheet::View3D {
+            self.open_sheet(Sheet::View3D);
+        }
         // Move, Copy, Rotate and Mirror take the selection; Align, Trim, Split and Offset pick walls, Demolish anything.
         let edits = matches!(tool, Tool::Move(_) | Tool::Copy(_) | Tool::Rotate { .. } | Tool::Mirror { .. });
         let picks = matches!(
@@ -3387,6 +3395,7 @@ impl BimApp {
             Tool::Ramp(pts) if !pts.is_empty() => Tool::Ramp(Vec::new()),
             Tool::Railing(pts) if !pts.is_empty() => Tool::Railing(Vec::new()),
             Tool::Mass(pts) if !pts.is_empty() => Tool::Mass(Vec::new()),
+            Tool::DirectModel(Some(_)) => Tool::DirectModel(None),
             Tool::DetailLine(pts) if !pts.is_empty() => Tool::DetailLine(Vec::new()),
             Tool::Shaft(Some(_)) => Tool::Shaft(None),
             Tool::SlopeArrow(Some(_)) => Tool::SlopeArrow(None),
@@ -4395,6 +4404,11 @@ impl BimApp {
         panel(ui, msg!("Conceptual Mass"), |ui| {
             if big_button(ui, Icon::Mass, "Mass", structure::same_tool(&self.tool, &Tool::Mass(Vec::new())), tip).clicked() {
                 self.set_tool(Tool::Mass(Vec::new()));
+            }
+            let tip =
+                msg!("Direct Model: click two opposite corners of a box on a level face, as high as the Options Bar says; Esc cancels");
+            if big_button(ui, Icon::Mass, "Direct Model", structure::same_tool(&self.tool, &Tool::DirectModel(None)), tip).clicked() {
+                self.set_tool(Tool::DirectModel(None));
             }
             let tip = msg!("Show Mass (MH): hides the masses in this view, or shows them again");
             if big_button(ui, Icon::Visibility, "Show Mass", shown, tip).clicked() {
@@ -5464,6 +5478,10 @@ impl BimApp {
                         height_options(ui, &self.session.model, level, &mut self.column_top, &mut self.column_height, "column-top");
                     }
                 }
+                Tool::DirectModel(_) => {
+                    let label = ui.label(t("Height:"));
+                    ui.add(egui::TextEdit::singleline(&mut self.column_height).desired_width(64.0)).labelled_by(label.id);
+                }
                 Tool::Run(category, _) => self.run_options(ui, category),
                 Tool::Stand(category) => self.stand_options(ui, category),
                 Tool::Shaft(_) => {
@@ -6022,6 +6040,8 @@ impl BimApp {
             Tool::Mass(pts) if pts.is_empty() => msg!("Click the first corner of the mass's footprint."),
             Tool::Mass(pts) if pts.len() < 3 => msg!("Click the footprint's next corner. Esc cancels."),
             Tool::Mass(_) => msg!("Click the next corner; Enter, or the first corner again, finishes the mass. Esc cancels."),
+            Tool::DirectModel(None) => msg!("Click the first corner of the box on a level face."),
+            Tool::DirectModel(Some(_)) => msg!("Click the opposite corner of the box; Esc cancels."),
             Tool::DetailLine(pts) if pts.is_empty() => msg!("Click where the detail line starts."),
             Tool::DetailLine(_) => "Click its next point; Enter finishes it, the first point again closes it. Esc cancels.",
             Tool::SlopeArrow(None) => msg!("Click the slope arrow's tail: where the floor's top stays at its height offset."),

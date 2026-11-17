@@ -1292,9 +1292,18 @@ escape hatch, a later slice). An edge inside one face (a triangulation diagonal)
 edges meet, a move of nothing, and one that would turn a solid inside out are all refused. With `component`, `at` and `to`
 are points of the model taken back through where it stands; one undo puts the edge back.
 
-What it does not do yet, and the slices that follow: draw on a face in the 3D view (the tool and its draft), holes and
-openings through a face, booleans between meshes, bevels, and pushing an imported mesh's face from a pick in the viewport
-(the command takes the form's own point). The plan is [Discussion #468](https://github.com/IPedrax/BIMCraft/discussions/468).
+**Direct Model** on the Massing tab is the first tool over these commands. It opens the 3D view and takes two clicks on a
+level face — the top of a floor, a flat roof or a level — as opposite corners of a rectangle; the second click makes a
+3 m-tall box (the height in the Options Bar, 3 m by default) with one `mesh` command, in its own
+`Direct Model` family, on the face's level and offset. Esc drops the first corner. A click that finds no such face says
+what the tool needs instead. This is the creation path only: the box is a mesh form like any imported one, so all three
+commands above work on it at once.
+
+What it does not do yet, and the slices that follow: a draft overlay before the second click, a height dragged or typed
+while the tool is on (it reads the Column field), push/pull from a pick in the viewport (a command takes the form's own
+point or a component's world point), a free-form outline on any face, holes and openings through a face, booleans between
+meshes, and
+bevels. The plan is [Discussion #468](https://github.com/IPedrax/BIMCraft/discussions/468).
 ## Where the code lives
 
 Moved from the root `CLAUDE.md`'s module map, which names the files and points here for what each owns.

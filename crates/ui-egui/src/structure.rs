@@ -277,6 +277,39 @@ impl BimApp {
         }
     }
 
+    /// A box from two opposite corners `a` and `b` on `level`, its base `base` mm over it and as high as the Options Bar says:
+    /// Direct Model's first creation path, one `mesh` command and one undo step.
+    pub(crate) fn place_box(&mut self, a: P2, b: P2, level: Id, base: f64) {
+        if a == b {
+            self.status = Status { text: t("Pick two different corners for the box.").into(), error: false };
+            return;
+        }
+        let height = match self.session.model.units.parse(&self.column_height) {
+            Some(h) if h.is_finite() && h > 0.0 => h,
+            _ => {
+                self.status = Status { text: tf("`{}` is not a height", &[&self.column_height]), error: true };
+                return;
+            }
+        };
+        let (x0, x1) = (a.0.min(b.0), a.0.max(b.0));
+        let (y0, y1) = (a.1.min(b.1), a.1.max(b.1));
+        let z0 = self.session.model.elevation(level) + base;
+        let z1 = z0 + height;
+        let x = [x0, x1, x1, x0, x0, x1, x1, x0];
+        let y = [y0, y0, y1, y1, y0, y0, y1, y1];
+        let z = [z0, z0, z0, z0, z1, z1, z1, z1];
+        let points: Vec<[f64; 3]> = (0..8).map(|i| [x[i], y[i], z[i]]).collect();
+        self.run(
+            "mesh",
+            json!({
+                "points": points,
+                "triangles": [[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4],
+                              [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]],
+                "level": level,
+            }),
+        );
+    }
+
     /// What a click would make with the run's tool, its start picked, the end at `b`; none while the Options Bar says what
     /// isn't a height.
     pub(crate) fn run_sketch(&self, m: &Model, category: &str, level: Id, a: P2, b: P2) -> Vec<Element> {
