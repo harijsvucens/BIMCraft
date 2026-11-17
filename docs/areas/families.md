@@ -1248,7 +1248,7 @@ Generic components go to IFC as `IfcBuildingElementProxy`.
 `triangles` give three indices into them each, wound counter-clockwise seen from outside, so they close a solid. The family
 stands on its base with the middle of its plan on its origin, as an imported model does, and its component goes where the
 points are in the world, on its level, its offset the height of its lowest point over that level. The triangles are checked as
-a closed solid: `mesh::sealed` holds every welded edge to exactly two triangles, facing apart, and `family::forms::closed`
+a closed solid: `mesh::sealed` holds every welded edge to exactly two triangles, facing apart, and `mesh::measure`
 holds the count, `MAX_COORD`, the volume and the winding (turning a mesh inside out by its signed volume). `mesh.rs` owns the
 rest: which triangles make one face, and pushing one.
 

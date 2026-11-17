@@ -7370,6 +7370,26 @@ fn box_mesh() -> Value {
 }
 
 #[test]
+fn the_mesh_commands_share_one_target_error() {
+    let mut s = Session::new();
+    let guid = s.model.guid(100_000); // the sample's level, not a component
+    let mut errs = Vec::new();
+    for (cmd, extra) in [
+        ("mesh_push_pull", json!({"at": [0,0,0], "distance": 1})),
+        ("mesh_erase", json!({"at": [0,0,0]})),
+        ("mesh_move_edge", json!({"at": [0,0,0], "to": [1,1,1]})),
+    ] {
+        let mut p = json!({"component": guid});
+        p.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        let e = s.execute(cmd, &p).unwrap_err();
+        errs.push(e.strip_prefix(&format!("{cmd}: ")).unwrap_or(&e).to_string());
+    }
+    assert!(errs[0].contains("must be a component"), "{}", errs[0]);
+    assert_eq!(errs[0], errs[1], "erase and push refuse the same way");
+    assert_eq!(errs[1], errs[2], "move edge and erase refuse the same way");
+}
+
+#[test]
 fn a_mesh_is_a_family_of_its_own_and_a_face_of_it_pushes_in_one_undo_step() {
     let mut s = Session::new();
     let mut p = box_mesh();

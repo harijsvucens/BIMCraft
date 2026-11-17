@@ -17,7 +17,7 @@ pub const ON_FACE: f64 = 1e-3;
 /// A flat face of a mesh: the triangles it is made of, the way it faces, unit out of the solid as its triangles wound it, and
 /// how much surface it has.
 #[derive(Debug)]
-pub struct Face {
+pub struct TopoFace {
     /// Which face of the mesh it is: the place of its first triangle, as [`facets`] numbers one, so `mesh_check` can list it
     /// and a command name it again.
     pub id: usize,
@@ -29,7 +29,7 @@ pub struct Face {
 
 /// The flat face `at` lies on, in the mesh's own axes: the face of the triangle under it nearest its plane, if one holds
 /// it. A curved side has no plane of its own, and is refused with what to pick instead.
-pub fn face_at(tris: &[[P3; 3]], at: P3) -> Result<Face, String> {
+pub fn face_at(tris: &[[P3; 3]], at: P3) -> Result<TopoFace, String> {
     if !at.iter().all(|v| v.is_finite() && v.abs() <= MAX_COORD) {
         return Err(format!("a point to push is [x, y, z] in mm within {MAX_COORD}"));
     }
@@ -54,11 +54,11 @@ pub fn face_at(tris: &[[P3; 3]], at: P3) -> Result<Face, String> {
         return Err("that point is on a curved side, which has no plane of its own to push: pick a flat face".into());
     };
     let group: Vec<usize> = (0..tris.len()).filter(|j| faces.get(*j).copied().flatten() == Some(face)).collect();
-    Ok(Face { id: face, tris: group.clone(), normal: n, area: area(tris, &group) })
+    Ok(TopoFace { id: face, tris: group.clone(), normal: n, area: area(tris, &group) })
 }
 
 /// Every flat face of a mesh, by id: what `mesh_check` lists and what a push can name instead of a point.
-pub fn faces(tris: &[[P3; 3]]) -> Vec<Face> {
+pub fn faces(tris: &[[P3; 3]]) -> Vec<TopoFace> {
     let (_, ids) = facets(tris);
     let mut seen: HashSet<usize> = HashSet::new();
     let mut out = Vec::new();
@@ -68,14 +68,14 @@ pub fn faces(tris: &[[P3; 3]]) -> Vec<Face> {
             continue;
         }
         let group: Vec<usize> = (0..tris.len()).filter(|j| ids.get(*j).copied().flatten() == Some(id)).collect();
-        out.push(Face { id, normal: normal(tris[i]), area: area(tris, &group), tris: group });
+        out.push(TopoFace { id, normal: normal(tris[i]), area: area(tris, &group), tris: group });
     }
     out.sort_by_key(|f| f.id);
     out
 }
 
 /// The flat face `id` of a mesh: the one [`faces`] lists and `mesh_check` names.
-pub fn face_of(tris: &[[P3; 3]], id: usize) -> Result<Face, String> {
+pub fn face_of(tris: &[[P3; 3]], id: usize) -> Result<TopoFace, String> {
     faces(tris).into_iter().find(|f| f.id == id).ok_or_else(|| format!("this mesh has no flat face {id}: `mesh_check` lists them"))
 }
 
@@ -144,7 +144,7 @@ pub fn sealed(tris: &[[P3; 3]]) -> Result<(), String> {
 }
 
 /// `tris` measured: which of [`Kind`] they make, the space they enclose and the surface they have. The one place a mesh's
-/// solidity and its numbers are worked out, so `mesh`, a push, `mesh_check` and `forms::closed` all read the same answer.
+/// solidity and its numbers are worked out, so `mesh`, a push, `mesh_check` and a form's checks all read the same answer.
 pub fn measure(tris: &[[P3; 3]]) -> Result<Measure, String> {
     if tris.iter().flatten().flatten().any(|x| !x.is_finite() || x.abs() > MAX_COORD) {
         return Err("it reaches past where the model may go".into());
@@ -363,7 +363,7 @@ fn rim(keys: &[[Corner; 3]], group: &[usize]) -> Vec<OnRim> {
 /// Whether the face is a sheet: no other triangle of the mesh holds it, along a whole edge or at a corner standing part way
 /// along one — a T-junction, as a tessellated surface brings in, which whole edges alone cannot see. A face that is anything
 /// else is part of a surface: pushing it moves its corners and stretches what is beside it.
-fn alone(tris: &[[P3; 3]], keys: &[[Corner; 3]], group: &[usize], rim: &[OnRim], face: &Face) -> bool {
+fn alone(tris: &[[P3; 3]], keys: &[[Corner; 3]], group: &[usize], rim: &[OnRim], face: &TopoFace) -> bool {
     if group.len() == tris.len() {
         return true;
     }
@@ -424,7 +424,7 @@ fn stands_on(a: Option<P3>, b: Option<P3>, p: P3) -> bool {
 
 /// `tris` with the triangles of `face` taken away: a hole opens where it stood, so a solid becomes an open sheet. A mesh's
 /// one and only face cannot be erased — a form needs a triangle. What opened is measured by the caller.
-pub fn erase(tris: &[[P3; 3]], face: &Face) -> Result<Vec<[P3; 3]>, String> {
+pub fn erase(tris: &[[P3; 3]], face: &TopoFace) -> Result<Vec<[P3; 3]>, String> {
     if face.tris.iter().any(|i| *i >= tris.len()) {
         return Err("that face is no face of these triangles".into());
     }
@@ -544,7 +544,7 @@ pub fn move_edge(tris: &[[P3; 3]], at: P3, to: P3) -> Result<Vec<[P3; 3]>, Strin
 /// to one of the face's moves with it, so the faces round it stretch as a hand pulling a SketchUp face's does. A face with
 /// nothing beside it — a sheet, as an imported mesh may hold — is no surface to stretch: it rises into a solid, keeping
 /// itself as the near end. A solid that closes may not be pushed through itself, into an inside-out shell.
-pub fn push(tris: &[[P3; 3]], face: &Face, distance: f64) -> Result<Vec<[P3; 3]>, String> {
+pub fn push(tris: &[[P3; 3]], face: &TopoFace, distance: f64) -> Result<Vec<[P3; 3]>, String> {
     if !distance.is_finite() || distance.abs() > MAX_COORD {
         return Err(format!("a distance is a number of mm within {MAX_COORD}, not {distance}"));
     }
@@ -574,7 +574,7 @@ pub fn push(tris: &[[P3; 3]], face: &Face, distance: f64) -> Result<Vec<[P3; 3]>
 
 /// `tris` with `face` raised `distance` mm into a solid and the face left as its near end, its copy standing at the far one,
 /// with a wall of two triangles along each of `rim`'s edges: what a sheet becomes when a hand pulls it up, off either side.
-fn extrude(tris: &[[P3; 3]], keys: &[[Corner; 3]], face: &Face, rim: &[OnRim], distance: f64) -> Result<Vec<[P3; 3]>, String> {
+fn extrude(tris: &[[P3; 3]], keys: &[[Corner; 3]], face: &TopoFace, rim: &[OnRim], distance: f64) -> Result<Vec<[P3; 3]>, String> {
     let step = mul(face.normal, distance);
     // Where each corner the face welds to stands, as its triangles write it.
     let mut place: HashMap<Corner, P3> = HashMap::new();
