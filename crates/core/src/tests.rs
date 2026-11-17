@@ -2470,6 +2470,9 @@ fn hostile_params_never_panic_or_break_the_model() {
         json!({"family": "Direct Model", "face": u64::MAX, "form": 0}),
         json!({"family": "Direct Model", "at": [1e300, 0, 0]}),
         json!({"family": "Sweep Sheet", "at": [200, 200, 0]}),
+        json!({"family": "Direct Model", "at": [0, 0, 1000]}),
+        json!({"family": "Direct Model", "at": [1e300, 0, 0], "to": [0, 0, 0], "form": 0}),
+        json!({"family": "Direct Model", "at": [0, 0, 1000], "to": [f64::MAX, 0, 0]}),
         json!({"name": "F", "types": {"A": {}}, "forms": [{"plane": "xz", "profile": [[1, 0], [2, 0], [2, 1]], "axis": [[0, 0], [1e300, 1e300]], "to": 1e300}]}),
         json!({"name": "F", "types": {"A": {}}, "forms": [{"profile": [[1, 0], [2, 0], [2, 1]], "axis": [[0, 0], [0, 0]], "to": 360}]}),
         json!({"name": "F", "types": {"A": {}}, "forms": [{"profile": [[1, 0], [2, 0], [2, 1]], "axis": "x", "to": 360}]}),
@@ -7608,6 +7611,93 @@ fn a_meshed_component_s_face_is_erased_by_a_point_of_the_model() {
     let e = s.execute("mesh_erase", &json!({"component": guid, "at": [1e5, 1e5, 1e5]})).unwrap_err();
     assert!(e.contains("no flat face"), "{e}");
     let e = s.execute("mesh_erase", &json!({"component": s.model.guid(100_000), "at": [0, 0, 0]})).unwrap_err();
+    assert!(e.contains("must be a component"), "{e}");
+}
+
+#[test]
+fn moving_a_gable_ridge_keeps_both_slopes_flat_in_one_undo_step() {
+    let mut s = Session::new();
+    run(
+        &mut s,
+        "family",
+        json!({"name": "Roof", "types": {"Default": {}}, "forms": [{"mesh": [
+            [[0, 0, 1000], [0, 2000, 1000], [-2000, 2000, 0]],
+            [[0, 0, 1000], [-2000, 2000, 0], [-2000, 0, 0]],
+            [[0, 0, 1000], [2000, 2000, 0], [0, 2000, 1000]],
+            [[0, 0, 1000], [2000, 0, 0], [2000, 2000, 0]]
+        ]}]}),
+    );
+    let checked = run(&mut s, "mesh_check", json!({"family": "Roof"}));
+    assert_eq!(
+        (checked["kind"].as_str(), checked["triangles"].as_u64(), checked["faces"].as_array().map(Vec::len)),
+        (Some("open sheet"), Some(4), Some(2)),
+        "two flat slopes sharing a ridge"
+    );
+
+    let moved = run(&mut s, "mesh_move_edge", json!({"family": "Roof", "at": [0, 1000, 1000], "to": [0, 1000, 1500]}));
+    assert_eq!(moved["family"], json!("Roof"));
+    assert_eq!(moved["by"], json!([0.0, 0.0, 500.0]));
+    assert_eq!((moved["kind"].as_str(), moved["triangles"].as_u64()), (Some("open sheet"), Some(4)));
+    let mesh = &s.model.families["Roof"].forms[0].mesh;
+    let zs: Vec<f64> = mesh.iter().flatten().map(|p| p[2]).collect();
+    assert_eq!(zs.iter().filter(|z| **z == 1500.0).count(), 6, "the two ridge corners, as their triangles write them");
+    assert_eq!(zs.iter().filter(|z| **z == 0.0).count(), 6, "the four eave corners stayed");
+    assert_eq!(crate::mesh::faces(mesh).len(), 2, "the two slopes are still two flat faces");
+
+    run(&mut s, "undo", json!({}));
+    assert_eq!(s.model.families["Roof"].forms[0].mesh[0][0][2], 1000.0, "one undo puts the ridge back");
+
+    // A point on a face's diagonal and one off every edge are refused, and so is a move of nothing.
+    let e = s.execute("mesh_move_edge", &json!({"family": "Roof", "at": [-1000, 1000, 500], "to": [-1000, 1000, 600]})).unwrap_err();
+    assert!(e.contains("inside one face"), "{e}");
+    let e = s.execute("mesh_move_edge", &json!({"family": "Roof", "at": [0, 1000, 500], "to": [0, 1000, 600]})).unwrap_err();
+    assert!(e.contains("no edge"), "{e}");
+    let e = s.execute("mesh_move_edge", &json!({"family": "Roof", "at": [0, 1000, 1000], "to": [0, 1000, 1000]})).unwrap_err();
+    assert!(e.contains("move of nothing"), "{e}");
+}
+
+#[test]
+fn moving_a_box_edge_that_would_warp_a_face_is_refused() {
+    let mut s = Session::new();
+    run(&mut s, "mesh", box_mesh());
+    // The form's axes are the box shifted by its origin (500, 500, 0): its top-front edge is y = -500, z = 1000.
+    // Shifting that edge along x takes a corner off the side face x = -500.
+    let e = s.execute("mesh_move_edge", &json!({"family": "Direct Model", "at": [0, -500, 1000], "to": [500, -500, 1000]})).unwrap_err();
+    assert!(e.contains("warp"), "{e}");
+    let e = s.execute("mesh_move_edge", &json!({"family": "Direct Model", "at": [0, 0, 5000], "to": [0, 0, 6000]})).unwrap_err();
+    assert!(e.contains("no edge"), "{e}");
+    let e = s.execute("mesh_move_edge", &json!({"family": "No such", "at": [0, 0, 1000], "to": [0, 0, 1500]})).unwrap_err();
+    assert!(e.contains("no family"), "{e}");
+    let e = s.execute("mesh_move_edge", &json!({"at": [0, 0, 1000], "to": [0, 0, 1500]})).unwrap_err();
+    assert!(e.contains("`family`") && e.contains("`component`"), "{e}");
+    let e = s.execute("mesh_move_edge", &json!({"family": "Direct Model", "at": [0, 0, 1000], "to": [1e300, 0, 1000]})).unwrap_err();
+    assert!(e.contains("[x, y, z]") || e.contains("past"), "{e}");
+}
+
+#[test]
+fn a_component_s_edge_is_moved_by_points_of_the_model() {
+    let mut p = box_mesh();
+    for q in p["points"].as_array_mut().unwrap() {
+        q[0] = json!(q[0].as_i64().unwrap() - 500);
+        q[1] = json!(q[1].as_i64().unwrap() - 500);
+    }
+    let mut s = Session::new();
+    let made = run(&mut s, "mesh", p);
+    let id = made["component"].as_u64().expect("the component's id");
+    let guid = s.model.guid(id);
+    run(&mut s, "modify", json!({"id": id, "angle": 30}));
+    let (sin, cos) = 30.0_f64.to_radians().sin_cos();
+    let turn = |x: f64, y: f64, z: f64| [x * cos - y * sin, x * sin + y * cos, z];
+    let a = turn(-500.0, -500.0, 1000.0);
+    let b = turn(500.0, -500.0, 1000.0);
+    let mid = [(a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0, 1000.0];
+    let to = [mid[0], mid[1], 1200.0];
+    let moved = run(&mut s, "mesh_move_edge", json!({"component": guid, "at": mid, "to": to}));
+    assert_eq!(moved["by"], json!([0.0, 0.0, 200.0]), "a world move, taken back through the component's turn");
+    assert_eq!(moved["solid"], json!(true));
+    let e = s.execute("mesh_move_edge", &json!({"component": guid, "at": [1e5, 1e5, 1e5], "to": [1e5, 1e5, 2e5]})).unwrap_err();
+    assert!(e.contains("no edge"), "{e}");
+    let e = s.execute("mesh_move_edge", &json!({"component": s.model.guid(100_000), "at": [0, 0, 0], "to": [0, 0, 1]})).unwrap_err();
     assert!(e.contains("must be a component"), "{e}");
 }
 

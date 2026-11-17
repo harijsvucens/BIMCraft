@@ -436,6 +436,110 @@ pub fn erase(tris: &[[P3; 3]], face: &Face) -> Result<Vec<[P3; 3]>, String> {
     Ok(out)
 }
 
+/// How far `at` lies off the segment from `a` to `b`, if it lies within [`ON_FACE`] of it (an end counting as on it).
+fn segment_offset(a: P3, b: P3, at: P3) -> Option<f64> {
+    let ab = sub(b, a);
+    let square = dot(ab, ab);
+    if square <= ON_FACE * ON_FACE {
+        return None;
+    }
+    let along = dot(sub(at, a), ab) / square;
+    if along < -ON_FACE || along > 1.0 + ON_FACE {
+        return None;
+    }
+    let foot = add(a, mul(ab, along.clamp(0.0, 1.0)));
+    let off = sub(at, foot);
+    let d = dot(off, off).sqrt();
+    (d <= ON_FACE).then_some(d)
+}
+
+/// `tris` with the edge holding `at` moved so that `at` stands at `to`: both ends of that edge shift by the same step, and
+/// every face they touch must stay flat. A ridge between two slopes moves; a quad pulled by one of its corners warps and
+/// is refused. An edge inside one face (a triangulation diagonal) or on a curved surface has no two faces to keep flat
+/// and is refused too.
+pub fn move_edge(tris: &[[P3; 3]], at: P3, to: P3) -> Result<Vec<[P3; 3]>, String> {
+    if !at.iter().chain(to.iter()).all(|v| v.is_finite() && v.abs() <= MAX_COORD) {
+        return Err(format!("points to move an edge by are [x, y, z] in mm within {MAX_COORD}"));
+    }
+    let step = sub(to, at);
+    if !step.iter().all(|v| v.is_finite() && v.abs() <= MAX_COORD) {
+        return Err(format!("that would move an edge past {MAX_COORD} mm"));
+    }
+    if step.iter().all(|v| v.abs() <= 1e-9) {
+        return Err("a move of nothing moves no edge".into());
+    }
+    let keys = weld(tris);
+    let mut place: HashMap<Corner, P3> = HashMap::new();
+    for (t, k) in tris.iter().zip(&keys) {
+        for j in 0..3 {
+            place.entry(k[j]).or_insert(t[j]);
+        }
+    }
+    // The edge `at` lies along, with the triangles that walk it.
+    let mut found: Vec<(Edge, Corner, Corner, Vec<usize>, f64)> = Vec::new();
+    for (i, k) in keys.iter().enumerate() {
+        for j in 0..3 {
+            let (a, b) = (k[j], k[(j + 1) % 3]);
+            if a == b {
+                continue;
+            }
+            let (Some(pa), Some(pb)) = (place.get(&a).copied(), place.get(&b).copied()) else { continue };
+            let Some(off) = segment_offset(pa, pb, at) else { continue };
+            let e = edge(a, b);
+            if let Some(slot) = found.iter_mut().find(|(f, ..)| *f == e) {
+                slot.3.push(i);
+                slot.4 = slot.4.min(off);
+            } else {
+                found.push((e, a, b, vec![i], off));
+            }
+        }
+    }
+    found.sort_by(|a, b| a.4.total_cmp(&b.4));
+    let Some((edge, a, b, walks, off)) = found.first() else {
+        return Err("no edge of the mesh holds that point: pick one along an edge, not on a face or past it".into());
+    };
+    if found.get(1).is_some_and(|other| other.4 <= *off + ON_FACE && other.0 != *edge) {
+        return Err("that point is a corner where edges meet: pick one along an edge".into());
+    }
+    if walks.len() != 2 {
+        return Err(format!("that edge is walked by {} triangles, not the two faces a move needs", walks.len()));
+    }
+    let (_, ids) = facets(tris);
+    let sides: Vec<Option<usize>> = walks.iter().map(|i| ids.get(*i).copied().flatten()).collect();
+    if sides.iter().any(Option::is_none) {
+        return Err("that edge is on a curved surface, which has no flat face to keep: pick a straight face's edge".into());
+    }
+    if sides[0] == sides[1] {
+        return Err("that edge is inside one face, a triangulation diagonal: pick one on its boundary".into());
+    }
+    let moving: HashSet<Corner> = [*a, *b].into_iter().collect();
+    let out: Vec<[P3; 3]> =
+        tris.iter().zip(&keys).map(|(t, k)| std::array::from_fn(|j| if moving.contains(&k[j]) { add(t[j], step) } else { t[j] })).collect();
+    measure(&out)?;
+    if measure(tris).is_ok_and(|m| m.is_solid()) && volume(&out) <= 1.0 {
+        return Err("that would turn the solid inside out: move the edge less far".into());
+    }
+    // Every face the moved corners touch must still lie in one plane — grouped as they were before, so a warp that would
+    // split a face in two cannot pass by becoming two planar groups.
+    let mut groups: HashMap<usize, Vec<usize>> = HashMap::new();
+    for (i, id) in ids.iter().enumerate() {
+        if let Some(id) = id {
+            groups.entry(*id).or_default().push(i);
+        }
+    }
+    for group in groups.values() {
+        let Some(first) = group.first().and_then(|i| out.get(*i)) else { continue };
+        let n = normal(*first);
+        if dot(n, n) <= 0.5 {
+            return Err("that move would flatten a face of the mesh".into());
+        }
+        if group.iter().any(|i| out.get(*i).is_some_and(|t| t.iter().any(|p| dot(n, sub(*p, first[0])).abs() > ON_FACE))) {
+            return Err("that move would warp a face of the mesh: move it another way, or triangulate the face first".into());
+        }
+    }
+    Ok(out)
+}
+
 /// `tris` with `face` moved `distance` mm along its normal, out of the solid where that is positive: every corner welded
 /// to one of the face's moves with it, so the faces round it stretch as a hand pulling a SketchUp face's does. A face with
 /// nothing beside it — a sheet, as an imported mesh may hold — is no surface to stretch: it rises into a solid, keeping

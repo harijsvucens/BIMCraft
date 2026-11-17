@@ -1853,6 +1853,21 @@ other_files(
         mesh_erase,
     ),
     edit(
+        "mesh_move_edge",
+        ui_msg!("Move Edge"),
+        &[],
+        "{family, at: [x, y, z], to: [x, y, z], form?} or {component, at: [x, y, z], to: [x, y, z], form?} moves an edge of \
+         a family's mesh: `at` is a point along the edge and `to` is where that point goes, so both ends shift by the same \
+         step. Every face the edge touches must stay flat: a gable ridge between two slopes moves, while a quad pulled by \
+         one of its corners, or a move that turns a solid inside out, is refused. With `family`, the points are in the form's \
+         own axes, the `origin` `mesh` replies with; with `component` (a component's GUID) they are points of the model, taken \
+         back through where it stands, its turn, level and mirroring, so picks in a view can be given as they are. `form` counts \
+         the family's forms from 1, its first mesh by default. An edge inside one face (a triangulation diagonal), one on a \
+         curved surface, a corner where edges meet, or a move of nothing is refused. Returns the `family`, `form`, the `by` \
+         step in the form's axes, and the mesh's `kind`, `solid`, `triangles` and `volume` in m³",
+        mesh_move_edge,
+    ),
+    edit(
         "mesh_check",
         "Mesh Check",
         &[],
@@ -8721,6 +8736,64 @@ fn mesh_erase(s: &mut Session, p: &Value) -> R {
         .and_then(|f| f.forms.get_mut(index))
         .ok_or_else(|| bad(c, format!("the project has no family `{family}`")))?;
     form.mesh = Arc::new(erased);
+    Ok(reply)
+}
+
+/// One edge of a family's mesh moved so that both faces beside it stay flat, as dragging a gable ridge raises both slopes.
+fn mesh_move_edge(s: &mut Session, p: &Value) -> R {
+    let c = "mesh_move_edge";
+    let family = string(c, p, "family")?;
+    let component = id_opt(c, p, "component")?;
+    let (family, at, to) = match (family, component) {
+        (given, Some(guid)) => {
+            let Some(id) = s.model.elements.id(guid) else { return Err(bad(c, "the project has no `component` of that GUID")) };
+            let Some(crate::model::Element::Component(comp)) = s.model.elements.get(id) else {
+                return Err(bad(c, "`component` must be a component, the one whose family's mesh has the edge"));
+            };
+            if let Some(name) = given
+                && name != comp.family
+            {
+                return Err(bad(c, format!("component {id} is of `{}`, not `{name}`", comp.family)));
+            }
+            let local = |key: &str| {
+                let world = point3_req(c, p, key)?;
+                s.model.form_point(id, world).ok_or_else(|| bad(c, "that component has no place to take the point back through"))
+            };
+            (comp.family.clone(), local("at")?, local("to")?)
+        }
+        (Some(name), None) => (name, point3_req(c, p, "at")?, point3_req(c, p, "to")?),
+        (None, None) => {
+            return Err(bad(
+                c,
+                "`family` (with `at` and `to` points of its mesh's axes) or `component` (with points of the model) is required",
+            ));
+        }
+    };
+    let index = mesh_form(c, p, &s.model, &family)?;
+    let (moved, measure, step) = {
+        let f = s.model.families.get(&family).ok_or_else(|| bad(c, format!("the project has no family `{family}`")))?;
+        let form = &f.forms[index];
+        let moved = crate::mesh::move_edge(&form.mesh, at, to).map_err(|e| bad(c, e))?;
+        let measure = crate::mesh::measure(&moved).map_err(|e| bad(c, e))?;
+        (moved, measure, [to[0] - at[0], to[1] - at[1], to[2] - at[2]])
+    };
+    let round = |v: f64| (v * 1e6).round() / 1e6;
+    let reply = json!({
+        "family": family,
+        "form": index + 1,
+        "by": step,
+        "kind": measure.kind.word(),
+        "solid": measure.is_solid(),
+        "triangles": moved.len(),
+        "volume": round(measure.volume / 1e9),
+    });
+    let m = Arc::make_mut(&mut s.model);
+    let form = m
+        .families
+        .get_mut(&family)
+        .and_then(|f| f.forms.get_mut(index))
+        .ok_or_else(|| bad(c, format!("the project has no family `{family}`")))?;
+    form.mesh = Arc::new(moved);
     Ok(reply)
 }
 

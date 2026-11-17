@@ -1285,6 +1285,13 @@ what the mesh makes now through `mesh::measure`. A curved side has no flat face 
 taken: a form needs a triangle. Erasing compacts the triangles, so a face's id (its first triangle's index) renumbers the
 surviving faces: re-run `mesh_check` to name one again.
 
+`mesh_move_edge` moves one edge so that a point `at` along it stands at `to`, both ends shifting by the same step. Every
+face the edge touches must stay flat, checked against the faces as they were grouped before the move: a gable ridge between
+two slopes rises and both stay planar, while pulling one corner of a quad warps it and is refused (Triangulate is the
+escape hatch, a later slice). An edge inside one face (a triangulation diagonal), one on a curved surface, a corner where
+edges meet, a move of nothing, and one that would turn a solid inside out are all refused. With `component`, `at` and `to`
+are points of the model taken back through where it stands; one undo puts the edge back.
+
 What it does not do yet, and the slices that follow: draw on a face in the 3D view (the tool and its draft), holes and
 openings through a face, booleans between meshes, bevels, and pushing an imported mesh's face from a pick in the viewport
 (the command takes the form's own point). The plan is [Discussion #468](https://github.com/IPedrax/BIMCraft/discussions/468).
