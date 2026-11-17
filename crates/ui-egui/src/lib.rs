@@ -3417,7 +3417,11 @@ impl BimApp {
             Tool::Railing(pts) if !pts.is_empty() => Tool::Railing(Vec::new()),
             Tool::Mass(pts) if !pts.is_empty() => Tool::Mass(Vec::new()),
             Tool::DirectModel(Some(_)) => Tool::DirectModel(None),
-            Tool::PushPull(Some(_)) => Tool::PushPull(None),
+            Tool::PushPull(Some(_)) => {
+                // A drag under way goes with the pick: neither its preview nor its release survives the key.
+                self.orbit.push_drag = None;
+                Tool::PushPull(None)
+            }
             Tool::DetailLine(pts) if !pts.is_empty() => Tool::DetailLine(Vec::new()),
             Tool::Shaft(Some(_)) => Tool::Shaft(None),
             Tool::SlopeArrow(Some(_)) => Tool::SlopeArrow(None),

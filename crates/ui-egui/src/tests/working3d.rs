@@ -375,6 +375,49 @@ fn the_face_push_pull_holds_is_lit_while_it_waits_for_its_distance() {
 }
 
 #[test]
+fn a_mesh_face_is_pushed_by_dragging_it_in_the_3d_view() {
+    for (name, mut h) in views(MESH_BOX) {
+        h.state_mut().set_tool(Tool::PushPull(None));
+        // The top face, dragged up the screen: the box grows by what the drag shows, and the release commits it.
+        let at = h.state().screen3([500.0, 500.0, 1000.0]);
+        drag_screen(&mut h, at, at + vec2(0.0, -120.0), PointerButton::Primary);
+        assert!(!h.state().status.error, "{name}: {}", h.state().status.text);
+        let mesh = &h.state().session.model.families["Direct Model"].forms[0].mesh;
+        let top = mesh.iter().flatten().map(|p| p[2]).fold(f64::MIN, f64::max);
+        assert!(top > 1000.0, "{name}: the drag left the top at {top}");
+        assert!(matches!(&h.state().tool, Tool::PushPull(None)), "{name}: the release committed and let go");
+        // Dragging the face back down the screen shrinks it again.
+        let at = h.state().screen3([500.0, 500.0, top]);
+        drag_screen(&mut h, at, at + vec2(0.0, 120.0), PointerButton::Primary);
+        assert!(!h.state().status.error, "{name}: {}", h.state().status.text);
+        let mesh = &h.state().session.model.families["Direct Model"].forms[0].mesh;
+        let shrunk = mesh.iter().flatten().map(|p| p[2]).fold(f64::MIN, f64::max);
+        assert!(shrunk < top && shrunk >= 1000.0, "{name}: the drag back left the top at {shrunk} from {top}");
+        // A quick press still picks the face for a typed distance.
+        let on = h.state().screen3([500.0, 500.0, shrunk]);
+        click_at(&mut h, on);
+        assert!(matches!(&h.state().tool, Tool::PushPull(Some(_))), "{name}: a quick press picks: {}", h.state().status.text);
+        // Esc during a drag drops it: the face does not move, and the pick lets go.
+        h.event(Event::PointerButton { pos: on, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+        h.run();
+        h.hover_at(on + vec2(0.0, -60.0));
+        h.run();
+        key(&mut h, Key::Escape);
+        h.event(Event::PointerButton {
+            pos: on + vec2(0.0, -60.0),
+            button: PointerButton::Primary,
+            pressed: false,
+            modifiers: Modifiers::NONE,
+        });
+        h.run();
+        let mesh = &h.state().session.model.families["Direct Model"].forms[0].mesh;
+        let still = mesh.iter().flatten().map(|p| p[2]).fold(f64::MIN, f64::max);
+        assert_eq!(still, shrunk, "{name}: Esc mid-drag moved the face");
+        assert!(matches!(&h.state().tool, Tool::PushPull(None)), "{name}: Esc mid-drag let go of the pick");
+    }
+}
+
+#[test]
 fn a_mesh_face_is_pushed_by_a_typed_distance_in_the_3d_view() {
     for (name, mut h) in views(MESH_BOX) {
         h.state_mut().set_tool(Tool::PushPull(None));

@@ -4073,6 +4073,13 @@ impl Camera {
     /// at the camera.
     pub fn along(&self, axis: usize, at: P3, from: (f64, f64), to: (f64, f64)) -> Option<f64> {
         let unit: P3 = std::array::from_fn(|i| if i == axis { 1.0 } else { 0.0 });
+        self.along_dir(unit, at, from, to)
+    }
+
+    /// The same for any unit direction `dir`, not only the model's axes: how far, mm, the drag moves `at` along it, as the
+    /// picture shows it there. None where the direction points at the camera.
+    pub fn along_dir(&self, dir: P3, at: P3, from: (f64, f64), to: (f64, f64)) -> Option<f64> {
+        let unit = dir;
         // In perspective, a mm along the axis shows shorter the further off it is: the point on the axis through `at` nearest
         // the line from the eye through each pixel, so what is dragged stays under the pointer.
         if let Some(eye) = self.eye() {
@@ -4080,7 +4087,7 @@ impl Camera {
                 let ray = sub(self.unproject(q), eye);
                 let (b, c, w) = (dot(unit, ray), dot(ray, ray), sub(at, eye));
                 let square = c - b * b;
-                (axis < 3 && square > 1e-9 * c).then(|| (b * dot(ray, w) - c * dot(unit, w)) / square)
+                (square > 1e-9 * c).then(|| (b * dot(ray, w) - c * dot(unit, w)) / square)
             };
             return Some(on_axis(to)? - on_axis(from)?).filter(|d| d.is_finite());
         }
@@ -4088,7 +4095,7 @@ impl Camera {
         let (dx, dy) = (e.0 - o.0, e.1 - o.1);
         let shown = dx * dx + dy * dy;
         // Less than a twentieth of a pixel for 100 m: square to the picture.
-        (axis < 3 && shown > (0.05 / 1e5f64).powi(2)).then(|| ((to.0 - from.0) * dx + (to.1 - from.1) * dy) / shown)
+        (shown > (0.05 / 1e5f64).powi(2)).then(|| ((to.0 - from.0) * dx + (to.1 - from.1) * dy) / shown)
     }
 
     fn project_xy(&self, p: P3) -> (f64, f64) {
@@ -5441,6 +5448,12 @@ mod tests {
         assert!((moved + 2500.0).abs() < 1e-6, "{moved}");
         let moved = cam.along(1, a, at(&cam, a), at(&cam, [8000.0, 4000.0, 3000.0])).unwrap();
         assert!((moved - 4000.0).abs() < 1e-6, "{moved}");
+        // The same drag along a diagonal direction, not an axis: the direction's own part of the move, as a face's
+        // normal asks when Push/Pull drags it.
+        let diag = [std::f64::consts::FRAC_1_SQRT_2, std::f64::consts::FRAC_1_SQRT_2, 0.0];
+        let moved = cam.along_dir(diag, a, at(&cam, a), at(&cam, [11000.0, 3000.0, 3000.0])).unwrap();
+        assert!((moved - 3000.0 * std::f64::consts::SQRT_2).abs() < 1e-6, "{moved}");
+        assert_eq!(cam.along_dir(diag, a, at(&cam, a), at(&cam, a)), Some(0.0), "no drag, no distance");
     }
 
     #[test]

@@ -394,6 +394,9 @@ pub struct Orbit {
     /// A Direct Model box's height being dragged with the first corner held: the corner's ground point, where the drag
     /// began on screen, and the height in mm the drag started from (the Options Bar's, so a drag can grow or shrink it).
     box_height_drag: Option<(P3, Pos2, f64)>,
+    /// A face Push/Pull is dragging: the component, the world point where the press landed, that surface's unit normal
+    /// (the axis the drag measures along), and where the drag began on screen. `pub(crate)` for Esc to drop it with the pick.
+    pub(crate) push_drag: Option<(Id, P3, P3, Pos2)>,
     /// The view and the camera its model held when the picture on screen was built from it or written back as: a difference
     /// means the camera changed elsewhere (dragged on a plan, a command, undo), so the picture stands from the model anew.
     pub(crate) built: Option<(Id, ViewCamera, Option<f64>)>,
@@ -480,6 +483,7 @@ impl Default for Orbit {
             boxing: None,
             lift: None,
             box_height_drag: None,
+            push_drag: None,
             built: None,
             rooms: None,
             plane: None,
@@ -1861,6 +1865,34 @@ impl BimApp {
             self.column_height = model.units.length(h);
         }
         let box_dragged = direct_drag.1;
+        // Push/Pull by hand: a press on a mesh component's face picks it and the drag pulls the face along its own
+        // normal; the release pushes it that far, and a quick press still picks the face for a typed distance. The
+        // press that starts it is the same surface pick the click makes, so the drag can only ever take what a click
+        // could.
+        if response.drag_started_by(PointerButton::Primary)
+            && matches!(self.tool, Tool::PushPull(_))
+            && sketch_z.is_none()
+            && !picking
+            && let Some(origin) = ui.input(|i| i.pointer.press_origin())
+            && let Some(s) = latest.and_then(|at| surface(&o.picker, &cam, at)).filter(|s| pushable(&model, s.id))
+        {
+            self.tool = Tool::PushPull(Some((s.id, s.at)));
+            o.push_drag = Some((s.id, s.at, s.normal, origin));
+        }
+        // How far the drag has pulled the face, in mm rounded, as the release takes it and the preview draws it.
+        let push_by = match (&o.push_drag, latest) {
+            (Some((_, at, n, from)), Some(now)) => cam.along_dir(*n, *at, px(*from), px(now)).map(f64::round),
+            _ => None,
+        };
+        let push_dragged = o.push_drag.is_some() && response.drag_stopped();
+        let mut pushed = None;
+        if response.drag_stopped()
+            && let Some((id, at, ..)) = o.push_drag.take()
+            && !self.canvas.quick()
+            && let Some(by) = push_by.filter(|d| *d != 0.0)
+        {
+            pushed = Some((id, at, by));
+        }
         // While it's dragged, the floor as it would be with those points or corners there.
         let preview = match (&shaping, &o.lift, lifted_by) {
             (Some(f), Some((qs, ..)), Some(by)) => {
@@ -1878,8 +1910,13 @@ impl BimApp {
         let still = o.lift.is_some();
         // The hand's drag turns or pans the view (Shift and the middle button, the middle button), unless a grip or the sketch
         // holds it; the primary button boxes, in Modify (the sketch's lines while sketching). A click on the triad's end turns it too.
-        let grabbed =
-            o.grip.is_some() || o.boxing.is_some() || o.handle.is_some() || held || o.lift.is_some() || o.box_height_drag.is_some();
+        let grabbed = o.grip.is_some()
+            || o.boxing.is_some()
+            || o.handle.is_some()
+            || held
+            || o.lift.is_some()
+            || o.box_height_drag.is_some()
+            || o.push_drag.is_some();
         let Nav { cam, settled, selected_box } =
             o.navigate(ui, &response, &input, cam, grabbed, modify, self.canvas.quick(), fresh.then_some(scene));
         // A box let go: what it picks, as the picture is now.
@@ -2200,11 +2237,32 @@ impl BimApp {
             let placement = model.component_placement(c);
             let [r, g, b, _] = pal().accent.to_array();
             let fill = egui::Color32::from_rgba_unmultiplied(r, g, b, 80);
+            let world = |q: P3| placement.place(if c.mirrored { [q[0], -q[1], q[2]] } else { q });
             for i in &face.tris {
-                let pts: Vec<egui::Pos2> =
-                    form.mesh[*i].iter().map(|q| screen(placement.place(if c.mirrored { [q[0], -q[1], q[2]] } else { *q }))).collect();
+                let pts: Vec<egui::Pos2> = form.mesh[*i].iter().map(|q| screen(world(*q))).collect();
                 if pts.iter().all(|s| s.is_finite()) {
                     p.add(egui::Shape::convex_polygon(pts, fill, egui::Stroke::NONE));
+                }
+            }
+            // Where the face would land if the drag let go here: the face moved the drag's distance along its own
+            // normal, an edge from each of its corners to where it came from, and the distance reading beside it.
+            if let (Some(by), Some((_, _, n, _))) = (push_by.filter(|_| o.push_drag.is_some()), o.push_drag) {
+                let away = |q: P3| [q[0] + n[0] * by, q[1] + n[1] * by, q[2] + n[2] * by];
+                for i in &face.tris {
+                    let pts: Vec<egui::Pos2> = form.mesh[*i].iter().map(|q| screen(away(world(*q)))).collect();
+                    if pts.iter().all(|s| s.is_finite()) {
+                        p.add(egui::Shape::convex_polygon(pts, fill, egui::Stroke::NONE));
+                    }
+                }
+                for q in face.tris.iter().flat_map(|i| form.mesh[*i]).map(world) {
+                    let (a, b) = (screen(q), screen(away(q)));
+                    if a.is_finite() && b.is_finite() {
+                        p.line_segment([a, b], Stroke::new(1.0, pal().accent));
+                    }
+                }
+                let read = screen(away(at));
+                if read.is_finite() {
+                    crate::canvas::tag(&p, read + vec2(12.0, -12.0), egui::Align2::LEFT_BOTTOM, model.units.with_unit(by));
                 }
             }
             if !self.typed_length.is_empty() {
@@ -2333,8 +2391,12 @@ impl BimApp {
             }
         }
         // A click on a grip picks nothing behind it.
-        let click =
-            response.clicked().then(|| response.interact_pointer_pos()).flatten().or(self.canvas.quick_press()).filter(|_| !box_dragged);
+        let click = response
+            .clicked()
+            .then(|| response.interact_pointer_pos())
+            .flatten()
+            .or(self.canvas.quick_press())
+            .filter(|_| !(box_dragged || push_dragged));
         let click = click.filter(|at| !boxed.is_some_and(|b| modify && crate::section_box::grip_at(b, *at, screen).is_some()));
         let click = click.filter(|at| handle_at(&cam, *at).is_none());
         let patched = click.is_some_and(|at| on_patch(&o.picker, at));
@@ -2501,6 +2563,14 @@ impl BimApp {
         }
         if let Some((qs, by)) = raise {
             self.shape_raise_all(&qs, by);
+        }
+        // A Push/Pull drag let go: the face moves by what the drag showed. Esc during the drag let go of the pick
+        // first, and the push goes with it.
+        if let Some((id, at, by)) = pushed {
+            if matches!(&self.tool, Tool::PushPull(Some((held, _))) if *held == id) {
+                self.run("mesh_push_pull", json!({"component": id, "at": at, "distance": by}));
+            }
+            self.tool = Tool::PushPull(None);
         }
         if let Some((landed, at)) = landed {
             match (&self.tool, landed) {
