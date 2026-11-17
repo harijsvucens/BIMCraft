@@ -391,6 +391,9 @@ pub struct Orbit {
     /// A shaped floor's point or corner being dragged up or down: where it is in plan and in the model, and where the drag
     /// began.
     lift: Option<(Vec<P2>, P3, Pos2)>,
+    /// A Direct Model box's height being dragged with the first corner held: the corner's ground point, where the drag
+    /// began on screen, and the height in mm the drag started from (the Options Bar's, so a drag can grow or shrink it).
+    box_height_drag: Option<(P3, Pos2, f64)>,
     /// The view and the camera its model held when the picture on screen was built from it or written back as: a difference
     /// means the camera changed elsewhere (dragged on a plan, a command, undo), so the picture stands from the model anew.
     pub(crate) built: Option<(Id, ViewCamera, Option<f64>)>,
@@ -476,6 +479,7 @@ impl Default for Orbit {
             hold_build: false,
             boxing: None,
             lift: None,
+            box_height_drag: None,
             built: None,
             rooms: None,
             plane: None,
@@ -1825,6 +1829,39 @@ impl BimApp {
             (Some((_, at, from)), Some(now)) => cam.along(2, *at, px(*from), px(now)).map(f64::round),
             _ => None,
         };
+        // With a Direct Model corner held, a primary drag pulls the box's height up or down from what the Options Bar says;
+        // a plain click still places the far corner. The dragged height is written back to the Options Bar, which the preview
+        // and the commit already read, so there is no second height to keep in step. It is not an orbit: the corner holds it.
+        let direct_drag = match &self.tool {
+            Tool::DirectModel(Some(first)) => {
+                if response.drag_started_by(PointerButton::Primary)
+                    && let Some(origin) = ui.input(|i| i.pointer.press_origin())
+                    && let Some((_, plane)) = o.plane.filter(|(p, _)| p == first)
+                {
+                    let ground = model.elevation(plane.level) + plane.offset;
+                    // The drag gives a way out of a badly typed height: it overrides the text with a valid one.
+                    let base = model.units.parse(&self.column_height).unwrap_or(3000.0);
+                    o.box_height_drag = Some(([first.0, first.1, ground], origin, base));
+                }
+                let dragged = match (&o.box_height_drag, latest) {
+                    (Some((at, from, base)), Some(now)) => cam.along(2, *at, px(*from), px(now)).map(|d| (base + d).round().max(1.0)),
+                    _ => None,
+                };
+                let box_dragged = o.box_height_drag.is_some() && response.drag_stopped();
+                if response.drag_stopped() {
+                    o.box_height_drag = None;
+                }
+                (dragged, box_dragged)
+            }
+            _ => {
+                o.box_height_drag = None;
+                (None, false)
+            }
+        };
+        if let Some(h) = direct_drag.0 {
+            self.column_height = model.units.length(h);
+        }
+        let box_dragged = direct_drag.1;
         // While it's dragged, the floor as it would be with those points or corners there.
         let preview = match (&shaping, &o.lift, lifted_by) {
             (Some(f), Some((qs, ..)), Some(by)) => {
@@ -1842,7 +1879,8 @@ impl BimApp {
         let still = o.lift.is_some();
         // The hand's drag turns or pans the view (Shift and the middle button, the middle button), unless a grip or the sketch
         // holds it; the primary button boxes, in Modify (the sketch's lines while sketching). A click on the triad's end turns it too.
-        let grabbed = o.grip.is_some() || o.boxing.is_some() || o.handle.is_some() || held || o.lift.is_some();
+        let grabbed =
+            o.grip.is_some() || o.boxing.is_some() || o.handle.is_some() || held || o.lift.is_some() || o.box_height_drag.is_some();
         let Nav { cam, settled, selected_box } =
             o.navigate(ui, &response, &input, cam, grabbed, modify, self.canvas.quick(), fresh.then_some(scene));
         // A box let go: what it picks, as the picture is now.
@@ -2261,7 +2299,8 @@ impl BimApp {
             }
         }
         // A click on a grip picks nothing behind it.
-        let click = response.clicked().then(|| response.interact_pointer_pos()).flatten().or(self.canvas.quick_press());
+        let click =
+            response.clicked().then(|| response.interact_pointer_pos()).flatten().or(self.canvas.quick_press()).filter(|_| !box_dragged);
         let click = click.filter(|at| !boxed.is_some_and(|b| modify && crate::section_box::grip_at(b, *at, screen).is_some()));
         let click = click.filter(|at| handle_at(&cam, *at).is_none());
         let patched = click.is_some_and(|at| on_patch(&o.picker, at));

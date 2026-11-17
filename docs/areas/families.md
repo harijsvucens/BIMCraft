@@ -1298,8 +1298,10 @@ level face — the top of a floor, a flat roof or a level — as opposite corner
 `Direct Model` family, on the face's level and offset. Once the first corner is held, moving the pointer shows the box's
 twelve wireframe edges from that corner to the point under it, at the Options Bar's height, together with the footprint
 diagonal's length and a reading of its footprint area and volume in the project's units, beside the cursor; nothing is
-committed until the second click. Esc drops the corner, the preview and the reading. A click that finds no such face says
-what the tool needs instead. The box is a mesh form like any imported one, so every command above works on it at once.
+committed until the second click. The height can be dragged as well as typed: with the first corner held, a primary drag
+up or down in the view pulls the box taller or shorter from the Options Bar's value, updating it live; a plain click still
+places the far corner. Esc drops the corner, the preview and the reading. A click that finds no such face says what the tool
+needs instead. The box is a mesh form like any imported one, so every command above works on it at once.
 
 **Push/Pull**, beside it, takes one click on the face of a mesh component, then a typed distance in millimetres and Enter:
 the face moves along its normal, so a box grows on a positive distance and shrinks on a negative one, in one undo step.
@@ -1309,8 +1311,8 @@ every instance of it; Direct Model boxes have a family of their own. A pick that
 what to click instead. Esc drops the face.
 
 What it does not do yet, and the slices that follow: a filled draft overlay (the preview is only its edges), a distance
-dragged in the view (it is typed), a free-form outline on any face, holes and openings through a face, booleans between
-meshes, and bevels. The plan is
+dragged for Push/Pull (its distance is still typed), a free-form outline on any face, holes and openings through a face,
+booleans between meshes, and bevels. The plan is
 [Discussion #468](https://github.com/IPedrax/BIMCraft/discussions/468).
 ## Where the code lives
 

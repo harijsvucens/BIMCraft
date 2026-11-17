@@ -232,6 +232,30 @@ fn a_direct_model_box_is_previewed_between_its_two_clicks() {
 }
 
 #[test]
+fn a_direct_model_boxs_height_can_be_dragged_in_the_view() {
+    let script = format!("{BOX}\nfloor {{\"offset\": 500}}");
+    for (name, mut h) in views(&script) {
+        h.state_mut().set_tool(Tool::DirectModel(None));
+        let first = h.state().screen3([1500.0, 5000.0, 500.0]);
+        click_at(&mut h, first);
+        assert!(matches!(&h.state().tool, Tool::DirectModel(Some(_))), "{name}: the first corner is held");
+        // A primary drag upward in the view pulls the box taller than the Options Bar's 3 m; a plain click still places it.
+        let from = h.state().orbit.rect.center();
+        drag_screen(&mut h, from, from - vec2(0.0, 160.0), PointerButton::Primary);
+        assert!(matches!(&h.state().tool, Tool::DirectModel(Some(_))), "{name}: the drag did not place the box");
+        let second = h.state().screen3([4500.0, 4000.0, 500.0]);
+        click_at(&mut h, second);
+        assert!(matches!(&h.state().tool, Tool::DirectModel(None)), "{name}: the box was placed");
+        let m = &h.state().session.model;
+        let made = m.elements.values().any(|e| matches!(e, Element::Component(c) if c.family == "Direct Model"));
+        assert!(made, "{name}: no box made: {}", h.state().status.text);
+        let mesh = &m.families["Direct Model"].forms[0].mesh;
+        let top = mesh.iter().flatten().map(|p| p[2]).fold(f64::MIN, f64::max);
+        assert!(top > 3000.0, "{name}: the drag left the height at {top} mm");
+    }
+}
+
+#[test]
 fn a_mesh_face_is_pushed_by_a_typed_distance_in_the_3d_view() {
     for (name, mut h) in views(MESH_BOX) {
         h.state_mut().set_tool(Tool::PushPull(None));
