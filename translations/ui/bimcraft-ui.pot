@@ -1486,7 +1486,7 @@ msgstr ""
 msgid "Beam"
 msgstr ""
 
-#: crates/ui-egui/src/structure.rs:88
+#: crates/ui-egui/src/structure.rs:122
 msgid "Beam (BM): click its start and its end; a chain of clicks makes a beam for each step"
 msgstr ""
 
@@ -1984,7 +1984,7 @@ msgstr ""
 #: crates/ui-egui/src/editor/sketch.rs:1330
 #: crates/ui-egui/src/lib.rs:5807
 #: crates/ui-egui/src/linestyles.rs:431
-#: crates/ui-egui/src/structure.rs:152
+#: crates/ui-egui/src/structure.rs:186
 msgid "Chain"
 msgstr ""
 
@@ -5538,11 +5538,11 @@ msgstr ""
 msgid "Floor slope: {}"
 msgstr ""
 
-#: crates/ui-egui/src/structure.rs:98
+#: crates/ui-egui/src/structure.rs:132
 msgid "Floor: Structural"
 msgstr ""
 
-#: crates/ui-egui/src/structure.rs:97
+#: crates/ui-egui/src/structure.rs:131
 msgid "Floor: Structural (SB): click inside the walls to floor them with a slab that carries load"
 msgstr ""
 
@@ -5642,7 +5642,7 @@ msgstr ""
 msgid "Formula of {}"
 msgstr ""
 
-#: crates/ui-egui/src/structure.rs:108
+#: crates/ui-egui/src/structure.rs:142
 msgid "Foundation"
 msgstr ""
 
@@ -6043,7 +6043,7 @@ msgstr ""
 msgid "Home"
 msgstr ""
 
-#: crates/ui-egui/src/orbit.rs:2543
+#: crates/ui-egui/src/orbit.rs:2541
 msgid "Home View"
 msgstr ""
 
@@ -6441,7 +6441,7 @@ msgstr ""
 msgid "Isolated Footing"
 msgstr ""
 
-#: crates/ui-egui/src/structure.rs:110
+#: crates/ui-egui/src/structure.rs:144
 msgid "Isolated Footing (FI): click where the footing goes"
 msgstr ""
 
@@ -6553,7 +6553,7 @@ msgstr ""
 msgid "Justification"
 msgstr ""
 
-#: crates/ui-egui/src/structure.rs:136
+#: crates/ui-egui/src/structure.rs:170
 msgid "Justification:"
 msgstr ""
 
@@ -7138,7 +7138,7 @@ msgid "Loaded; nothing taken from it yet"
 msgstr ""
 
 #: crates/ui-egui/src/editor/document.rs:2073
-#: crates/ui-egui/src/orbit.rs:1893
+#: crates/ui-egui/src/orbit.rs:1892
 msgid "Loading 3D view onto the card…"
 msgstr ""
 
@@ -8628,7 +8628,7 @@ msgstr ""
 
 #: crates/ui-egui/src/draw.rs:350
 #: crates/ui-egui/src/lib.rs:5787
-#: crates/ui-egui/src/structure.rs:146
+#: crates/ui-egui/src/structure.rs:180
 msgid "Offset:"
 msgstr ""
 
@@ -9283,7 +9283,7 @@ msgstr ""
 msgid "Pick a corner, an edge or a face of the model to dimension."
 msgstr ""
 
-#: crates/ui-egui/src/orbit.rs:2405
+#: crates/ui-egui/src/orbit.rs:2403
 msgid "Pick a corner, an edge or a face of the model to measure."
 msgstr ""
 
@@ -9291,11 +9291,11 @@ msgstr ""
 msgid "Pick a curved wall or an arc."
 msgstr ""
 
-#: crates/ui-egui/src/orbit.rs:2363
+#: crates/ui-egui/src/orbit.rs:2361
 msgid "Pick a face of a mesh component to push or pull it."
 msgstr ""
 
-#: crates/ui-egui/src/orbit.rs:2358
+#: crates/ui-egui/src/orbit.rs:2356
 msgid "Pick a face of a wall, a floor, a ceiling or a roof to place it on."
 msgstr ""
 
@@ -9514,7 +9514,7 @@ msgstr ""
 msgid "Pick three points: after OK, click three points on the model, each snapping to a corner near the pointer"
 msgstr ""
 
-#: crates/ui-egui/src/structure.rs:284
+#: crates/ui-egui/src/structure.rs:318
 msgid "Pick two different corners for the box."
 msgstr ""
 
@@ -10598,11 +10598,11 @@ msgstr ""
 msgid "Region / Country:"
 msgstr ""
 
-#: crates/ui-egui/src/structure.rs:104
+#: crates/ui-egui/src/structure.rs:138
 msgid "Reinforce"
 msgstr ""
 
-#: crates/ui-egui/src/structure.rs:103
+#: crates/ui-egui/src/structure.rs:137
 msgid "Reinforce (RF): bars by rules for the selected beam, column, footing or floor"
 msgstr ""
 
@@ -10615,7 +10615,7 @@ msgstr ""
 msgid "Reinforced: {} bars, {} kg of steel."
 msgstr ""
 
-#: crates/ui-egui/src/structure.rs:102
+#: crates/ui-egui/src/structure.rs:136
 msgid "Reinforcement"
 msgstr ""
 
@@ -12440,7 +12440,7 @@ msgstr ""
 msgid "Structural Column"
 msgstr ""
 
-#: crates/ui-egui/src/structure.rs:84
+#: crates/ui-egui/src/structure.rs:118
 msgid "Structural Column (CL): click where it stands"
 msgstr ""
 
@@ -13435,7 +13435,7 @@ msgstr ""
 msgid "Thickness"
 msgstr ""
 
-#: crates/ui-egui/src/structure.rs:171
+#: crates/ui-egui/src/structure.rs:205
 msgid "Thickness:"
 msgstr ""
 
@@ -13648,8 +13648,8 @@ msgstr ""
 msgid "Top Offset"
 msgstr ""
 
-#: crates/ui-egui/src/structure.rs:149
-#: crates/ui-egui/src/structure.rs:173
+#: crates/ui-egui/src/structure.rs:183
+#: crates/ui-egui/src/structure.rs:207
 msgid "Top Offset:"
 msgstr ""
 
@@ -14476,7 +14476,7 @@ msgstr ""
 msgid "Wall Footing"
 msgstr ""
 
-#: crates/ui-egui/src/structure.rs:114
+#: crates/ui-egui/src/structure.rs:148
 msgid "Wall Footing (FW): click its start and its end, or a chain of clicks, under a wall"
 msgstr ""
 
@@ -14922,7 +14922,7 @@ msgstr ""
 
 #: crates/ui-egui/src/canvas.rs:2003
 #: crates/ui-egui/src/editor/document.rs:1245
-#: crates/ui-egui/src/orbit.rs:2546
+#: crates/ui-egui/src/orbit.rs:2544
 msgid "Zoom to Fit"
 msgstr ""
 
@@ -14931,7 +14931,7 @@ msgid "`{}` is not a distance to push"
 msgstr ""
 
 #: crates/ui-egui/src/lib.rs:1069
-#: crates/ui-egui/src/structure.rs:290
+#: crates/ui-egui/src/structure.rs:323
 msgid "`{}` is not a height"
 msgstr ""
 
@@ -15090,7 +15090,7 @@ msgstr ""
 msgid "click its line's end"
 msgstr ""
 
-#: crates/ui-egui/src/orbit.rs:2479
+#: crates/ui-egui/src/orbit.rs:2477
 msgid "click on the floor's top"
 msgstr ""
 
@@ -15098,7 +15098,7 @@ msgstr ""
 msgid "click where its run ends"
 msgstr ""
 
-#: crates/ui-egui/src/structure.rs:276
+#: crates/ui-egui/src/structure.rs:310
 msgid "column: {}"
 msgstr ""
 
@@ -15490,7 +15490,7 @@ msgstr ""
 msgid "this machine"
 msgstr ""
 
-#: crates/ui-egui/src/orbit.rs:2379
+#: crates/ui-egui/src/orbit.rs:2377
 #: crates/ui-egui/src/paper.rs:172
 #: crates/ui-egui/src/section.rs:423
 msgid "this tool works in plan views: open one from the Project Browser"
@@ -15806,7 +15806,7 @@ msgstr ""
 
 #: crates/ui-egui/src/canvas.rs:1483
 #. what a point snapped to, then the category and id of its element: "Endpoint of Wall 100231".
-#: crates/ui-egui/src/orbit.rs:2176
+#: crates/ui-egui/src/orbit.rs:2174
 msgid "{} of {} {}"
 msgstr ""
 
@@ -15979,8 +15979,8 @@ msgstr ""
 msgid "{}: Type"
 msgstr ""
 
-#: crates/ui-egui/src/structure.rs:181
-#: crates/ui-egui/src/structure.rs:203
+#: crates/ui-egui/src/structure.rs:215
+#: crates/ui-egui/src/structure.rs:237
 msgid "{}: `{}` is not a height"
 msgstr ""
 
@@ -16032,7 +16032,7 @@ msgid "{}: valid"
 msgstr ""
 
 #: crates/ui-egui/src/favorites.rs:162
-#: crates/ui-egui/src/structure.rs:197
+#: crates/ui-egui/src/structure.rs:231
 msgid "{}: {}"
 msgstr ""
 

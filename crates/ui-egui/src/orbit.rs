@@ -1837,10 +1837,9 @@ impl BimApp {
                 if response.drag_started_by(PointerButton::Primary)
                     && let Some(origin) = ui.input(|i| i.pointer.press_origin())
                     && let Some((_, plane)) = o.plane.filter(|(p, _)| p == first)
+                    && let Some(base) = crate::structure::direct_height(&model, &self.column_height)
                 {
                     let ground = model.elevation(plane.level) + plane.offset;
-                    // The drag gives a way out of a badly typed height: it overrides the text with a valid one.
-                    let base = model.units.parse(&self.column_height).unwrap_or(3000.0);
                     o.box_height_drag = Some(([first.0, first.1, ground], origin, base));
                 }
                 let dragged = match (&o.box_height_drag, latest) {
@@ -2152,13 +2151,12 @@ impl BimApp {
                 let long = P2(b[0], b[1]).dist(P2(q[0], q[1])).hypot(q[2] - b[2]);
                 crate::canvas::tag(&p, at + vec2(12.0, -12.0), egui::Align2::LEFT_BOTTOM, model.units.with_unit(long));
             }
-            // A Direct Model box between its two clicks: the wireframe it will make, at the Options Bar's height.
+            // A Direct Model box between its two clicks: the wireframe it will make, from the same box the commit makes.
             if let Tool::DirectModel(Some(first)) = &self.tool
-                && let Some(height) = model.units.parse(&self.column_height).filter(|h| h.is_finite() && *h > 0.0)
+                && let Some(height) = crate::structure::direct_height(&model, &self.column_height)
             {
                 let bottom = model.elevation(plane.level) + plane.offset;
-                let lo = [first.0.min(q[0]), first.1.min(q[1]), bottom];
-                let hi = [first.0.max(q[0]), first.1.max(q[1]), bottom + height];
+                let (lo, hi) = crate::structure::direct_box(*first, P2(q[0], q[1]), bottom, height);
                 for [a, b] in view3d::box_edges((lo, hi)).into_iter().filter_map(|[a, b]| cam.in_front(a, b)) {
                     p.line_segment([screen(a), screen(b)], Stroke::new(1.0, pal().accent));
                 }

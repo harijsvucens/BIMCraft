@@ -61,6 +61,40 @@ pub(crate) fn same_tool(a: &Tool, b: &Tool) -> bool {
     }
 }
 
+/// The Direct Model box's two corners, from the footprint the hand picks, its base `z0` and the Options Bar's height:
+/// one definition the preview and the commit both use, so what is drawn is what is made.
+pub(crate) fn direct_box(a: P2, b: P2, z0: f64, height: f64) -> ([f64; 3], [f64; 3]) {
+    ([a.0.min(b.0), a.1.min(b.1), z0], [a.0.max(b.0), a.1.max(b.1), z0 + height])
+}
+
+/// The eight corners and twelve triangles of that box, in the order the `mesh` command takes them.
+pub(crate) fn direct_mesh((lo, hi): ([f64; 3], [f64; 3])) -> (Vec<[f64; 3]>, Vec<[usize; 3]>) {
+    let x = [lo[0], hi[0], hi[0], lo[0], lo[0], hi[0], hi[0], lo[0]];
+    let y = [lo[1], lo[1], hi[1], hi[1], lo[1], lo[1], hi[1], hi[1]];
+    let z = [lo[2], lo[2], lo[2], lo[2], hi[2], hi[2], hi[2], hi[2]];
+    let points = (0..8).map(|i| [x[i], y[i], z[i]]).collect();
+    let triangles = vec![
+        [0, 2, 1],
+        [0, 3, 2],
+        [4, 5, 6],
+        [4, 6, 7],
+        [0, 1, 5],
+        [0, 5, 4],
+        [1, 2, 6],
+        [1, 6, 5],
+        [2, 3, 7],
+        [2, 7, 6],
+        [3, 0, 4],
+        [3, 4, 7],
+    ];
+    (points, triangles)
+}
+
+/// The Options Bar's height for that box, in mm: the one guard for the text the preview, the drag and the commit share.
+pub(crate) fn direct_height(m: &Model, text: &str) -> Option<f64> {
+    m.units.parse(text).filter(|h| h.is_finite() && *h > 0.0)
+}
+
 impl BimApp {
     /// Switching to the run tool of `category`: the justification and the offset on the Options Bar are the last that tool had,
     /// or its usual.
@@ -284,30 +318,14 @@ impl BimApp {
             self.status = Status { text: t("Pick two different corners for the box.").into(), error: false };
             return;
         }
-        let height = match self.session.model.units.parse(&self.column_height) {
-            Some(h) if h.is_finite() && h > 0.0 => h,
-            _ => {
-                self.status = Status { text: tf("`{}` is not a height", &[&self.column_height]), error: true };
-                return;
-            }
+        let model = &self.session.model;
+        let Some(height) = direct_height(model, &self.column_height) else {
+            self.status = Status { text: tf("`{}` is not a height", &[&self.column_height]), error: true };
+            return;
         };
-        let (x0, x1) = (a.0.min(b.0), a.0.max(b.0));
-        let (y0, y1) = (a.1.min(b.1), a.1.max(b.1));
-        let z0 = self.session.model.elevation(level) + base;
-        let z1 = z0 + height;
-        let x = [x0, x1, x1, x0, x0, x1, x1, x0];
-        let y = [y0, y0, y1, y1, y0, y0, y1, y1];
-        let z = [z0, z0, z0, z0, z1, z1, z1, z1];
-        let points: Vec<[f64; 3]> = (0..8).map(|i| [x[i], y[i], z[i]]).collect();
-        self.run(
-            "mesh",
-            json!({
-                "points": points,
-                "triangles": [[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4],
-                              [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]],
-                "level": level,
-            }),
-        );
+        let z0 = model.elevation(level) + base;
+        let (points, triangles) = direct_mesh(direct_box(a, b, z0, height));
+        self.run("mesh", json!({ "points": points, "triangles": triangles, "level": level }));
     }
 
     /// What a click would make with the run's tool, its start picked, the end at `b`; none while the Options Bar says what

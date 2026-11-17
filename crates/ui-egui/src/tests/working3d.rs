@@ -6,6 +6,7 @@
 use super::*;
 use crate::gpu::{Card, headless};
 use crate::orbit::box_reading;
+use crate::structure::{direct_box, direct_mesh};
 use bimcraft_core::units::Units;
 use bimcraft_core::view3d::P3;
 
@@ -180,6 +181,23 @@ fn escape_drops_the_first_corner_of_a_direct_model_box() {
         click_at(&mut h, at);
         assert!(h.state().session.model.families.get("Direct Model").is_none(), "{name}: no box made");
     }
+}
+
+#[test]
+fn a_direct_models_preview_and_its_commit_are_the_same_box() {
+    // One definition, reached from the hover the preview draws and from the second click the command commits.
+    let (lo, hi) = direct_box(P2(1500.0, 5000.0), P2(4500.0, 4000.0), 500.0, 3000.0);
+    assert_eq!(lo, [1500.0, 4000.0, 500.0]);
+    assert_eq!(hi, [4500.0, 5000.0, 3500.0]);
+    let (points, triangles) = direct_mesh((lo, hi));
+    assert_eq!((points.len(), triangles.len()), (8, 12));
+    let span = |i: usize| {
+        let all: Vec<f64> = points.iter().map(|p| p[i]).collect();
+        (all.iter().copied().fold(f64::MAX, f64::min), all.iter().copied().fold(f64::MIN, f64::max))
+    };
+    assert_eq!(span(0), (1500.0, 4500.0));
+    assert_eq!(span(1), (4000.0, 5000.0));
+    assert_eq!(span(2), (500.0, 3500.0));
 }
 
 #[test]
