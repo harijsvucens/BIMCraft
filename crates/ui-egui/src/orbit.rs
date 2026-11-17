@@ -2176,6 +2176,29 @@ impl BimApp {
             };
             crate::canvas::tag(&p, at + vec2(12.0, 14.0), egui::Align2::LEFT_TOP, name);
         }
+        // The face Push/Pull holds, filled where it stands, and what's typed beside it: the tool's on-canvas feedback
+        // while it waits for a distance. The face comes back through the same form_point the command will take.
+        if let Tool::PushPull(Some((id, at))) = &self.tool
+            && let Some(local) = model.form_point(*id, *at)
+            && let Some(Element::Component(c)) = model.elements.get(*id)
+            && let Some(form) = model.families.get(&c.family).and_then(|f| f.forms.iter().find(|f| !f.mesh.is_empty()))
+            && let Ok(face) = bimcraft_core::mesh::face_at(&form.mesh, local)
+        {
+            let placement = model.component_placement(c);
+            let [r, g, b, _] = pal().accent.to_array();
+            let fill = egui::Color32::from_rgba_unmultiplied(r, g, b, 80);
+            for i in &face.tris {
+                let pts: Vec<egui::Pos2> =
+                    form.mesh[*i].iter().map(|q| screen(placement.place(if c.mirrored { [q[0], -q[1], q[2]] } else { *q }))).collect();
+                if pts.iter().all(|s| s.is_finite()) {
+                    p.add(egui::Shape::convex_polygon(pts, fill, egui::Stroke::NONE));
+                }
+            }
+            if !self.typed_length.is_empty() {
+                let text = model.units.parse(&self.typed_length).map_or_else(|| self.typed_length.clone(), |d| model.units.with_unit(d));
+                crate::canvas::tag(&p, screen(*at) + vec2(12.0, -12.0), egui::Align2::LEFT_BOTTOM, text);
+            }
+        }
         // Where a click lands on the floor being shaped, in plan: a point or corner within reach of it, else on an edge within
         // reach (the edge, to light up), else its top there.
         let snapped = |at: Pos2| -> Option<(P2, Option<[P3; 2]>, Option<bimcraft_core::view3d::ShapeSnap>)> {

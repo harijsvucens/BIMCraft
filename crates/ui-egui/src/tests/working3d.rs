@@ -290,6 +290,47 @@ fn the_massing_tools_say_what_they_want_in_the_3d_view() {
 }
 
 #[test]
+fn the_face_push_pull_holds_is_lit_while_it_waits_for_its_distance() {
+    for (name, mut h) in views(MESH_BOX) {
+        h.state_mut().set_tool(Tool::PushPull(None));
+        let at = h.state().screen3([500.0, 500.0, 1000.0]);
+        h.hover_at(at);
+        h.run();
+        let bare = h.render().unwrap();
+        click_at(&mut h, at);
+        h.hover_at(at);
+        h.run();
+        let lit = h.render().unwrap();
+        // Only around the picked point: the status bar's prompt also changes on the pick, and it is not the highlight.
+        let near = |a: &image::RgbaImage, b: &image::RgbaImage| {
+            let (x0, y0) = ((f64::from(at.x) - 90.0).max(0.0) as u32, (f64::from(at.y) - 70.0).max(0.0) as u32);
+            let (x1, y1) = (
+                (f64::from(at.x) + 90.0).min(f64::from(a.width()) - 1.0) as u32,
+                (f64::from(at.y) + 70.0).min(f64::from(a.height()) - 1.0) as u32,
+            );
+            (x0..x1).flat_map(|x| (y0..y1).map(move |y| (x, y))).filter(|&(x, y)| a.get_pixel(x, y) != b.get_pixel(x, y)).count()
+        };
+        let changed = near(&bare, &lit);
+        assert!(changed > 100, "{name}: the held face drew only {changed} pixels near the pick");
+        // What's typed reads beside the picked face, as a plan's reading does.
+        h.event(Event::Text("500".into()));
+        h.run();
+        let typed = h.render().unwrap();
+        let changed = lit.pixels().zip(typed.pixels()).filter(|(a, b)| a != b).count();
+        assert!(changed > 10, "{name}: the typed distance drew {changed} pixels");
+        // Esc drops the pick, the reading and the highlight with it.
+        key(&mut h, Key::Escape);
+        h.event(Event::Text("".into()));
+        h.run();
+        h.hover_at(at);
+        h.run();
+        let dropped = h.render().unwrap();
+        let changed = bare.pixels().zip(dropped.pixels()).filter(|(a, b)| a != b).count();
+        assert!(changed < 10, "{name}: Esc left {changed} highlight pixels");
+    }
+}
+
+#[test]
 fn a_mesh_face_is_pushed_by_a_typed_distance_in_the_3d_view() {
     for (name, mut h) in views(MESH_BOX) {
         h.state_mut().set_tool(Tool::PushPull(None));
