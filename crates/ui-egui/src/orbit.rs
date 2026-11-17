@@ -661,6 +661,16 @@ fn pushable(m: &Model, id: Id) -> bool {
     }
 }
 
+/// The triangles a Push/Pull drag needs to draw: what the real core push makes, less what the canvas already shows.
+/// A solid push keeps every triangle's place, so an unchanged one is already drawn; a sheet's extrude drops the face
+/// and appends the solid, so its unchanged leading triangles are skipped by count instead.
+fn pushed_preview(tris: &[[P3; 3]], face: &bimcraft_core::mesh::TopoFace, by: f64) -> Vec<[P3; 3]> {
+    let Ok(out) = bimcraft_core::mesh::push(tris, face, by) else { return Vec::new() };
+    let same_len = out.len() == tris.len();
+    let skip = if same_len { 0 } else { tris.len().saturating_sub(face.tris.len()) };
+    out.into_iter().enumerate().filter(|(i, t)| *i >= skip && (!same_len || tris[*i] != *t)).map(|(_, t)| t).collect()
+}
+
 /// A Direct Model box's footprint area and volume as the HUD reads them. `Units::area`'s factor for a square metre
 /// is the linear factor squared, so its root is metres or feet per metre and its cube is the volume unit's.
 pub(crate) fn box_reading(units: Units, (w, d, h): (f64, f64, f64)) -> String {
@@ -2218,24 +2228,17 @@ impl BimApp {
                     p.add(egui::Shape::convex_polygon(pts, fill, egui::Stroke::NONE));
                 }
             }
-            // Where the face would land if the drag let go here: the face moved the drag's distance along its own
-            // normal, an edge from each of its corners to where it came from, and the distance reading beside it.
+            // Where the face would land if the drag let go here: the very mesh the commit will make, so the canvas
+            // cannot promise a push the release does not do. A sheet rises into a solid here too.
             if let (Some(by), Some(h)) = (push_by.filter(|_| o.push_drag.is_some()), o.push_drag.clone()) {
                 let n = h.target().2;
-                let away = |q: P3| [q[0] + n[0] * by, q[1] + n[1] * by, q[2] + n[2] * by];
-                for i in &face.tris {
-                    let pts: Vec<egui::Pos2> = form.mesh[*i].iter().map(|q| screen(away(world(*q)))).collect();
+                for t in pushed_preview(&form.mesh, &face, by) {
+                    let pts: Vec<egui::Pos2> = t.iter().map(|q| screen(world(*q))).collect();
                     if pts.iter().all(|s| s.is_finite()) {
                         p.add(egui::Shape::convex_polygon(pts, fill, egui::Stroke::NONE));
                     }
                 }
-                for q in face.tris.iter().flat_map(|i| form.mesh[*i]).map(world) {
-                    let (a, b) = (screen(q), screen(away(q)));
-                    if a.is_finite() && b.is_finite() {
-                        p.line_segment([a, b], Stroke::new(1.0, pal().accent));
-                    }
-                }
-                let read = screen(away(at));
+                let read = screen([at[0] + n[0] * by, at[1] + n[1] * by, at[2] + n[2] * by]);
                 if read.is_finite() {
                     crate::canvas::tag(&p, read + vec2(12.0, -12.0), egui::Align2::LEFT_BOTTOM, model.units.with_unit(by));
                 }
@@ -3082,5 +3085,53 @@ mod worker_measurements {
         if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
             eprintln!("{}", status.lines().filter(|l| l.starts_with("VmHWM") || l.starts_with("VmRSS")).collect::<Vec<_>>().join(", "));
         }
+    }
+}
+
+#[cfg(test)]
+mod push_preview_tests {
+    use super::*;
+
+    /// A square 1000 mm a side at height `z`, its two triangles facing up.
+    fn pane(z: f64) -> Vec<[P3; 3]> {
+        let p = [[0.0, 0.0, z], [1000.0, 0.0, z], [1000.0, 1000.0, z], [0.0, 1000.0, z]];
+        vec![[p[0], p[1], p[2]], [p[0], p[2], p[3]]]
+    }
+
+    #[test]
+    fn a_sheet_pushed_draws_the_solid_it_becomes_not_a_teleporting_face() {
+        let sheet = pane(0.0);
+        let face = bimcraft_core::mesh::face_at(&sheet, [500.0, 500.0, 0.0]).unwrap();
+        let drawn = pushed_preview(&sheet, &face, 500.0);
+        // The core push makes a 12-triangle solid; the preview draws what it made, not the sheet slid upward.
+        assert_eq!(drawn.len(), 12, "{drawn:?}");
+        assert_eq!(drawn.iter().flatten().map(|p| p[2]).fold(f64::MIN, f64::max), 500.0);
+    }
+
+    /// The 1 m mesh box the 3D-view tests use, as triangles.
+    fn box_tris() -> Vec<[P3; 3]> {
+        let p = [
+            [0.0, 0.0, 0.0],
+            [1000.0, 0.0, 0.0],
+            [1000.0, 1000.0, 0.0],
+            [0.0, 1000.0, 0.0],
+            [0.0, 0.0, 1000.0],
+            [1000.0, 0.0, 1000.0],
+            [1000.0, 1000.0, 1000.0],
+            [0.0, 1000.0, 1000.0],
+        ];
+        [[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]]
+            .iter()
+            .map(|t| [p[t[0]], p[t[1]], p[t[2]]])
+            .collect()
+    }
+
+    #[test]
+    fn a_box_face_pushed_draws_the_moved_face_and_its_stretched_neighbours() {
+        let box_tris = box_tris();
+        let face = bimcraft_core::mesh::face_at(&box_tris, [500.0, 500.0, 1000.0]).unwrap();
+        let drawn = pushed_preview(&box_tris, &face, 500.0);
+        assert!(!drawn.is_empty() && drawn.len() < box_tris.len(), "{} of {}", drawn.len(), box_tris.len());
+        assert!(drawn.iter().flatten().any(|p| p[2] == 1500.0), "{drawn:?}");
     }
 }
