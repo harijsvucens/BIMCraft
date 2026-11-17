@@ -5924,6 +5924,8 @@ impl BimApp {
                 );
             }
             (Sheet::View3D, Tool::AddPoint | Tool::AddSplitLine(_) | Tool::Attach | Tool::Trim(_) | Tool::TrimTo { .. }) => {}
+            // The Massing tab's Direct Model and Push/Pull are the 3D view's own tools; their prompts below say what they want.
+            (Sheet::View3D, Tool::DirectModel(_) | Tool::PushPull(_)) => {}
             (Sheet::View3D | Sheet::Section(_) | Sheet::Paper(_), _) => {
                 return msg!("This tool works in plan views: open one from the Project Browser.");
             }

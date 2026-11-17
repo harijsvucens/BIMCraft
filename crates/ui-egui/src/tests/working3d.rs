@@ -274,6 +274,22 @@ fn a_direct_model_boxs_height_can_be_dragged_in_the_view() {
 }
 
 #[test]
+fn the_massing_tools_say_what_they_want_in_the_3d_view() {
+    // Direct Model and Push/Pull are the 3D view's own tools; the status bar's prompt is Push/Pull's only
+    // feedback once a face is picked, so it must not claim they work in plan views alone.
+    for (name, mut h) in views(MESH_BOX) {
+        h.state_mut().set_tool(Tool::DirectModel(None));
+        assert!(h.state().prompt().contains("first corner"), "{name}: {}", h.state().prompt());
+        h.state_mut().set_tool(Tool::PushPull(None));
+        assert!(h.state().prompt().contains("Click a face of a mesh component"), "{name}: {}", h.state().prompt());
+        let at = h.state().screen3([500.0, 500.0, 1000.0]);
+        click_at(&mut h, at);
+        assert!(matches!(&h.state().tool, Tool::PushPull(Some(_))), "{name}: a face was picked");
+        assert!(h.state().prompt().contains("Type a distance"), "{name}: {}", h.state().prompt());
+    }
+}
+
+#[test]
 fn a_mesh_face_is_pushed_by_a_typed_distance_in_the_3d_view() {
     for (name, mut h) in views(MESH_BOX) {
         h.state_mut().set_tool(Tool::PushPull(None));
