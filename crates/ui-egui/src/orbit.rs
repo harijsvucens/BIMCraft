@@ -652,11 +652,12 @@ fn pushable(m: &Model, id: Id) -> bool {
     }
 }
 
-/// The point the tool's next goes on from, in plan: a wall chain's last, a run's start.
+/// The point the tool's next goes on from, in plan: a wall chain's last, a run's start, a Direct Model box's first corner.
 fn base_point(tool: &Tool) -> Option<P2> {
     match tool {
         Tool::Wall(chain) => chain.last().copied(),
         Tool::Run(_, start) => *start,
+        Tool::DirectModel(Some(first)) => Some(*first),
         _ => None,
     }
 }
@@ -2081,7 +2082,7 @@ impl BimApp {
         let drawing = draws_on_faces(&self.tool) && sketch_z.is_none();
         let pushing = matches!(self.tool, Tool::PushPull(_)) && sketch_z.is_none();
         let last3 = o.plane.filter(|(q, _)| base_point(&self.tool) == Some(*q));
-        let held = last3.filter(|_| matches!(self.tool, Tool::Wall(_))).map(|(_, p)| p);
+        let held = last3.filter(|_| matches!(self.tool, Tool::Wall(_) | Tool::DirectModel(_))).map(|(_, p)| p);
         let fallback = last3.filter(|_| matches!(self.tool, Tool::Run(..))).map(|(_, p)| p);
         let aimed = |picker: &Option<Picker>, at: Pos2| -> Option<(P3, CursorPlane, Found)> {
             let under = picker.as_ref().and_then(|k| k.surface(Some(scene), &cam, px(at)));
@@ -2102,6 +2103,17 @@ impl BimApp {
                 p.line_segment([from, at], Stroke::new(1.0, pal().accent));
                 let long = P2(b[0], b[1]).dist(P2(q[0], q[1])).hypot(q[2] - b[2]);
                 crate::canvas::tag(&p, at + vec2(12.0, -12.0), egui::Align2::LEFT_BOTTOM, model.units.with_unit(long));
+            }
+            // A Direct Model box between its two clicks: the wireframe it will make, at the Options Bar's height.
+            if let Tool::DirectModel(Some(first)) = &self.tool
+                && let Some(height) = model.units.parse(&self.column_height).filter(|h| h.is_finite() && *h > 0.0)
+            {
+                let bottom = model.elevation(plane.level) + plane.offset;
+                let lo = [first.0.min(q[0]), first.1.min(q[1]), bottom];
+                let hi = [first.0.max(q[0]), first.1.max(q[1]), bottom + height];
+                for [a, b] in view3d::box_edges((lo, hi)).into_iter().filter_map(|[a, b]| cam.in_front(a, b)) {
+                    p.line_segment([screen(a), screen(b)], Stroke::new(1.0, pal().accent));
+                }
             }
             let diamond = [vec2(0.0, -6.0), vec2(6.0, 0.0), vec2(0.0, 6.0), vec2(-6.0, 0.0)].map(|d| at + d).to_vec();
             p.add(egui::Shape::closed_line(diamond, Stroke::new(2.0, pal().accent)));

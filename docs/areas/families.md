@@ -1295,8 +1295,11 @@ are points of the model taken back through where it stands; one undo puts the ed
 **Direct Model** on the Massing tab is the first tool over these commands. It opens the 3D view and takes two clicks on a
 level face — the top of a floor, a flat roof or a level — as opposite corners of a rectangle; the second click makes a
 3 m-tall box (the height in the Options Bar, 3 m by default) with one `mesh` command, in its own
-`Direct Model` family, on the face's level and offset. Esc drops the first corner. A click that finds no such face says
-what the tool needs instead. The box is a mesh form like any imported one, so every command above works on it at once.
+`Direct Model` family, on the face's level and offset. Once the first corner is held, moving the pointer shows the box's
+twelve wireframe edges from that corner to the point under it, at the Options Bar's height, together with the footprint
+diagonal's length; nothing is committed until the second click. Esc drops the corner and the preview. A click that finds no such
+face says what the tool needs instead. The box is a mesh form like any imported one, so every command above works on it
+at once.
 
 **Push/Pull**, beside it, takes one click on the face of a mesh component, then a typed distance in millimetres and Enter:
 the face moves along its normal, so a box grows on a positive distance and shrinks on a negative one, in one undo step.
@@ -1305,7 +1308,7 @@ back through the component's placement to find the face — but the edit is to t
 every instance of it; Direct Model boxes have a family of their own. A pick that is not a mesh component is refused with
 what to click instead. Esc drops the face.
 
-What it does not do yet, and the slices that follow: a draft overlay and a preview before the second click, a distance
+What it does not do yet, and the slices that follow: a filled draft overlay (the preview is only its edges), a distance
 dragged in the view (it is typed), the live area/volume HUD, a free-form outline on any face, holes and openings through
 a face, booleans between meshes, and bevels. The plan is
 [Discussion #468](https://github.com/IPedrax/BIMCraft/discussions/468).

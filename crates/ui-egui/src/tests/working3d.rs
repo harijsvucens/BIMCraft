@@ -181,6 +181,41 @@ fn escape_drops_the_first_corner_of_a_direct_model_box() {
 }
 
 #[test]
+fn a_direct_model_box_is_previewed_between_its_two_clicks() {
+    let script = format!("{BOX}\nfloor {{\"offset\": 500}}");
+    for (name, mut h) in views(&script) {
+        h.state_mut().set_tool(Tool::DirectModel(None));
+        let second = h.state().screen3([4500.0, 4000.0, 500.0]);
+        // The same hover with no first corner draws only the snap ink.
+        h.hover_at(second);
+        h.run();
+        let bare = h.render().unwrap();
+        // With the first corner held it also draws the box's wireframe.
+        let first = h.state().screen3([1500.0, 5000.0, 500.0]);
+        click_at(&mut h, first);
+        h.hover_at(second);
+        h.run();
+        let preview = h.render().unwrap();
+        let changed = bare.pixels().zip(preview.pixels()).filter(|(a, b)| a != b).count();
+        assert!(changed > 30, "{name}: the preview drew only {changed} pixels");
+        // Halfway up the edge under the cursor: the from-line is down on the face, so only the box's wireframe draws here.
+        let edge = h.state().screen3([4500.0, 4000.0, 2000.0]);
+        let (x, y) = (edge.x.round() as u32, edge.y.round() as u32);
+        let ink =
+            |img: &image::RgbaImage| (x - 1..=x + 1).flat_map(|x| (y - 1..=y + 1).map(move |y| *img.get_pixel(x, y))).collect::<Vec<_>>();
+        assert!(ink(&bare) != ink(&preview), "{name}: no wireframe on the box's edge");
+        assert!(h.state().session.model.families.get("Direct Model").is_none(), "{name}: hovering made no box");
+        // Esc drops the corner and the wireframe with it.
+        key(&mut h, Key::Escape);
+        h.hover_at(second);
+        h.run();
+        let dropped = h.render().unwrap();
+        let changed = bare.pixels().zip(dropped.pixels()).filter(|(a, b)| a != b).count();
+        assert!(changed < 10, "{name}: Esc left {changed} preview pixels");
+    }
+}
+
+#[test]
 fn a_mesh_face_is_pushed_by_a_typed_distance_in_the_3d_view() {
     for (name, mut h) in views(MESH_BOX) {
         h.state_mut().set_tool(Tool::PushPull(None));
