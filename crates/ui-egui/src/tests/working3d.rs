@@ -330,6 +330,13 @@ fn the_face_under_the_cursor_is_lit_before_it_is_picked() {
         let held = h.render().unwrap();
         let changed = changed_near(at, &lit, &held);
         assert!(changed < 10, "{name}: the held light moved {changed} pixels from the hovered one");
+        // Esc hands the light straight back to the hover: the same face stays lit, with the pointer still on it.
+        key(&mut h, Key::Escape);
+        h.hover_at(at);
+        h.run();
+        let back = h.render().unwrap();
+        let changed = changed_near(at, &lit, &back);
+        assert!(changed < 10, "{name}: the handback moved {changed} pixels");
     }
 }
 

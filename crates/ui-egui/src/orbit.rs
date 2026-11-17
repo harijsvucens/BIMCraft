@@ -2184,7 +2184,7 @@ impl BimApp {
         // the pick instead by M0.2's face id; a held Direct Model box is 12 triangles, a 100k import is not.
         let lit_face = match &self.tool {
             Tool::PushPull(Some((id, at))) => Some((*id, *at)),
-            Tool::PushPull(None) if sketch_z.is_none() => hover
+            Tool::PushPull(None) if sketch_z.is_none() && !picking => hover
                 .filter(|_| o.drag.is_none())
                 .and_then(|at| surface(&o.picker, &cam, at))
                 .filter(|s| pushable(&model, s.id))
