@@ -2176,12 +2176,25 @@ impl BimApp {
             };
             crate::canvas::tag(&p, at + vec2(12.0, 14.0), egui::Align2::LEFT_TOP, name);
         }
-        // The face Push/Pull holds, filled where it stands, and what's typed beside it: the tool's on-canvas feedback
-        // while it waits for a distance. The face comes back through the same form_point the command will take.
-        if let Tool::PushPull(Some((id, at))) = &self.tool
-            && let Some(local) = model.form_point(*id, *at)
-            && let Some(Element::Component(c)) = model.elements.get(*id)
-            && let Some(form) = model.families.get(&c.family).and_then(|f| f.forms.iter().find(|f| !f.mesh.is_empty()))
+        // The face Push/Pull holds — or, before one is held, the one under the cursor, so the pick looks like it will
+        // land — filled where it stands, and what's typed beside it: the tool's on-canvas feedback while it waits for
+        // a distance. The face comes back through the same form_point the command will take, and a hover lights only
+        // what a click would take: the same `surface` the click asks, gated by `pushable`.
+        // shortcut: the face is re-derived from the point every frame (a weld over the form's triangles), carried from
+        // the pick instead by M0.2's face id; a held Direct Model box is 12 triangles, a 100k import is not.
+        let lit_face = match &self.tool {
+            Tool::PushPull(Some((id, at))) => Some((*id, *at)),
+            Tool::PushPull(None) if sketch_z.is_none() => hover
+                .filter(|_| o.drag.is_none())
+                .and_then(|at| surface(&o.picker, &cam, at))
+                .filter(|s| pushable(&model, s.id))
+                .map(|s| (s.id, s.at)),
+            _ => None,
+        };
+        if let Some((id, at)) = lit_face
+            && let Some(local) = model.form_point(id, at)
+            && let Some(Element::Component(c)) = model.elements.get(id)
+            && let Some(form) = model.families.get(&c.family).and_then(|f| f.forms.iter().find(|form| !form.mesh.is_empty()))
             && let Ok(face) = bimcraft_core::mesh::face_at(&form.mesh, local)
         {
             let placement = model.component_placement(c);
@@ -2196,7 +2209,7 @@ impl BimApp {
             }
             if !self.typed_length.is_empty() {
                 let text = model.units.parse(&self.typed_length).map_or_else(|| self.typed_length.clone(), |d| model.units.with_unit(d));
-                crate::canvas::tag(&p, screen(*at) + vec2(12.0, -12.0), egui::Align2::LEFT_BOTTOM, text);
+                crate::canvas::tag(&p, screen(at) + vec2(12.0, -12.0), egui::Align2::LEFT_BOTTOM, text);
             }
         }
         // Where a click lands on the floor being shaped, in plan: a point or corner within reach of it, else on an edge within

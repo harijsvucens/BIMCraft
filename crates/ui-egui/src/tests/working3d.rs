@@ -289,28 +289,65 @@ fn the_massing_tools_say_what_they_want_in_the_3d_view() {
     }
 }
 
+/// How many pixels differ between two renders round `at`: the status bar's prompt also changes when a tool changes
+/// state, so a test of what a highlight drew looks only near the point it lit.
+fn changed_near(at: Pos2, a: &image::RgbaImage, b: &image::RgbaImage) -> usize {
+    let (x0, y0) = ((f64::from(at.x) - 90.0).max(0.0) as u32, (f64::from(at.y) - 70.0).max(0.0) as u32);
+    let (x1, y1) =
+        ((f64::from(at.x) + 90.0).min(f64::from(a.width()) - 1.0) as u32, (f64::from(at.y) + 70.0).min(f64::from(a.height()) - 1.0) as u32);
+    (x0..x1).flat_map(|x| (y0..y1).map(move |y| (x, y))).filter(|&(x, y)| a.get_pixel(x, y) != b.get_pixel(x, y)).count()
+}
+
+#[test]
+fn the_face_under_the_cursor_is_lit_before_it_is_picked() {
+    for (name, mut h) in views(MESH_BOX) {
+        h.state_mut().set_tool(Tool::PushPull(None));
+        let at = h.state().screen3([500.0, 500.0, 1000.0]);
+        // Over the view's top corner, off the box: nothing is lit where nothing can be picked.
+        let off = h.state().orbit.rect.min + vec2(30.0, 110.0);
+        h.hover_at(off);
+        h.run();
+        let bare = h.render().unwrap();
+        // The face under the cursor lights before the click, so the pick looks like it will land.
+        h.hover_at(at);
+        h.run();
+        let lit = h.render().unwrap();
+        let changed = changed_near(at, &bare, &lit);
+        assert!(changed > 100, "{name}: the hovered face drew only {changed} pixels near the cursor");
+        // Moving off the box drops the light.
+        h.hover_at(off);
+        h.run();
+        let gone = h.render().unwrap();
+        let changed = changed_near(at, &bare, &gone);
+        assert!(changed < 10, "{name}: {changed} pixels stayed lit off the box");
+        // What the click takes is the face that was lit: the light holds as the pick.
+        h.hover_at(at);
+        h.run();
+        click_at(&mut h, at);
+        assert!(matches!(&h.state().tool, Tool::PushPull(Some(_))), "{name}: a face was picked: {}", h.state().status.text);
+        h.hover_at(at);
+        h.run();
+        let held = h.render().unwrap();
+        let changed = changed_near(at, &lit, &held);
+        assert!(changed < 10, "{name}: the held light moved {changed} pixels from the hovered one");
+    }
+}
+
 #[test]
 fn the_face_push_pull_holds_is_lit_while_it_waits_for_its_distance() {
     for (name, mut h) in views(MESH_BOX) {
         h.state_mut().set_tool(Tool::PushPull(None));
         let at = h.state().screen3([500.0, 500.0, 1000.0]);
-        h.hover_at(at);
+        // Off the box, over the view's corner: nothing is lit before a face is picked.
+        let off = h.state().orbit.rect.min + vec2(30.0, 110.0);
+        h.hover_at(off);
         h.run();
         let bare = h.render().unwrap();
         click_at(&mut h, at);
         h.hover_at(at);
         h.run();
         let lit = h.render().unwrap();
-        // Only around the picked point: the status bar's prompt also changes on the pick, and it is not the highlight.
-        let near = |a: &image::RgbaImage, b: &image::RgbaImage| {
-            let (x0, y0) = ((f64::from(at.x) - 90.0).max(0.0) as u32, (f64::from(at.y) - 70.0).max(0.0) as u32);
-            let (x1, y1) = (
-                (f64::from(at.x) + 90.0).min(f64::from(a.width()) - 1.0) as u32,
-                (f64::from(at.y) + 70.0).min(f64::from(a.height()) - 1.0) as u32,
-            );
-            (x0..x1).flat_map(|x| (y0..y1).map(move |y| (x, y))).filter(|&(x, y)| a.get_pixel(x, y) != b.get_pixel(x, y)).count()
-        };
-        let changed = near(&bare, &lit);
+        let changed = changed_near(at, &bare, &lit);
         assert!(changed > 100, "{name}: the held face drew only {changed} pixels near the pick");
         // What's typed reads beside the picked face, as a plan's reading does.
         h.event(Event::Text("500".into()));
@@ -318,11 +355,11 @@ fn the_face_push_pull_holds_is_lit_while_it_waits_for_its_distance() {
         let typed = h.render().unwrap();
         let changed = lit.pixels().zip(typed.pixels()).filter(|(a, b)| a != b).count();
         assert!(changed > 10, "{name}: the typed distance drew {changed} pixels");
-        // Esc drops the pick, the reading and the highlight with it.
+        // Esc drops the pick, the reading and the highlight with it; the pointer is off the box, so nothing is lit.
         key(&mut h, Key::Escape);
         h.event(Event::Text("".into()));
         h.run();
-        h.hover_at(at);
+        h.hover_at(off);
         h.run();
         let dropped = h.render().unwrap();
         let changed = bare.pixels().zip(dropped.pixels()).filter(|(a, b)| a != b).count();
