@@ -30,6 +30,7 @@ use bimcraft_core::handles::{self, Handle};
 use bimcraft_core::model::{Dimension3D, Element, Id, Model, Ref3, TOL, ViewCamera};
 use bimcraft_core::render::{self, Rgb};
 use bimcraft_core::snap::{self, Found, Kind, Reach, Snaps};
+use bimcraft_core::units::Units;
 use bimcraft_core::view3d;
 use bimcraft_core::view3d::gpu::{Hit, Mesh};
 use bimcraft_core::view3d::{
@@ -650,6 +651,15 @@ fn pushable(m: &Model, id: Id) -> bool {
         Some(Element::Component(c)) => m.families.get(&c.family).is_some_and(|f| f.forms.iter().any(|f| !f.mesh.is_empty())),
         _ => false,
     }
+}
+
+/// A Direct Model box's footprint area and volume as the HUD reads them. `Units::area`'s factor for a square metre
+/// is the linear factor squared, so its root is metres or feet per metre and its cube is the volume unit's.
+pub(crate) fn box_reading(units: Units, (w, d, h): (f64, f64, f64)) -> String {
+    let (area, unit) = units.area(w * d);
+    let per_metre = units.area(1e6).0.sqrt();
+    let volume = w * d * h / 1e9 * per_metre.powi(3);
+    format!("{area:.2} {unit} · {volume:.2} {}", unit.replace('²', "³"))
 }
 
 /// The point the tool's next goes on from, in plan: a wall chain's last, a run's start, a Direct Model box's first corner.
@@ -2114,6 +2124,8 @@ impl BimApp {
                 for [a, b] in view3d::box_edges((lo, hi)).into_iter().filter_map(|[a, b]| cam.in_front(a, b)) {
                     p.line_segment([screen(a), screen(b)], Stroke::new(1.0, pal().accent));
                 }
+                let reading = box_reading(model.units, (hi[0] - lo[0], hi[1] - lo[1], height));
+                crate::canvas::tag(&p, at + vec2(12.0, -36.0), egui::Align2::LEFT_BOTTOM, reading);
             }
             let diamond = [vec2(0.0, -6.0), vec2(6.0, 0.0), vec2(0.0, 6.0), vec2(-6.0, 0.0)].map(|d| at + d).to_vec();
             p.add(egui::Shape::closed_line(diamond, Stroke::new(2.0, pal().accent)));

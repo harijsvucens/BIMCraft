@@ -5,6 +5,8 @@
 
 use super::*;
 use crate::gpu::{Card, headless};
+use crate::orbit::box_reading;
+use bimcraft_core::units::Units;
 use bimcraft_core::view3d::P3;
 
 /// The 3D view of `script` in each window it is driven in: BIMCraft's and Rev's, drawn on the processor and on the card (where
@@ -181,6 +183,12 @@ fn escape_drops_the_first_corner_of_a_direct_model_box() {
 }
 
 #[test]
+fn a_direct_models_reading_shows_area_and_volume_in_the_projects_units() {
+    assert_eq!(box_reading(Units::Millimetres, (3000.0, 4000.0, 2000.0)), "12.00 m² · 24.00 m³");
+    assert_eq!(box_reading(Units::Feet, (3048.0, 3048.0, 3048.0)), "100.00 ft² · 1000.00 ft³");
+}
+
+#[test]
 fn a_direct_model_box_is_previewed_between_its_two_clicks() {
     let script = format!("{BOX}\nfloor {{\"offset\": 500}}");
     for (name, mut h) in views(&script) {
@@ -204,6 +212,14 @@ fn a_direct_model_box_is_previewed_between_its_two_clicks() {
         let ink =
             |img: &image::RgbaImage| (x - 1..=x + 1).flat_map(|x| (y - 1..=y + 1).map(move |y| *img.get_pixel(x, y))).collect::<Vec<_>>();
         assert!(ink(&bare) != ink(&preview), "{name}: no wireframe on the box's edge");
+        // The reading sits above the cursor. The wireframe is in the same area and the card's picture makes its tag
+        // background blend in, so this is a coarse count; the pure test above checks the exact wording and units.
+        let hud = second + vec2(12.0, -36.0);
+        let (x0, y0) = ((hud.x - 6.0) as u32, (hud.y - 24.0) as u32);
+        let (x1, y1) = ((hud.x + 160.0) as u32, (hud.y + 4.0) as u32);
+        let changed =
+            (x0..x1).flat_map(|x| (y0..y1).map(move |y| (x, y))).filter(|&(x, y)| bare.get_pixel(x, y) != preview.get_pixel(x, y)).count();
+        assert!(changed > 150, "{name}: no area/volume reading: {changed} pixels");
         assert!(h.state().session.model.families.get("Direct Model").is_none(), "{name}: hovering made no box");
         // Esc drops the corner and the wireframe with it.
         key(&mut h, Key::Escape);
