@@ -42,6 +42,7 @@ mod gpu;
 mod printsets;
 mod publisher;
 pub use gpu::limits_for;
+mod drag;
 mod graphics;
 mod groups;
 pub mod icons;

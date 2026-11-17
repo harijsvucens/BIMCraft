@@ -378,7 +378,7 @@ pub struct Orbit {
     before: Option<Camera>,
     /// A selected level's grip being dragged: the level, and which edge of its plane (as
     /// `geom::edge_grips` orders them).
-    grip: Option<(Id, usize)>,
+    grip: Option<crate::drag::Held<(Id, usize)>>,
     /// The section box's grip under the pointer, in Modify: which face.
     pub(crate) hot_grip: Option<usize>,
     /// What the view is showing while its scene or mesh is made, and since when it has been waiting.
@@ -387,16 +387,16 @@ pub struct Orbit {
     /// Holds a scene being made back, for a test to see the view wait.
     pub(crate) hold_build: bool,
     /// A section box's grip being dragged: which face (as `view3d::box_grips` orders them), and where the drag began.
-    boxing: Option<(usize, Pos2)>,
+    boxing: Option<crate::drag::Held<usize>>,
     /// A shaped floor's point or corner being dragged up or down: where it is in plan and in the model, and where the drag
     /// began.
-    lift: Option<(Vec<P2>, P3, Pos2)>,
+    lift: Option<crate::drag::Held<(Vec<P2>, P3)>>,
     /// A Direct Model box's height being dragged with the first corner held: the corner's ground point, where the drag
     /// began on screen, and the height in mm the drag started from (the Options Bar's, so a drag can grow or shrink it).
-    box_height_drag: Option<(P3, Pos2, f64)>,
+    box_height_drag: Option<crate::drag::Held<(P3, f64)>>,
     /// A face Push/Pull is dragging: the component, the world point where the press landed, that surface's unit normal
     /// (the axis the drag measures along), and where the drag began on screen. `pub(crate)` for Esc to drop it with the pick.
-    pub(crate) push_drag: Option<(Id, P3, P3, Pos2)>,
+    pub(crate) push_drag: Option<crate::drag::Held<(Id, P3, P3)>>,
     /// The view and the camera its model held when the picture on screen was built from it or written back as: a difference
     /// means the camera changed elsewhere (dragged on a plan, a command, undo), so the picture stands from the model anew.
     pub(crate) built: Option<(Id, ViewCamera, Option<f64>)>,
@@ -423,7 +423,7 @@ pub struct Orbit {
     /// views', which have no selection box to give it. The project's 3D view's primary button boxes, and never moves the camera.
     pub(crate) hand_orbits: bool,
     /// The handle of the selected wall or column being dragged: the element, which, its place and where the drag began.
-    pub(crate) handle: Option<(Id, Handle, P3, Pos2)>,
+    pub(crate) handle: Option<crate::drag::Held<(Id, Handle, P3)>>,
     /// The handle under the pointer.
     pub(crate) hot_handle: Option<Handle>,
     /// The Measure tool in the 3D view: the chain of points clicked, and whether it is done (closed back to its start, or ended
@@ -1563,6 +1563,15 @@ impl BimApp {
         let held = self.sketch3d_grab(ui, &response, sketch_z.zip(last).map(|(surface, cam)| Plane { cam, rect, ppp, surface }));
         // Pick in View, taking the work plane's surface or points: clicks are its, not the selection's.
         let picking = self.work_plane_picking().is_some();
+        // The pointer facts the 3D view's drags share, read once: a press, a release, a quick press, where it began and
+        // where it is now. Each site keeps its own hit test, measurement and commit behind this seam.
+        let drag_frame = crate::drag::Frame {
+            pressed: response.drag_started_by(PointerButton::Primary),
+            stopped: response.drag_stopped(),
+            quick: self.canvas.quick(),
+            origin: ui.input(|i| i.pointer.press_origin()),
+            latest,
+        };
         // The work plane's patch, in Modify while nothing is sketched: a click on it opens the Work Plane dialog.
         let patch =
             (self.tool == Tool::Modify && self.sketch.is_none() && !picking).then(|| self.work_plane_ring(last, rect, ppp)).flatten();
@@ -1690,59 +1699,50 @@ impl BimApp {
             &[id] if modify => model.level(id).and_then(|l| Some((id, l.elevation, model.level_extent(id)?))),
             _ => None,
         };
-        if let Some((id, z, extent)) = level
-            && response.drag_started_by(PointerButton::Primary)
-            && let Some(origin) = ui.input(|i| i.pointer.press_origin())
-            && let Some(k) = geom::edge_grips(extent).iter().position(|g| on_screen(&cam, rect, ppp, [g.0, g.1, z]).distance(origin) <= 8.0)
-        {
-            o.grip = Some((id, k));
-        }
-        if !level.is_some_and(|(id, ..)| o.grip.is_some_and(|(g, _)| g == id)) {
-            o.grip = None;
-        }
-        // Where the held grip's edge is now: over the level's plane, under the pointer, to 10 mm.
-        let regripped = match (level, o.grip, latest) {
-            (Some((_, z, extent)), Some((_, k)), Some(now)) => cam.on_plane(px(now), z).map(|p| {
+        // The level grip: a press within 8 px of an edge, dragged to a new edge on the level's plane, to 10 mm.
+        let grip_owned = level.is_some_and(|(id, ..)| o.grip.as_ref().is_some_and(|h| h.target().0 == id));
+        let grip = crate::drag::drive(
+            &drag_frame,
+            &mut o.grip,
+            grip_owned,
+            |origin| {
+                let (id, z, extent) = level?;
+                let k = geom::edge_grips(extent).iter().position(|g| on_screen(&cam, rect, ppp, [g.0, g.1, z]).distance(origin) <= 8.0)?;
+                Some((id, k))
+            },
+            |(_, k), _, now| {
+                let (_, z, extent) = level?;
+                let p = cam.on_plane(px(now), z)?;
                 let round = |v: f64| (v / 10.0).round() * 10.0;
-                geom::move_edge(extent, k, P2(round(p[0]), round(p[1])))
-            }),
-            _ => None,
-        };
+                Some(geom::move_edge(extent, *k, P2(round(p[0]), round(p[1]))))
+            },
+        );
+        let regripped = grip.preview;
         let mut moved = None;
-        if response.drag_stopped()
-            && let (Some((id, _)), Some(to)) = (o.grip.take(), regripped)
-            && !self.canvas.quick()
-        {
+        if let Some(((id, _), to)) = grip.release {
             moved = Some((id, to));
         }
-        // The section box, while it's on; in Modify a drag from one of its grips moves that face along its axis, and the view
-        // shows the cut as it goes. The command runs when the drag ends.
+        // The section-box face, while it's on; in Modify a drag from one of its grips moves that face along its axis.
         let boxed = Look::of_3d(&model).section_box();
-        if let Some(b) = boxed
-            && modify
-            && o.grip.is_none()
-            && !held
-            && response.drag_started_by(PointerButton::Primary)
-            && let Some(origin) = ui.input(|i| i.pointer.press_origin())
-            && let Some(k) = crate::section_box::grip_at(b, origin, |p| on_screen(&cam, rect, ppp, p))
-        {
-            o.boxing = Some((k, origin));
-        }
-        if boxed.is_none() {
-            o.boxing = None;
-        }
-        let reboxed = match (boxed, o.boxing, latest) {
-            (Some(b), Some((k, from)), Some(now)) => {
-                let grip = box_grips(b).get(k).copied().unwrap_or_default();
-                Some(move_box_face(b, k, cam.along(k / 2, grip, px(from), px(now)).unwrap_or(0.0)))
-            }
-            _ => None,
-        };
+        let boxing = crate::drag::drive(
+            &drag_frame,
+            &mut o.boxing,
+            boxed.is_some(),
+            |origin| {
+                if !modify || o.grip.is_some() || held {
+                    return None;
+                }
+                boxed.and_then(|b| crate::section_box::grip_at(b, origin, |p| on_screen(&cam, rect, ppp, p)))
+            },
+            |k, from, now| {
+                let b = boxed?;
+                let grip = box_grips(b).get(*k).copied().unwrap_or_default();
+                Some(move_box_face(b, *k, cam.along(k / 2, grip, px(from), px(now)).unwrap_or(0.0)))
+            },
+        );
+        let reboxed = boxing.preview;
         let mut boxed_to = None;
-        if response.drag_stopped()
-            && let (Some(_), Some(to)) = (o.boxing.take(), reboxed)
-            && !self.canvas.quick()
-        {
+        if let Some((_, to)) = boxing.release {
             boxed_to = Some(to);
         }
         // The grip under the pointer shows it: a press there moves that face, not the view.
@@ -1759,41 +1759,39 @@ impl BimApp {
         let handle_at = |cam: &Camera, at: Pos2| {
             own_handles.iter().find(|(_, q)| on_screen(cam, rect, ppp, *q).distance(at) <= crate::section_box::GRIP + 2.0).copied()
         };
-        if let Some(id) = single
-            && o.grip.is_none()
-            && o.boxing.is_none()
-            && !held
-            && response.drag_started_by(PointerButton::Primary)
-            && let Some(origin) = ui.input(|i| i.pointer.press_origin())
-            && let Some((h, q)) = handle_at(&cam, origin)
-        {
-            o.handle = Some((id, h, q, origin));
-        }
-        if !o.handle.is_some_and(|(id, ..)| Some(id) == single) {
-            o.handle = None;
-        }
-        // Where the held handle is now: an arrow at its height, up or down its plumb line and on a level within a few pixels; the
-        // rest over its level's plane under the pointer, snapped as a plan snaps.
-        let held_to = match (o.handle, latest) {
-            (Some((_, h, q, from)), Some(now)) if h.vertical() => cam.along(2, q, px(from), px(now)).map(|by| {
-                let reach = f64::from(crate::section_box::GRIP) / cam.scale.max(1e-9);
-                (P2(q[0], q[1]), handles::settled(&model, (q[2] + by).round(), reach))
-            }),
-            (Some((id, _, q, _)), Some(now)) => cam.on_plane(px(now), q[2]).map(|at| {
-                let level = model.elements.get(id).and_then(|e| model.level_of(e)).and_then(|g| model.elements.id(g));
-                let landed = level.map(|level| {
-                    let plane = CursorPlane { on: id, level, offset: 0.0, z: q[2] };
-                    snap3d(&model, &cam, px(now), ppp, at, plane, &[], shift, &snaps).at
-                });
-                (landed.unwrap_or(P2(at[0], at[1])), q[2])
-            }),
-            _ => None,
-        };
+        let handle_owned = o.handle.as_ref().is_some_and(|h| Some(h.target().0) == single);
+        let handle = crate::drag::drive(
+            &drag_frame,
+            &mut o.handle,
+            handle_owned,
+            |origin| {
+                let id = single?;
+                if o.grip.is_some() || o.boxing.is_some() || held {
+                    return None;
+                }
+                handle_at(&cam, origin).map(|(h, q)| (id, h, q))
+            },
+            |(id, h, q), from, now| {
+                if h.vertical() {
+                    cam.along(2, *q, px(from), px(now)).map(|by| {
+                        let reach = f64::from(crate::section_box::GRIP) / cam.scale.max(1e-9);
+                        (P2(q[0], q[1]), handles::settled(&model, (q[2] + by).round(), reach))
+                    })
+                } else {
+                    cam.on_plane(px(now), q[2]).map(|at| {
+                        let level = model.elements.get(*id).and_then(|e| model.level_of(e)).and_then(|g| model.elements.id(g));
+                        let landed = level.map(|level| {
+                            let plane = CursorPlane { on: *id, level, offset: 0.0, z: q[2] };
+                            snap3d(&model, &cam, px(now), ppp, at, plane, &[], shift, &snaps).at
+                        });
+                        (landed.unwrap_or(P2(at[0], at[1])), q[2])
+                    })
+                }
+            },
+        );
+        let held_to = handle.preview;
         let mut handled = None;
-        if response.drag_stopped()
-            && let (Some((id, h, ..)), Some((to, z))) = (o.handle.take(), held_to)
-            && !self.canvas.quick()
-        {
+        if let Some(((id, h, _), (to, z))) = handle.release {
             handled = handles::command(&model, id, h, to, z);
         }
         o.hot_handle = if o.grip.is_none() && o.boxing.is_none() && o.drag.is_none() && o.handle.is_none() {
@@ -1803,115 +1801,85 @@ impl BimApp {
         };
         // A drag from a grip of the floor being shaped raises or lowers that point or corner, to the millimetre; the command
         // runs when the drag ends.
-        if lifting
-            && o.grip.is_none()
-            && o.boxing.is_none()
-            && response.drag_started_by(PointerButton::Primary)
-            && let Some(origin) = ui.input(|i| i.pointer.press_origin())
-        {
-            let off = |p: &P3| on_screen(&cam, rect, ppp, *p).distance(origin);
-            // A selected point's or edge's ▲ or ▼ takes all of it; else the grip there.
-            let arrows = picked.iter().find_map(|s| {
-                let at = anchor(&s.ends())?;
-                let c = on_screen(&cam, rect, ppp, at);
-                let near = [c + vec2(-12.0, -9.0), c + vec2(-12.0, 9.0)].iter().any(|g| g.distance(origin) <= 9.0);
-                near.then(|| (s.ends(), at, origin))
-            });
-            o.lift = arrows.or_else(|| {
-                handles
-                    .iter()
-                    .filter(|(_, p)| off(p) <= 8.0)
-                    .min_by(|a, b| off(&a.1).total_cmp(&off(&b.1)))
-                    .map(|(q, p)| (vec![*q], *p, origin))
-            });
-        }
-        if !lifting {
-            o.lift = None;
-        }
         let lift_held = o.lift.is_some();
-        let lifted_by = match (&o.lift, latest) {
-            (Some((_, at, from)), Some(now)) => cam.along(2, *at, px(*from), px(now)).map(f64::round),
-            _ => None,
-        };
-        // With a Direct Model corner held, a primary drag pulls the box's height up or down from what the Options Bar says;
-        // a plain click still places the far corner. The dragged height is written back to the Options Bar, which the preview
-        // and the commit already read, so there is no second height to keep in step. It is not an orbit: the corner holds it.
-        let direct_drag = match &self.tool {
-            Tool::DirectModel(Some(first)) => {
-                if response.drag_started_by(PointerButton::Primary)
-                    && let Some(origin) = ui.input(|i| i.pointer.press_origin())
-                    && let Some((_, plane)) = o.plane.filter(|(p, _)| p == first)
-                    && let Some(base) = crate::structure::direct_height(&model, &self.column_height)
-                {
-                    let ground = model.elevation(plane.level) + plane.offset;
-                    o.box_height_drag = Some(([first.0, first.1, ground], origin, base));
+        let lift = crate::drag::drive(
+            &drag_frame,
+            &mut o.lift,
+            lifting,
+            |origin| {
+                if o.grip.is_some() || o.boxing.is_some() {
+                    return None;
                 }
-                let dragged = match (&o.box_height_drag, latest) {
-                    (Some((at, from, base)), Some(now)) => cam.along(2, *at, px(*from), px(now)).map(|d| (base + d).round().max(1.0)),
-                    _ => None,
-                };
-                let box_dragged = o.box_height_drag.is_some() && response.drag_stopped();
-                if response.drag_stopped() {
-                    o.box_height_drag = None;
-                }
-                (dragged, box_dragged)
-            }
-            _ => {
-                o.box_height_drag = None;
-                (None, false)
-            }
-        };
-        if let Some(h) = direct_drag.0 {
+                let off = |p: &P3| on_screen(&cam, rect, ppp, *p).distance(origin);
+                // A selected point's or edge's ▲ or ▼ takes all of it; else the grip there.
+                let arrows = picked.iter().find_map(|s| {
+                    let at = anchor(&s.ends())?;
+                    let c = on_screen(&cam, rect, ppp, at);
+                    let near = [c + vec2(-12.0, -9.0), c + vec2(-12.0, 9.0)].iter().any(|g| g.distance(origin) <= 9.0);
+                    near.then(|| (s.ends(), at))
+                });
+                arrows.or_else(|| {
+                    handles
+                        .iter()
+                        .filter(|(_, p)| off(p) <= 8.0)
+                        .min_by(|a, b| off(&a.1).total_cmp(&off(&b.1)))
+                        .map(|(q, p)| (vec![*q], *p))
+                })
+            },
+            |(_, at), from, now| cam.along(2, *at, px(from), px(now)).map(f64::round),
+        );
+        let lifted_by = lift.preview;
+        // With a Direct Model corner held, a primary drag pulls the box's height from what the Options Bar says; the preview
+        // writes it back there, which the commit already reads. A plain click still places the far corner.
+        let box_height = crate::drag::drive(
+            &drag_frame,
+            &mut o.box_height_drag,
+            matches!(self.tool, Tool::DirectModel(Some(_))),
+            |_| {
+                let Tool::DirectModel(Some(first)) = &self.tool else { return None };
+                let (_, plane) = o.plane.filter(|(p, _)| p == first)?;
+                let base = crate::structure::direct_height(&model, &self.column_height)?;
+                Some(([first.0, first.1, model.elevation(plane.level) + plane.offset], base))
+            },
+            |(at, base), from, now| cam.along(2, *at, px(from), px(now)).map(|d| (base + d).round().max(1.0)),
+        );
+        if let Some(h) = box_height.preview {
             self.column_height = model.units.length(h);
         }
-        let box_dragged = direct_drag.1;
-        // Push/Pull by hand: a press on a mesh component's face picks it and the drag pulls the face along its own
-        // normal; the release pushes it that far, and a quick press still picks the face for a typed distance. The
-        // press that starts it is the same surface pick the click makes, so the drag can only ever take what a click
-        // could.
-        if response.drag_started_by(PointerButton::Primary)
-            && matches!(self.tool, Tool::PushPull(_))
-            && sketch_z.is_none()
-            && !picking
-            && let Some(origin) = ui.input(|i| i.pointer.press_origin())
-            && let Some(s) = latest.and_then(|at| surface(&o.picker, &cam, at)).filter(|s| pushable(&model, s.id))
-        {
-            self.tool = Tool::PushPull(Some((s.id, s.at)));
-            o.push_drag = Some((s.id, s.at, s.normal, origin));
-        }
-        // A tool switched mid-drag takes the drag with it, as the box height's does: the release then pushes nothing
-        // and keeps the tool the user chose.
-        if !matches!(self.tool, Tool::PushPull(_)) {
-            o.push_drag = None;
-        }
-        // How far the drag has pulled the face, in mm rounded, as the release takes it and the preview draws it.
-        let push_by = match (&o.push_drag, latest) {
-            (Some((_, at, n, from)), Some(now)) => cam.along_dir(*n, *at, px(*from), px(now)).map(f64::round),
-            _ => None,
-        };
-        let push_dragged = o.push_drag.is_some() && response.drag_stopped();
+        let box_dragged = box_height.suppressed;
+        // The face a Push/Pull pick lands on goes into the tool's pick as well as the drag: a quick press still selects it
+        // for a typed distance. The drag's axis is the normal the pick already carried.
+        let push = crate::drag::drive(
+            &drag_frame,
+            &mut o.push_drag,
+            matches!(self.tool, Tool::PushPull(_)),
+            |_| {
+                if !matches!(self.tool, Tool::PushPull(_)) || sketch_z.is_some() || picking {
+                    return None;
+                }
+                let s = latest.and_then(|at| surface(&o.picker, &cam, at)).filter(|s| pushable(&model, s.id))?;
+                self.tool = Tool::PushPull(Some((s.id, s.at)));
+                Some((s.id, s.at, s.normal))
+            },
+            |(_, at, n), from, now| cam.along_dir(*n, *at, px(from), px(now)).map(f64::round),
+        );
+        let push_by = push.preview;
+        let push_dragged = push.suppressed;
         let mut pushed = None;
-        if response.drag_stopped()
-            && let Some((id, at, ..)) = o.push_drag.take()
-            && !self.canvas.quick()
-            && let Some(by) = push_by.filter(|d| *d != 0.0)
+        if let Some(((id, at, _), by)) = push.release
+            && by != 0.0
         {
             pushed = Some((id, at, by));
         }
         // While it's dragged, the floor as it would be with those points or corners there.
         let preview = match (&shaping, &o.lift, lifted_by) {
-            (Some(f), Some((qs, ..)), Some(by)) => {
+            (Some(f), Some(h), Some(by)) => {
+                let qs = &h.target().0;
                 crate::shape::raised_all(&model, f, qs, by).map(|shape| bimcraft_core::model::Floor { shape, ..f.clone() })
             }
             _ => None,
         };
-        let mut raise = None;
-        if response.drag_stopped()
-            && let Some((qs, ..)) = o.lift.take()
-            && !self.canvas.quick()
-        {
-            raise = lifted_by.map(|by| (qs, by));
-        }
+        let raise = lift.release.map(|((qs, _), by)| (qs, by));
         let still = o.lift.is_some();
         // The hand's drag turns or pans the view (Shift and the middle button, the middle button), unless a grip or the sketch
         // holds it; the primary button boxes, in Modify (the sketch's lines while sketching). A click on the triad's end turns it too.
@@ -2142,12 +2110,13 @@ impl BimApp {
         // The section box's frame, as the held grip would leave it.
         let screen = |p: P3| on_screen(&cam, rect, ppp, p);
         if let Some(b) = reboxed.or(boxed) {
-            crate::section_box::draw(&p, &cam, b, modify, (o.boxing.map(|(k, _)| k), o.hot_grip), screen);
+            crate::section_box::draw(&p, &cam, b, modify, (o.boxing.clone().map(|h| h.into_target()), o.hot_grip), screen);
         }
         // The others in a Co-Work session: what they selected, and where they look from.
         crate::cowork::paint_3d(&p, &self.cowork, &mut self.cowork_seen, &model, scene, &|q: P3| on_screen(&cam, rect, ppp, q));
         // The held handle's element as it would stand, and its height beside the arrow; then the handles, where they are now.
-        if let (Some((id, h, ..)), Some((to, z))) = (o.handle, held_to) {
+        if let (Some(h), Some((to, z))) = (o.handle.clone(), held_to) {
+            let (id, h, _) = h.into_target();
             for ring in handles::preview(&model, id, h, to, z) {
                 let ring: Vec<Pos2> = ring.into_iter().map(&screen).filter(|q| q.is_finite()).collect();
                 p.add(egui::Shape::closed_line(ring, Stroke::new(1.5, pal().accent)));
@@ -2163,7 +2132,7 @@ impl BimApp {
             p.extend(egui::Shape::dashed_line(&line, Stroke::new(1.5, pal().accent), 8.0, 5.0));
         }
         for (h, q) in &own_handles {
-            draw_handle(&p, &cam, *h, *q, o.handle.map(|(_, held, ..)| held), o.hot_handle, screen);
+            draw_handle(&p, &cam, *h, *q, o.handle.clone().map(|h| h.into_target().1), o.hot_handle, screen);
         }
         // The drawing tools take their points on the face under the cursor (`workplane`), snapped as its level's plan snaps:
         // a wall chain under way on the plane its first point found, a run's end on the face it is clicked on (where there is
@@ -2251,7 +2220,8 @@ impl BimApp {
             }
             // Where the face would land if the drag let go here: the face moved the drag's distance along its own
             // normal, an edge from each of its corners to where it came from, and the distance reading beside it.
-            if let (Some(by), Some((_, _, n, _))) = (push_by.filter(|_| o.push_drag.is_some()), o.push_drag) {
+            if let (Some(by), Some(h)) = (push_by.filter(|_| o.push_drag.is_some()), o.push_drag.clone()) {
+                let n = h.target().2;
                 let away = |q: P3| [q[0] + n[0] * by, q[1] + n[1] * by, q[2] + n[2] * by];
                 for i in &face.tris {
                     let pts: Vec<egui::Pos2> = form.mesh[*i].iter().map(|q| screen(away(world(*q)))).collect();
@@ -2305,7 +2275,7 @@ impl BimApp {
             // Its points, edges, split lines and creases as edit mode colours them; the grip under the cursor lit, the
             // selection thick.
             crate::shape::draw_marks(&p, &crate::shape::marks(&model, f), screen, &picked, lit);
-            let held: Vec<P2> = o.lift.as_ref().map(|(qs, ..)| qs.clone()).unwrap_or_default();
+            let held: Vec<P2> = o.lift.as_ref().map(|h| h.target().0.clone()).unwrap_or_default();
             let by = lifted_by.unwrap_or(0.0);
             // A selected point's offset from the top as it would be without the shape, as Revit dimensions it: plumb, an
             // arrow at each end, the distance beside it.
