@@ -2466,6 +2466,10 @@ fn hostile_params_never_panic_or_break_the_model() {
         json!({"family": "Sweep Sheet", "at": [200, 200, 0], "distance": 500}),
         json!({"family": "Sweep Sheet", "at": [200, 200, 0], "distance": f64::MAX}),
         json!({"family": "Sweep Sheet", "at": [200, 200, 0], "distance": 1e-9, "form": 0}),
+        json!({"family": "Direct Model", "face": "x"}),
+        json!({"family": "Direct Model", "face": u64::MAX, "form": 0}),
+        json!({"family": "Direct Model", "at": [1e300, 0, 0]}),
+        json!({"family": "Sweep Sheet", "at": [200, 200, 0]}),
         json!({"name": "F", "types": {"A": {}}, "forms": [{"plane": "xz", "profile": [[1, 0], [2, 0], [2, 1]], "axis": [[0, 0], [1e300, 1e300]], "to": 1e300}]}),
         json!({"name": "F", "types": {"A": {}}, "forms": [{"profile": [[1, 0], [2, 0], [2, 1]], "axis": [[0, 0], [0, 0]], "to": 360}]}),
         json!({"name": "F", "types": {"A": {}}, "forms": [{"profile": [[1, 0], [2, 0], [2, 1]], "axis": "x", "to": 360}]}),
@@ -7518,6 +7522,93 @@ fn a_mesh_s_face_is_named_by_its_id_and_pushed_by_it() {
     assert!(e.contains("no flat face 9999"), "{e}");
     let e = s.execute("mesh_push_pull", &json!({"family": "Direct Model", "face": "x", "distance": 1})).unwrap_err();
     assert!(e.contains("`mesh_check` lists"), "{e}");
+}
+
+#[test]
+fn erasing_a_mesh_face_opens_a_hole_in_one_undo_step() {
+    let mut s = Session::new();
+    run(&mut s, "mesh", box_mesh());
+    let checked = run(&mut s, "mesh_check", json!({"family": "Direct Model"}));
+    let faces = checked["faces"].as_array().expect("its faces");
+    let top = faces.iter().find(|f| f["normal"] == json!([0.0, 0.0, 1.0])).expect("the top");
+    let id = top["id"].as_u64().expect("its id");
+
+    // Erase by id: the top's two triangles go, a hole opens, and the form is now an open sheet.
+    let erased = run(&mut s, "mesh_erase", json!({"family": "Direct Model", "face": id}));
+    assert_eq!(erased["family"], json!("Direct Model"));
+    assert_eq!(erased["face"], json!(id));
+    assert_eq!(erased["normal"], json!([0.0, 0.0, 1.0]));
+    assert_eq!(erased["triangles"], json!(2), "the top's two triangles are gone");
+    assert_eq!(erased["kind"], json!("open sheet"));
+    assert_eq!(erased["solid"], json!(false));
+    // A sheet encloses nothing, so its `volume` (the signed sum over an open surface) is not a solid's 1 m³.
+    assert_ne!(erased["volume"], json!(1.0));
+    assert_eq!(s.model.families["Direct Model"].forms[0].mesh.len(), 10, "twelve less the top's two");
+    let after = run(&mut s, "mesh_check", json!({"family": "Direct Model"}));
+    assert_eq!((after["kind"].as_str(), after["triangles"].as_u64()), (Some("open sheet"), Some(10)));
+
+    // One undo brings the box back.
+    run(&mut s, "undo", json!({}));
+    assert_eq!(s.model.families["Direct Model"].forms[0].mesh.len(), 12, "one undo is the box again");
+    assert_eq!(run(&mut s, "mesh_check", json!({"family": "Direct Model"}))["volume"], json!(1.0));
+
+    // A point on the face finds the same face as its id.
+    let by_point = run(&mut s, "mesh_erase", json!({"family": "Direct Model", "at": [500, 500, 1000]}));
+    assert_eq!(by_point["face"], json!(id), "the same face, found by a point of it");
+    run(&mut s, "undo", json!({}));
+
+    // Refusals, with what to give instead.
+    let e = s.execute("mesh_erase", &json!({"family": "Direct Model", "face": 9999})).unwrap_err();
+    assert!(e.contains("no flat face 9999"), "{e}");
+    let e = s.execute("mesh_erase", &json!({"family": "Direct Model", "face": "x"})).unwrap_err();
+    assert!(e.contains("`mesh_check` lists"), "{e}");
+    let e = s.execute("mesh_erase", &json!({"family": "Direct Model", "at": [0, 0, 5000]})).unwrap_err();
+    assert!(e.contains("no flat face"), "{e}");
+    let e = s.execute("mesh_erase", &json!({"family": "No such", "face": id})).unwrap_err();
+    assert!(e.contains("no family"), "{e}");
+    let e = s.execute("mesh_erase", &json!({"face": id})).unwrap_err();
+    assert!(e.contains("`family`") && e.contains("`component`"), "{e}");
+}
+
+#[test]
+fn erasing_the_only_face_of_a_mesh_is_refused() {
+    let mut s = Session::new();
+    run(
+        &mut s,
+        "family",
+        json!({"name": "Solo", "types": {"Default": {}}, "forms": [{"mesh": [[[0, 0, 0], [1000, 0, 0], [0, 1000, 0]]]}]}),
+    );
+    let checked = run(&mut s, "mesh_check", json!({"family": "Solo"}));
+    let id = checked["faces"][0]["id"].as_u64().expect("its only face");
+    let e = s.execute("mesh_erase", &json!({"family": "Solo", "face": id})).unwrap_err();
+    assert!(e.contains("only face"), "{e}");
+    assert_eq!(s.model.families["Solo"].forms[0].mesh.len(), 1, "the triangle stays");
+}
+
+#[test]
+fn a_meshed_component_s_face_is_erased_by_a_point_of_the_model() {
+    // A box whose plan middle is the origin, so the component stands where the form's own axes are; then turned 30°.
+    let mut p = box_mesh();
+    for q in p["points"].as_array_mut().unwrap() {
+        q[0] = json!(q[0].as_i64().unwrap() - 500);
+        q[1] = json!(q[1].as_i64().unwrap() - 500);
+    }
+    let mut s = Session::new();
+    let made = run(&mut s, "mesh", p);
+    assert_eq!(made["origin"], json!([0.0, 0.0, 0.0]));
+    let id = made["component"].as_u64().expect("the component's id");
+    let guid = s.model.guid(id);
+    run(&mut s, "modify", json!({"id": id, "angle": 30}));
+    let (sin, cos) = 30.0_f64.to_radians().sin_cos();
+    let at = [300.0 * cos, 300.0 * sin, 1000.0];
+    let erased = run(&mut s, "mesh_erase", json!({"component": guid, "at": at}));
+    assert_eq!(erased["normal"], json!([0.0, 0.0, 1.0]), "the face is the same one, found through the component's turn");
+    assert_eq!(erased["solid"], json!(false));
+    assert_eq!(s.model.families["Direct Model"].forms[0].mesh.len(), 10);
+    let e = s.execute("mesh_erase", &json!({"component": guid, "at": [1e5, 1e5, 1e5]})).unwrap_err();
+    assert!(e.contains("no flat face"), "{e}");
+    let e = s.execute("mesh_erase", &json!({"component": s.model.guid(100_000), "at": [0, 0, 0]})).unwrap_err();
+    assert!(e.contains("must be a component"), "{e}");
 }
 
 #[test]

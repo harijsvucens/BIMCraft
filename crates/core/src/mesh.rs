@@ -422,6 +422,20 @@ fn stands_on(a: Option<P3>, b: Option<P3>, p: P3) -> bool {
     dot(off, off).sqrt() <= ON_FACE
 }
 
+/// `tris` with the triangles of `face` taken away: a hole opens where it stood, so a solid becomes an open sheet. A mesh's
+/// one and only face cannot be erased — a form needs a triangle. What opened is measured by the caller.
+pub fn erase(tris: &[[P3; 3]], face: &Face) -> Result<Vec<[P3; 3]>, String> {
+    if face.tris.iter().any(|i| *i >= tris.len()) {
+        return Err("that face is no face of these triangles".into());
+    }
+    let gone: HashSet<usize> = face.tris.iter().copied().collect();
+    let out: Vec<[P3; 3]> = tris.iter().enumerate().filter(|(i, _)| !gone.contains(i)).map(|(_, t)| *t).collect();
+    if out.is_empty() {
+        return Err("that is the mesh's only face: erasing it leaves no mesh".into());
+    }
+    Ok(out)
+}
+
 /// `tris` with `face` moved `distance` mm along its normal, out of the solid where that is positive: every corner welded
 /// to one of the face's moves with it, so the faces round it stretch as a hand pulling a SketchUp face's does. A face with
 /// nothing beside it — a sheet, as an imported mesh may hold — is no surface to stretch: it rises into a solid, keeping

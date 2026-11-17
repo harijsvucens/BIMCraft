@@ -1837,6 +1837,22 @@ other_files(
         mesh_push_pull,
     ),
     edit(
+        "mesh_erase",
+        ui_msg!("Erase"),
+        &[],
+        "{family, at: [x, y, z] | face, form?} or {component, at: [x, y, z] | face, form?} takes away one flat face of a \
+         family's mesh, the one `at` lies on or that `face` names (the id `mesh_check` lists), as SketchUp's Erase: the face's \
+         triangles go and a hole opens where it stood, so a solid becomes an `open sheet`. With `family`, \
+         `at` is in the form's own axes, the `origin` `mesh` replies with; with `component` (a component's GUID) it is a point of \
+         the model, taken back through where the component stands, its turn, level and mirroring, so a pick in a view can be \
+         given as it is. `form` counts the family's forms from 1, its first mesh by default. A curved side has no flat face to \
+         erase, and a mesh's only face cannot be taken: a form needs a triangle. A face's id is its first triangle's index, so \
+         the surviving faces renumber after an erase: re-run `mesh_check` to name one again. Returns the `family`, `form`, the \
+         erased `face` id and its `normal`, how many of its `triangles` went, and what the mesh makes now: `kind`, `solid` and \
+         `volume` in m³ (an open sheet's `volume` is the signed sum over a surface, not an enclosed space)",
+        mesh_erase,
+    ),
+    edit(
         "mesh_check",
         "Mesh Check",
         &[],
@@ -8617,6 +8633,94 @@ fn mesh_push_pull(s: &mut Session, p: &Value) -> R {
         .and_then(|f| f.forms.get_mut(index))
         .ok_or_else(|| bad(c, format!("the project has no family `{family}`")))?;
     form.mesh = Arc::new(pushed);
+    Ok(reply)
+}
+
+/// One flat face of a family's mesh taken away, as SketchUp's Erase: its triangles go and a hole opens where it stood, so a
+/// solid becomes an open sheet.
+fn mesh_erase(s: &mut Session, p: &Value) -> R {
+    let c = "mesh_erase";
+    let family = string(c, p, "family")?;
+    let component = id_opt(c, p, "component")?;
+    // The face a pick or `mesh_check` named, instead of a point on it.
+    let face_id = match p.get("face") {
+        v if absent(v) => None,
+        Some(v) => {
+            let n = v.as_u64().ok_or_else(|| bad(c, format!("`face` is the id `mesh_check` lists, a number, not {v}")))?;
+            Some(usize::try_from(n).map_err(|_| bad(c, format!("`face` is the id `mesh_check` lists, a number, not {v}")))?)
+        }
+        None => None,
+    };
+    // A component places the family's axes, so its point is the model's, taken back through them: what a pick gives.
+    let (family, at) = match (family, component) {
+        (given, Some(guid)) => {
+            let Some(id) = s.model.elements.id(guid) else { return Err(bad(c, "the project has no `component` of that GUID")) };
+            let Some(crate::model::Element::Component(comp)) = s.model.elements.get(id) else {
+                return Err(bad(c, "`component` must be a component, the one whose family's mesh is erased"));
+            };
+            if let Some(name) = given
+                && name != comp.family
+            {
+                return Err(bad(c, format!("component {id} is of `{}`, not `{name}`", comp.family)));
+            }
+            let at = match face_id {
+                Some(_) => None,
+                None => {
+                    let world = point3_req(c, p, "at")?;
+                    Some(
+                        s.model
+                            .form_point(id, world)
+                            .ok_or_else(|| bad(c, "that component has no place to take the point back through"))?,
+                    )
+                }
+            };
+            (comp.family.clone(), at)
+        }
+        (Some(name), None) => {
+            let at = match face_id {
+                Some(_) => None,
+                None => Some(point3_req(c, p, "at")?),
+            };
+            (name, at)
+        }
+        (None, None) => {
+            return Err(bad(
+                c,
+                "`family` (with `at` a point of its mesh's axes) or `component` (with `at` a point of the model) is required",
+            ));
+        }
+    };
+    let index = mesh_form(c, p, &s.model, &family)?;
+    let (face, erased, measure) = {
+        let f = s.model.families.get(&family).ok_or_else(|| bad(c, format!("the project has no family `{family}`")))?;
+        let form = &f.forms[index];
+        let face = match (face_id, at) {
+            (Some(id), _) => crate::mesh::face_of(&form.mesh, id).map_err(|e| bad(c, e))?,
+            (None, Some(at)) => crate::mesh::face_at(&form.mesh, at).map_err(|e| bad(c, e))?,
+            (None, None) => return Err(bad(c, "`at`, a point on the face, or `face`, the id `mesh_check` lists, is required")),
+        };
+        let erased = crate::mesh::erase(&form.mesh, &face).map_err(|e| bad(c, e))?;
+        let measure = crate::mesh::measure(&erased).map_err(|e| bad(c, e))?;
+        (face, erased, measure)
+    };
+    let round = |v: f64| (v * 1e6).round() / 1e6;
+    let reply = json!({
+        "family": family,
+        "form": index + 1,
+        "face": face.id,
+        "normal": face.normal,
+        "triangles": face.tris.len(),
+        "kind": measure.kind.word(),
+        "solid": measure.is_solid(),
+        "volume": round(measure.volume / 1e9),
+    });
+    let m = Arc::make_mut(&mut s.model);
+    let form = m
+        .families
+        .get_mut(&family)
+        .and_then(|f| f.forms.get_mut(index))
+        .ok_or_else(|| bad(c, format!("the project has no family `{family}`")))?;
+    form.mesh = Arc::new(erased);
     Ok(reply)
 }
 

@@ -1278,6 +1278,13 @@ if the sheet has a hole through it — and the push is one undo step. Only a fac
 extruded this way: one beside others moves and they stretch, as before, and that includes a triangle meeting it along part of an
 edge only (a T-junction, as a tessellated surface brings in), which is why the test is not the exact edges alone.
 
+`mesh_erase` takes one flat face away, the one `at` lies on or that `face` names (the id `mesh_check` lists), as SketchUp's
+Erase: the face's triangles go, so that whole part of the surface is gone and a solid becomes an `open sheet` — one undo
+puts it back. It takes the face by the same point or id and the same `family`/`component` choice as a push, and reports
+what the mesh makes now through `mesh::measure`. A curved side has no flat face to erase, and a mesh's only face cannot be
+taken: a form needs a triangle. Erasing compacts the triangles, so a face's id (its first triangle's index) renumbers the
+surviving faces: re-run `mesh_check` to name one again.
+
 What it does not do yet, and the slices that follow: draw on a face in the 3D view (the tool and its draft), holes and
 openings through a face, booleans between meshes, bevels, and pushing an imported mesh's face from a pick in the viewport
 (the command takes the form's own point). The plan is [Discussion #468](https://github.com/IPedrax/BIMCraft/discussions/468).
