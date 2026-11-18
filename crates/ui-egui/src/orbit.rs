@@ -2341,7 +2341,8 @@ impl BimApp {
             let world = |q: P3| placement.place(if c.mirrored { [q[0], -q[1], q[2]] } else { q });
             let in_style = look3.style() == VisualStyle::Shaded;
             let [r, g, b, _] = pal().accent.to_array();
-            let fill = egui::Color32::from_rgba_unmultiplied(r, g, b, 80);
+            // A quarter's accent: the face keeps its own colour, yet the pick still reads on a light and a dark canvas.
+            let fill = egui::Color32::from_rgba_unmultiplied(r, g, b, 25);
             // The face held or under the cursor: a quiet promise of the pick, in the view's own style. Once the drag
             // measures a distance the moving mesh is the feedback, and the old face is out of the picture.
             if in_style && o.push_drag.is_none() {
@@ -2385,8 +2386,14 @@ impl BimApp {
                     crate::canvas::tag(&p, read + vec2(12.0, -12.0), egui::Align2::LEFT_BOTTOM, model.units.with_unit(by));
                 }
             }
-            if !self.typed_length.is_empty() {
-                let text = model.units.parse(&self.typed_length).map_or_else(|| self.typed_length.clone(), |d| model.units.with_unit(d));
+            // A held face reads its distance from the first frame, zero until digits arrive: the tag is the tool's
+            // feedback while it waits, not a reward for typing. A hover has no pick to measure yet, so no tag there.
+            if matches!(self.tool, Tool::PushPull(Some(_))) {
+                let text = if self.typed_length.is_empty() {
+                    model.units.with_unit(0.0)
+                } else {
+                    model.units.parse(&self.typed_length).map_or_else(|| self.typed_length.clone(), |d| model.units.with_unit(d))
+                };
                 crate::canvas::tag(&p, screen(at) + vec2(12.0, -12.0), egui::Align2::LEFT_BOTTOM, text);
             }
         }

@@ -328,8 +328,13 @@ fn the_face_under_the_cursor_is_lit_before_it_is_picked() {
         h.hover_at(at);
         h.run();
         let held = h.render().unwrap();
-        let changed = changed_near(at, &lit, &held);
-        assert!(changed < 10, "{name}: the held light moved {changed} pixels from the hovered one");
+        // The held tag reads above the pick now, so compare a point inside the face below it: the tint itself holds.
+        let q = at + vec2(0.0, 30.0);
+        assert_eq!(
+            lit.get_pixel(q.x as u32, q.y as u32).0,
+            held.get_pixel(q.x as u32, q.y as u32).0,
+            "{name}: the held light moved from the hovered one"
+        );
         // Esc hands the light straight back to the hover: the same face stays lit, with the pointer still on it.
         key(&mut h, Key::Escape);
         h.hover_at(at);
@@ -431,6 +436,59 @@ fn a_mesh_face_is_pushed_by_dragging_it_in_the_3d_view() {
         let mesh = &h.state().session.model.families["Direct Model"].forms[0].mesh;
         let still = mesh.iter().flatten().map(|p| p[2]).fold(f64::MIN, f64::max);
         assert_eq!(still, shrunk, "{name}: the release after a tool switch moved the face");
+    }
+}
+
+/// A picked face reads zero straight away: the distance tag is the tool's feedback while it waits for digits, not
+/// something that appears only after a digit is typed.
+#[test]
+fn a_held_face_reads_zero_before_anything_is_typed() {
+    for (name, mut h) in views(MESH_BOX) {
+        h.state_mut().set_tool(Tool::PushPull(None));
+        let at = h.state().screen3([500.0, 500.0, 1000.0]);
+        click_at(&mut h, at);
+        assert!(matches!(&h.state().tool, Tool::PushPull(Some(_))), "{name}: a face was picked");
+        h.hover_at(at);
+        h.run();
+        let held = h.render().unwrap();
+        h.event(Event::Text("0".into()));
+        h.run();
+        let typed = h.render().unwrap();
+        let changed = changed_near(at, &held, &typed);
+        assert!(changed < 30, "{name}: typing zero drew the tag that was missing at held: {changed} pixels");
+    }
+}
+
+/// The faint held tint still reads against both grounds, the light canvas's and the dark one's: the tool once looked
+/// dead for having no feedback, so the alpha-0 baseline and the tint must differ on either.
+#[test]
+fn the_held_tint_reads_on_a_light_and_a_dark_canvas() {
+    for dark in [false, true] {
+        for (name, mut h) in views(MESH_BOX) {
+            if dark {
+                h.ctx.set_theme(egui::ThemePreference::Dark);
+                h.run();
+                h.run();
+            }
+            h.state_mut().set_tool(Tool::PushPull(None));
+            let at = h.state().screen3([500.0, 500.0, 1000.0]);
+            let off = h.state().orbit.rect.min + vec2(30.0, 110.0);
+            h.hover_at(off);
+            h.run();
+            let bare = h.render().unwrap();
+            click_at(&mut h, at);
+            h.hover_at(at);
+            h.run();
+            let held = h.render().unwrap();
+            let changed = changed_near(at, &bare, &held);
+            assert!(changed > 200, "{name}, dark={dark}: the held tint drew only {changed} pixels near the pick");
+            // Not just a different pixel — one that moves enough on the face itself to read at arm's length.
+            let q = h.state().screen3([500.0, 500.0, 1000.0]);
+            let before = bare.get_pixel(q.x as u32, q.y as u32).0;
+            let after = held.get_pixel(q.x as u32, q.y as u32).0;
+            let step = before.iter().zip(after.iter()).map(|(a, b)| a.abs_diff(*b)).max().unwrap_or(0);
+            assert!(step >= 6, "{name}, dark={dark}: the faint tint moved a channel by only {step}");
+        }
     }
 }
 
