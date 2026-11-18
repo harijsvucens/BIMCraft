@@ -25,12 +25,18 @@ const DEPTH: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// A vertex (see [`Vertex`]) as the card takes it: its position as three floats, its two normals as four 16-bit signed fractions
 /// each (the fourth 0), and its four words. 44 bytes, not the 52 of floats.
 const STRIDE: u64 = 44;
-/// The view's 11 vec4s, and its two marks' 7 each.
-const GLOBALS: u64 = (11 + MARKS as u64 * 7) * 16;
+/// The view's 12 vec4s, and its two marks' 7 each.
+const GLOBALS: u64 = (12 + MARKS as u64 * 7) * 16;
 /// How many marks a picture has room for: the work plane and its patch.
 pub(crate) const MARKS: usize = 2;
 /// A section box: its least corner and its greatest, in the model.
 type Cut = Option<([f64; 3], [f64; 3])>;
+/// What else the picture lays over or leaves out of the scene: the cut's caps and, while a Push/Pull drag runs,
+/// the component whose place the shaded preview takes.
+pub(crate) struct Overlay<'a> {
+    pub(crate) caps: Option<&'a Arc<Caps>>,
+    pub(crate) hidden: Option<Id>,
+}
 /// An owner's edge and tint colours, a skin's parts and a segment's ends and colour: 2, 3 and 3 vec4s.
 const OWNER: u64 = 32;
 const SKIN: u64 = 48;
@@ -1075,7 +1081,7 @@ impl Gpu {
     /// [`draw_cut`](Self::draw_cut), to the mesh's own section box.
     #[cfg(test)]
     pub(crate) fn draw(&mut self, mesh: &Arc<Mesh>, cam: &Camera, tints: &[(Id, Rgb)], ground: Rgb) -> Result<bool, String> {
-        self.draw_capped(mesh, cam, tints, ground, mesh.section_box, None)
+        self.draw_capped(mesh, cam, tints, ground, mesh.section_box, Overlay { caps: None, hidden: None })
     }
 
     /// Draws `mesh` as `cam` sees it, `tints` colouring (halfway, and the edges whole) what they name, on `ground` where nothing is,
@@ -1085,10 +1091,11 @@ impl Gpu {
     /// next frame, until it is.
     #[cfg(test)]
     pub fn draw_cut(&mut self, mesh: &Arc<Mesh>, cam: &Camera, tints: &[(Id, Rgb)], ground: Rgb, cut: Cut) -> Result<bool, String> {
-        self.draw_capped(mesh, cam, tints, ground, cut, None)
+        self.draw_capped(mesh, cam, tints, ground, cut, Overlay { caps: None, hidden: None })
     }
 
-    /// [`draw_cut`](Self::draw_cut), with the caps of section box `cut`: what it cuts, filled.
+    /// [`draw_cut`](Self::draw_cut), with `overlay` filling what the section box cuts and leaving out the component a
+    /// Push/Pull drag replaces with its shaded preview.
     pub fn draw_capped(
         &mut self,
         mesh: &Arc<Mesh>,
@@ -1096,10 +1103,10 @@ impl Gpu {
         tints: &[(Id, Rgb)],
         ground: Rgb,
         cut: Cut,
-        caps: Option<&Arc<Caps>>,
+        overlay: Overlay<'_>,
     ) -> Result<bool, String> {
         let guard = scopes(&self.device);
-        let drawn = self.encode(mesh, cam, tints, ground, cut, caps);
+        let drawn = self.encode(mesh, cam, tints, ground, cut, overlay);
         let full = out_of_memory(guard);
         if let Some(up) = &self.mesh {
             self.card_bytes = self.card_bytes.min(up.room.saturating_add(self.parked_bytes()));
@@ -1276,8 +1283,9 @@ impl Gpu {
         tints: &[(Id, Rgb)],
         ground: Rgb,
         cut: Cut,
-        caps: Option<&Arc<Caps>>,
+        overlay: Overlay<'_>,
     ) -> Result<bool, String> {
+        let Overlay { caps, hidden } = overlay;
         let (w, h) = (cam.width.clamp(1, MAX_SIDE), cam.height.clamp(1, MAX_SIDE));
         if w.max(h) > self.device.limits().max_texture_dimension_2d {
             return Err("the picture is bigger than the card draws".into());
@@ -1363,6 +1371,9 @@ impl Gpu {
         }
         // The caps' outlines and patterns, in their colours or their elements' tints.
         for ([a, b], c, owner) in self.caps.as_ref().map_or(&[][..], |up| &up.caps.lines[..]) {
+            if Some(*owner) == hidden {
+                continue;
+            }
             let c = rgb(tints.iter().find(|(id, _)| id == owner).map_or(*c, |(_, t)| *t));
             let rel = |p: &[f64; 3]| std::array::from_fn::<f32, 3, _>(|i| (p[i] - mesh.origin[i]) as f32);
             let (a, b) = (rel(a), rel(b));
@@ -1403,6 +1414,10 @@ impl Gpu {
         let (lo, hi) = (from(lo), from(hi));
         put(&mut globals, &[lo[0], lo[1], lo[2], if cut.is_some() { 1.0 } else { 0.0 }]);
         put(&mut globals, &[hi[0], hi[1], hi[2], 0.0]);
+        // The owner left out of the picture, as its one-based index in the mesh: zero when none is hidden. Every
+        // vertex carries that index, so a shader discards it rather than the buffers being rewritten each frame.
+        let owner = hidden.and_then(|id| mesh.owners.iter().position(|o| o.id == id)).map_or(0.0, |i| (i + 1) as f32);
+        put(&mut globals, &[owner, 0.0, 0.0, 0.0]);
         // The marks, from the mesh's origin; a mark not there is drawn nowhere.
         for k in 0..MARKS {
             match self.marks.get(k) {
@@ -2290,7 +2305,7 @@ mod tests {
         let differ = |a: &[u8], b: &[u8]| (0..a.len() / 4).filter(|&k| far(&a[4 * k..4 * k + 4], &b[4 * k..4 * k + 4])).count();
         let capped = differ(&hollow.rgba, &cpu.rgba);
         assert!(capped > 500, "the caps change {capped} pixels");
-        gpu.draw_capped(&mesh, &cam, &[], PAPER, mesh.section_box, Some(&caps)).unwrap();
+        gpu.draw_capped(&mesh, &cam, &[], PAPER, mesh.section_box, Overlay { caps: Some(&caps), hidden: None }).unwrap();
         let card = read(&gpu);
         // What differs lies along the outlines and the patterns' lines, a pixel either way: a pixel whose four neighbours differ
         // too is a cap filled otherwise.
@@ -2299,7 +2314,7 @@ mod tests {
         let wrong = (w..w * 479).filter(|&k| [k, k - 1, k + 1, k - w, k + w].iter().all(|&n| off(n))).count();
         assert!(wrong * 50 < capped, "{wrong} pixels of caps differ from the processor's, of {capped} the caps change");
         // Without them, the card's picture is hollow again: the same camera and box draw anew.
-        gpu.draw_capped(&mesh, &cam, &[], PAPER, mesh.section_box, None).unwrap();
+        gpu.draw_capped(&mesh, &cam, &[], PAPER, mesh.section_box, Overlay { caps: None, hidden: None }).unwrap();
         assert!(differ(&read(&gpu), &hollow.rgba) * 10 < capped);
     }
 

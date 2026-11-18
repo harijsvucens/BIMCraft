@@ -55,7 +55,7 @@ use crate::{BimApp, Status, Tool, icon_button};
 
 /// What a picture is of: the model, the camera, the elements tinted, the ground it is drawn on (which says whether it is dark
 /// too), whether the card drew it, the section box it is cut to while one is dragged, and the caps it shows.
-type Shot = (Arc<Model>, Camera, Vec<(Id, Rgb)>, Color32, bool, Option<(P3, P3)>, Option<Arc<Caps>>);
+type Shot = (Arc<Model>, Camera, Vec<(Id, Rgb)>, Color32, bool, Option<(P3, P3)>, Option<Arc<Caps>>, Option<Id>);
 
 /// A model's mesh for the card, or why the card can't draw it.
 pub(crate) type Meshed = (Arc<Model>, Result<Arc<Mesh>, String>);
@@ -321,6 +321,8 @@ pub(crate) struct Shown<'a> {
     pub(crate) dragged: Option<(P3, P3)>,
     pub(crate) cut: Option<(P3, P3)>,
     pub(crate) caps: Option<Arc<Caps>>,
+    /// The component a Push/Pull drag is moving: left out of the picture while the shaded overlay stands in for it.
+    pub(crate) hidden: Option<Id>,
 }
 
 /// The card's failure to draw the 3D view, as the status bar says it.
@@ -697,15 +699,6 @@ fn push_clamp(model: &Model, id: Id, at: P3, by: f64) -> f64 {
     };
     let Ok(face) = bimcraft_core::mesh::face_at(&form.mesh, local) else { return by };
     clamped_push(&form.mesh, &face, by).0
-}
-
-/// The triangles a Push/Pull drag needs to draw: what the real core push makes, less what the canvas already shows.
-/// A solid push keeps every triangle's place, so an unchanged one is already drawn; a sheet's extrude drops the face
-/// and appends the solid, so its unchanged leading triangles are skipped by count instead.
-fn preview_delta(tris: &[[P3; 3]], face: &bimcraft_core::mesh::TopoFace, out: &[[P3; 3]]) -> Vec<[P3; 3]> {
-    let same_len = out.len() == tris.len();
-    let skip = if same_len { 0 } else { tris.len().saturating_sub(face.tris.len()) };
-    out.iter().enumerate().filter(|(i, t)| *i >= skip && (!same_len || tris[*i] != **t)).map(|(_, t)| *t).collect()
 }
 
 /// The edges a view draws on `tris`: where a face ends, or where two faces meet at an angle. Corners are shared by
@@ -1426,7 +1419,7 @@ impl Orbit {
         mesh: Option<&Arc<Mesh>>,
         shot: Shown<'_>,
     ) -> Option<Status> {
-        let Shown { model, scene, cam, tints, marks: plane_marks, dragged: reboxed, cut: boxed, caps } = shot;
+        let Shown { model, scene, cam, tints, marks: plane_marks, dragged: reboxed, cut: boxed, caps, hidden } = shot;
         let mut failed = None;
         // The ground, which a canvas colour of the user's changes without making the drawing dark or light.
         let dark = color(render::PAPER);
@@ -1435,7 +1428,7 @@ impl Orbit {
             (None, None) => true,
             _ => false,
         };
-        if !matches!(&self.shown, Some((m, c, t, k, g, b, h)) if Arc::ptr_eq(m, model) && *c == cam && t.as_slice() == tints && *k == dark && *g == mesh.is_some() && *b == reboxed && same_caps(h))
+        if !matches!(&self.shown, Some((m, c, t, k, g, b, h, hidden_before)) if Arc::ptr_eq(m, model) && *c == cam && t.as_slice() == tints && *k == dark && *g == mesh.is_some() && *b == reboxed && same_caps(h) && hidden_before == &hidden)
         {
             // The card's picture, if it makes one; the processor's if not, and if the card fails it for good.
             let (mut drawn, mut exact) = (false, true);
@@ -1444,7 +1437,14 @@ impl Orbit {
                 plane_marks.clone_into(&mut gpu.marks);
                 // The model's box, whichever the mesh was made under.
                 let cut = reboxed.or(boxed);
-                match gpu.draw_capped(mesh, &cam, tints, rgb(color(render::PAPER)), cut, caps.as_ref()) {
+                match gpu.draw_capped(
+                    mesh,
+                    &cam,
+                    tints,
+                    rgb(color(render::PAPER)),
+                    cut,
+                    crate::gpu::Overlay { caps: caps.as_ref(), hidden },
+                ) {
                     Ok(whole) => {
                         self.picker = Some(Picker::Mesh(Arc::clone(mesh), tints.to_vec(), cut));
                         self.marked = Some(plane_marks.to_vec());
@@ -1458,8 +1458,10 @@ impl Orbit {
             }
             self.on_card = drawn;
             if !drawn {
-                // As the default 3D view says: what it hides, and the colours it draws in.
+                // As the default 3D view says: what it hides, and the colours it draws in. The component being
+                // pushed is hidden the same way the card hides it, so both pictures show only the shaded preview.
                 let look = Look::of_3d(model);
+                let look = if let Some(id) = hidden { look.with_hidden(id) } else { look };
                 let look = if reboxed.is_some() { look.with_section_box(reboxed) } else { look };
                 let mut image = scene.render_in(&cam, tints, &look);
                 if let Some(caps) = &caps {
@@ -1486,7 +1488,7 @@ impl Orbit {
                 self.picker = Some(Picker::Image(image));
             }
             // A picture that stands in, or whose exact surfaces are on their way, is drawn again next frame until it is exact.
-            self.shown = exact.then(|| (Arc::clone(model), cam, tints.to_vec(), dark, drawn, reboxed, caps.clone()));
+            self.shown = exact.then(|| (Arc::clone(model), cam, tints.to_vec(), dark, drawn, reboxed, caps.clone(), hidden));
             if !exact {
                 ctx.request_repaint();
             }
@@ -1497,7 +1499,14 @@ impl Orbit {
             if self.on_card {
                 if let (Some(mesh), Some(gpu)) = (mesh, card.gpu.as_mut()) {
                     plane_marks.clone_into(&mut gpu.marks);
-                    if let Err(e) = gpu.draw_capped(mesh, &cam, tints, rgb(color(render::PAPER)), reboxed.or(boxed), caps.as_ref()) {
+                    if let Err(e) = gpu.draw_capped(
+                        mesh,
+                        &cam,
+                        tints,
+                        rgb(color(render::PAPER)),
+                        reboxed.or(boxed),
+                        crate::gpu::Overlay { caps: caps.as_ref(), hidden },
+                    ) {
                         failed = Some(card_failed(&e));
                         (card.gpu, card.note) = (None, Some(e));
                         self.shown = None;
@@ -2086,7 +2095,10 @@ impl BimApp {
         let caps = cut_now.and_then(|cut| o.caps_for(ui.ctx(), &model, cut));
         // The picture, on the card or the processor, and what picks in it.
         let p = ui.painter_at(rect);
-        let shot = Shown { model: &model, scene, cam, tints: &tints, marks: &plane_marks, dragged: reboxed, cut: boxed, caps };
+        // While a Push/Pull drag measures a distance the held component leaves the picture: the overlay below draws
+        // the whole pushed mesh in its place, so grow and shrink both show exactly what the release will commit.
+        let hidden = o.push_drag.as_ref().filter(|_| push_by.is_some()).map(|h| h.target().0);
+        let shot = Shown { model: &model, scene, cam, tints: &tints, marks: &plane_marks, dragged: reboxed, cut: boxed, caps, hidden };
         if let Some(status) = o.paint(ui.ctx(), &p, &mut self.card, mesh.as_ref(), shot) {
             self.status = status;
         }
@@ -2330,8 +2342,9 @@ impl BimApp {
             let in_style = look3.style() == VisualStyle::Shaded;
             let [r, g, b, _] = pal().accent.to_array();
             let fill = egui::Color32::from_rgba_unmultiplied(r, g, b, 80);
-            // The face held or under the cursor: a quiet promise of the pick, in the view's own style.
-            if in_style {
+            // The face held or under the cursor: a quiet promise of the pick, in the view's own style. Once the drag
+            // measures a distance the moving mesh is the feedback, and the old face is out of the picture.
+            if in_style && o.push_drag.is_none() {
                 for i in &face.tris {
                     let pts: Vec<egui::Pos2> = form.mesh[*i].iter().map(|q| screen(world(*q))).collect();
                     if pts.iter().all(|s| s.is_finite()) {
@@ -2345,9 +2358,11 @@ impl BimApp {
                 let n = h.target().2;
                 let (by, out) = clamped_push(&form.mesh, &face, by);
                 let base = model.materials.get(&form.material).map_or(MESH_COLOR, |m| Rgb(m.color[0], m.color[1], m.color[2]));
+                let edges = preview_edges(&out);
                 if in_style {
-                    // egui paints in the order shapes are added, so far faces go first: an overlay has no depth buffer.
-                    let mut drawn = preview_delta(&form.mesh, &face, &out);
+                    // The whole pushed mesh, not just what changed: the component itself is hidden, so every face
+                    // must be drawn. egui paints in add order, so far faces go first — an overlay has no depth buffer.
+                    let mut drawn = out;
                     let near = |t: &[P3; 3]| t.iter().map(|q| cam.project(*q).2).sum::<f64>();
                     drawn.sort_by(|a, b| near(a).total_cmp(&near(b)));
                     for t in drawn {
@@ -2359,7 +2374,7 @@ impl BimApp {
                     }
                 }
                 let edge = color(look3.edge(id, view3d::EDGE));
-                for [a, b] in preview_edges(&out) {
+                for [a, b] in edges {
                     let (a, b) = (screen(world(a)), screen(world(b)));
                     if a.is_finite() && b.is_finite() {
                         p.line_segment([a, b], Stroke::new(1.0 / ppp.max(1.0), edge));
@@ -3232,10 +3247,9 @@ mod push_preview_tests {
         let sheet = pane(0.0);
         let face = bimcraft_core::mesh::face_at(&sheet, [500.0, 500.0, 0.0]).unwrap();
         let (_, out) = clamped_push(&sheet, &face, 500.0);
-        let drawn = preview_delta(&sheet, &face, &out);
         // The core push makes a 12-triangle solid; the preview draws what it made, not the sheet slid upward.
-        assert_eq!(drawn.len(), 12, "{drawn:?}");
-        assert_eq!(drawn.iter().flatten().map(|p| p[2]).fold(f64::MIN, f64::max), 500.0);
+        assert_eq!(out.len(), 12, "{out:?}");
+        assert_eq!(out.iter().flatten().map(|p| p[2]).fold(f64::MIN, f64::max), 500.0);
     }
 
     /// The 1 m mesh box the 3D-view tests use, as triangles.
@@ -3261,9 +3275,8 @@ mod push_preview_tests {
         let box_tris = box_tris();
         let face = bimcraft_core::mesh::face_at(&box_tris, [500.0, 500.0, 1000.0]).unwrap();
         let (_, out) = clamped_push(&box_tris, &face, 500.0);
-        let drawn = preview_delta(&box_tris, &face, &out);
-        assert!(!drawn.is_empty() && drawn.len() < box_tris.len(), "{} of {}", drawn.len(), box_tris.len());
-        assert!(drawn.iter().flatten().any(|p| p[2] == 1500.0), "{drawn:?}");
+        assert_eq!(out.len(), box_tris.len());
+        assert!(out.iter().flatten().any(|p| p[2] == 1500.0), "{out:?}");
     }
 
     #[test]

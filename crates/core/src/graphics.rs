@@ -1148,6 +1148,13 @@ impl Look {
         Look { section, ..self }
     }
 
+    /// This look with element `id` hidden: the component a Push/Pull drag is moving, whose place the shaded preview
+    /// takes. The view's own hides stay as they are.
+    pub fn with_hidden(mut self, id: Id) -> Look {
+        self.hidden.insert(id);
+        self
+    }
+
     /// What the default 3D view looks like: as its own view's graphics say once something has changed
     /// them, else as those of a view with none (its last phase, and its sets' primary options).
     pub fn of_3d(m: &Model) -> Look {

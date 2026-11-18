@@ -43,6 +43,8 @@ struct Globals {
     // The section box from the mesh's origin: its least corner (w: 1 where there is one) and its greatest.
     cut_lo: vec4<f32>,
     cut_hi: vec4<f32>,
+    // x: the one-based owner left out of the picture (0 for none) — the component a Push/Pull drag replaces.
+    hidden_owner: vec4<f32>,
     // The work plane and its patch, drawn over the picture (pass 5).
     marks: array<Mark, 2>,
 }
@@ -259,6 +261,9 @@ fn shaded(in: SceneOut, front: bool) -> vec3<f32> {
 }
 
 fn scene_targets(in: SceneOut, front: bool) -> SceneTargets {
+    if g.hidden_owner.x > 0.0 && in.ids.y == u32(g.hidden_owner.x) {
+        discard;
+    }
     var out: SceneTargets;
     out.color = vec4<f32>(shaded(in, front) / 255.0, 1.0);
     out.ids = in.ids;
@@ -293,6 +298,9 @@ struct ClearTargets {
 // so as near is within a sixty-fourth of how far the depth runs across a pixel, and a few of f32's steps.
 @fragment
 fn fs_clear(in: SceneOut, @builtin(front_facing) front: bool) -> ClearTargets {
+    if g.hidden_owner.x > 0.0 && in.ids.y == u32(g.hidden_owner.x) {
+        discard;
+    }
     let tie = max(fwidth(in.clip.z) / 64.0, 2.5e-7);
     if in.clip.z <= textureLoad(scene_depth, vec2<i32>(in.clip.xy), 0) + tie || (g.cut_lo.w > 0.5 && cut_away(in.world)) {
         discard;
@@ -558,6 +566,9 @@ fn vs_dot(v: DotIn, @builtin(vertex_index) i: u32) -> DotOut {
 
 @fragment
 fn fs_dot(in: DotOut) -> SceneTargets {
+    if g.hidden_owner.x > 0.0 && in.ids.y == u32(g.hidden_owner.x) {
+        discard;
+    }
     var out: SceneTargets;
     out.color = vec4<f32>(in.color / 255.0, 1.0);
     out.ids = in.ids;
@@ -660,6 +671,9 @@ fn narrowed(t: vec2<f32>, p: f32, q: f32) -> vec2<f32> {
 fn wire_quad(w: WireIn, i: u32) -> WireOut {
     var o: WireOut;
     o.clip = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    if g.hidden_owner.x > 0.0 && w.owner == u32(g.hidden_owner.x) {
+        return o;
+    }
     var a = w.a;
     var b = w.b;
     if g.cut_lo.w > 0.5 {

@@ -498,6 +498,44 @@ fn an_overshooting_push_pull_drag_commits_the_last_valid_push() {
     }
 }
 
+/// While a face is dragged the component itself is out of the picture: the overlay draws the whole pushed mesh, so a
+/// shrink pulls the face in rather than leaving the old one standing behind it.
+#[test]
+fn a_shrink_drag_leaves_the_old_face_out_of_the_picture() {
+    for (name, mut h) in views(MESH_BOX) {
+        h.run_steps(4);
+        h.state_mut().set_tool(Tool::PushPull(None));
+        let at = h.state().screen3([500.0, 500.0, 1000.0]);
+        let probe = at + vec2(0.0, -120.0);
+        h.hover_at(at);
+        h.run();
+        h.event(Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+        h.run();
+        for t in [0.25, 0.5, 0.75, 1.0] {
+            h.hover_at(at + (probe - at) * t);
+            h.run();
+        }
+        let cam = h.state().orbit.camera.unwrap();
+        let held = *h.state().orbit.push_drag.as_ref().expect("{name}: a face was picked").target();
+        assert!(held.2[2] > 0.9, "{name}: the top face was not picked: {held:?}");
+        let o = &h.state().orbit;
+        let px = |p: Pos2| (f64::from((p.x - o.rect.min.x) * o.ppp), f64::from((p.y - o.rect.min.y) * o.ppp));
+        let per = cam.along_dir(held.2, held.1, px(at), px(probe)).unwrap().abs();
+        let to = at + (probe - at) * (-400.0 / per) as f32;
+        for t in [0.5, 1.0] {
+            h.hover_at(at + (to - at) * t);
+            h.run();
+        }
+        let shot = h.render().unwrap();
+        // The highest corner of the old top in the picture: a point the shorter box cannot cover at any x, y.
+        let old = h.state().screen3([100.0, 900.0, 1000.0]);
+        let empty = h.state().orbit.rect.min + vec2(30.0, 110.0);
+        let wall = shot.get_pixel(old.x as u32, old.y as u32).0;
+        let paper = shot.get_pixel(empty.x as u32, empty.y as u32).0;
+        assert_eq!(wall, paper, "{name}: the old face still shows at {old:?}: {wall:?}");
+    }
+}
+
 /// In a wireframe view the preview keeps to edges: no fills, so the view never promises a shaded face it would not draw.
 #[test]
 fn a_wireframe_view_shows_only_edges_while_a_face_is_dragged() {
