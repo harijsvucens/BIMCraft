@@ -736,40 +736,12 @@ fn preview_edges(tris: &[[P3; 3]]) -> Vec<[P3; 2]> {
         .collect()
 }
 
-/// The colour a world-space triangle is shaded in the view: the material under `look`, turned to the same light,
-/// from the same side the eye is on, as the processor's picture (`view3d::picture_cancellable`). The camera's axes
-/// are core-private, so they are derived here from the same public fields and constants.
+/// The colour a world-space triangle is shaded in the view: the core's one answer (`view3d::shade`, the picture's own),
+/// turned to an egui colour.
 fn shaded(t: &[P3; 3], cam: &Camera, id: Id, base: Rgb, look: &Look) -> Color32 {
-    let a = cam.azimuth.to_radians();
-    let e = cam.elevation.clamp(-89.0, 89.0).to_radians();
-    let back = [e.cos() * a.cos(), e.cos() * a.sin(), e.sin()];
-    let right = [-a.sin(), a.cos(), 0.0];
-    let up = [back[1] * right[2] - back[2] * right[1], back[2] * right[0] - back[0] * right[2], back[0] * right[1] - back[1] * right[0]];
-    let l = [
-        right[0] * -0.35 + up[0] * 0.55 + back[0] * 0.75,
-        right[1] * -0.35 + up[1] * 0.55 + back[1] * 0.75,
-        right[2] * -0.35 + up[2] * 0.55 + back[2] * 0.75,
-    ];
-    let m = (l[0] * l[0] + l[1] * l[1] + l[2] * l[2]).sqrt();
-    let light = if m > 0.0 { [l[0] / m, l[1] / m, l[2] / m] } else { [0.0; 3] };
-    let u = [t[1][0] - t[0][0], t[1][1] - t[0][1], t[1][2] - t[0][2]];
-    let v = [t[2][0] - t[0][0], t[2][1] - t[0][1], t[2][2] - t[0][2]];
-    let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
-    let nm = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-    let mut n = if nm > 0.0 { [n[0] / nm, n[1] / nm, n[2] / nm] } else { [0.0; 3] };
-    let eye = cam.eye();
-    let toward = |p: P3| eye.map_or(back, |q| [q[0] - p[0], q[1] - p[1], q[2] - p[2]]);
-    let w = toward(t[0]);
-    if n[0] * w[0] + n[1] * w[1] + n[2] * w[2] < 0.0 {
-        n = [-n[0], -n[1], -n[2]];
-    }
-    let k = 0.62 + 0.38 * (n[0] * light[0] + n[1] * light[1] + n[2] * light[2]).max(0.0);
-    let Rgb(r, g, b) = look.surface(id, base);
-    Color32::from_rgb((f64::from(r) * k).round() as u8, (f64::from(g) * k).round() as u8, (f64::from(b) * k).round() as u8)
+    let Rgb(r, g, b) = view3d::shade(t, cam, id, base, look);
+    Color32::from_rgb(r, g, b)
 }
-
-/// The fallback colour of a component's mesh: the scene's `view3d::COMPONENT`.
-const MESH_COLOR: Rgb = Rgb(214, 204, 188);
 
 /// The triangles in the order an overlay with no depth buffer must paint them: farthest from the eye first.
 /// `world` places the family's axes in the model, so a rotated or tilted component is ordered where it stands.
@@ -2366,7 +2338,7 @@ impl BimApp {
             if let (Some(by), Some(h)) = (push_by.filter(|_| o.push_drag.is_some()), o.push_drag.clone()) {
                 let n = h.target().2;
                 let (by, out) = clamped_push(&form.mesh, &face, by);
-                let base = model.materials.get(&form.material).map_or(MESH_COLOR, |m| Rgb(m.color[0], m.color[1], m.color[2]));
+                let base = model.materials.get(&form.material).map_or(view3d::COMPONENT, |m| Rgb(m.color[0], m.color[1], m.color[2]));
                 let edges = preview_edges(&out);
                 if in_style {
                     // The whole pushed mesh, not just what changed: the component itself is hidden, so every face

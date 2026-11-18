@@ -55,8 +55,12 @@ const RAIL: Rgb = Rgb(120, 122, 128);
 const STRUCTURE: Rgb = Rgb(182, 184, 190);
 /// Steel, darker than the concrete round it.
 const REBAR: Rgb = Rgb(92, 96, 104);
-/// A component's form made of nothing the library has.
-const COMPONENT: Rgb = Rgb(214, 204, 188);
+/// A component's form made of nothing the library has, and the preview's fallback with it: one colour, two homes.
+pub const COMPONENT: Rgb = Rgb(214, 204, 188);
+/// The picture's ambient share and its lit share of the light's facing: a face turned from the light keeps the first,
+/// the rest is `dot(n, light)`. The one home of the pair, so a picture and a preview of it shade alike.
+const LIGHT_AMBIENT: f64 = 0.62;
+const LIGHT_DIFFUSE: f64 = 0.38;
 /// Room around a fitted model, px.
 const MARGIN: f64 = 30.0;
 
@@ -3107,9 +3111,9 @@ impl Scene {
         // The side of a face the camera sees: in perspective, the side the eye is on.
         let eye = cam.eye();
         let toward = |p: P3| eye.map_or(back, |e| sub(e, p));
-        // Lit from over the viewer's left shoulder; a face turned away from the light keeps 62%.
+        // Lit from over the viewer's left shoulder; a face turned away from the light keeps its ambient share.
         let light = unit(add(add(mul(right, -0.35), mul(up, 0.55)), mul(back, 0.75)));
-        let lit = |n: P3| 0.62 + 0.38 * dot(n, light).max(0.0);
+        let lit = |n: P3| LIGHT_AMBIENT + LIGHT_DIFFUSE * dot(n, light).max(0.0);
         let paint = |color: Rgb, k: f64| {
             let c = |v: u8| (f64::from(v) * k).round() as u8;
             Rgb(c(color.0), c(color.1), c(color.2))
@@ -3173,7 +3177,7 @@ impl Scene {
                 lit(if dot(n, toward(t.p[0])) < 0.0 { mul(n, -1.0) } else { n })
             })
             .collect();
-        let shade: Vec<Rgb> = self.tris.iter().zip(&light).map(|(t, l)| if flat { PAPER } else { paint(colour(t), *l) }).collect();
+        let face_shade: Vec<Rgb> = self.tris.iter().zip(&light).map(|(t, l)| if flat { PAPER } else { paint(colour(t), *l) }).collect();
         // A textured triangle's colour at pixel `k`, where its surface lies `z` toward the camera: the texture at that point of
         // its plane, for a pixel's width of it. None for any other, or where the view colours it its own way, or in a section.
         let texturing = !flat && self.skins.iter().any(Option::is_some);
@@ -3202,7 +3206,7 @@ impl Scene {
                 (Some(c), Some(l)) => paint(c, f64::from(*l)),
                 (Some(c), None) => paint(c, *light.get(t)?),
                 (None, Some(l)) => paint(colour(tri), f64::from(*l)),
-                (None, None) => *shade.get(t)?,
+                (None, None) => *face_shade.get(t)?,
             })
         };
         let tints: BTreeMap<Id, Rgb> = tints.iter().copied().collect();
@@ -3507,6 +3511,26 @@ fn levels_in(levels: &[(Id, String, [P3; 4])], (lo, hi): (P3, P3)) -> Vec<(Id, S
         .filter(|(.., c)| (lo[2]..=hi[2]).contains(&c[0][2]))
         .map(|(id, name, c)| (*id, name.clone(), c.map(|p| [p[0].clamp(lo[0], hi[0]), p[1].clamp(lo[1], hi[1]), p[2]])))
         .collect()
+}
+
+/// The colour a world-space triangle is shaded in the view, as the picture paints it: the material under `look`, turned
+/// to the same light from the same side the eye is on. What a preview of the picture shades with, so the two cannot
+/// drift — the one home of the view's shading, beside the picture's own loop above.
+pub fn shade(t: &[P3; 3], cam: &Camera, id: Id, base: Rgb, look: &Look) -> Rgb {
+    let (back, right, up) = cam.axes();
+    let light = unit(add(add(mul(right, -0.35), mul(up, 0.55)), mul(back, 0.75)));
+    let n = cross(sub(t[1], t[0]), sub(t[2], t[0]));
+    let m = dot(n, n).sqrt();
+    let mut n = if m > 0.0 { mul(n, 1.0 / m) } else { [0.0; 3] };
+    let eye = cam.eye();
+    let toward = |p: P3| eye.map_or(back, |e| sub(e, p));
+    if dot(n, toward(t[0])) < 0.0 {
+        n = mul(n, -1.0);
+    }
+    let k = LIGHT_AMBIENT + LIGHT_DIFFUSE * dot(n, light).max(0.0);
+    let Rgb(r, g, b) = look.surface(id, base);
+    let c = |v: u8| (f64::from(v) * k).round() as u8;
+    Rgb(c(r), c(g), c(b))
 }
 
 /// The middle of each face of section box `(lo, hi)`, where its grips are: west, east, south, north, bottom and top.
@@ -4657,6 +4681,38 @@ mod tests {
             // The furniture behind the facade, and the rooms' services, are left out.
             assert!(lean.tris.len() * 4 < whole.tris.len(), "{name}: {} of {} triangles", lean.tris.len(), whole.tris.len());
         }
+    }
+
+    #[test]
+    fn a_preview_shades_a_face_as_the_picture_paints_it() {
+        let mut s = crate::engine::Session::new();
+        let box_json = serde_json::json!({
+            "points": [[-500, -500, 0], [500, -500, 0], [500, 500, 0], [-500, 500, 0],
+                       [-500, -500, 1000], [500, -500, 1000], [500, 500, 1000], [-500, 500, 1000]],
+            "triangles": [[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4],
+                          [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]]
+        });
+        s.execute("mesh", &box_json).unwrap();
+        let scene = Scene::new(&s.model);
+        let cam = scene.fit(AZIMUTH, ELEVATION, 200, 150);
+        let look = Look::of_3d(&s.model);
+        let img = scene.picture(&cam, None, &[], &look);
+        // An interior pixel of one triangle: its right and lower neighbours hold the same triangle, so no edge or
+        // silhouette ink sits on it, and its colour is the face's shade alone.
+        let (w, h) = (img.width as usize, img.height as usize);
+        let k = (0..w * (h - 1))
+            .find(|&k| {
+                let t = img.hit[k] as usize;
+                t < scene.tris.len() && img.hit[k + 1] == img.hit[k] && img.hit[k + w] == img.hit[k]
+            })
+            .expect("a face fills some pixels of the fit view");
+        let tri = &scene.tris[img.hit[k] as usize];
+        let want = shade(&tri.p, &cam, tri.owner, tri.color, &look);
+        assert_eq!(
+            &img.rgba[k * 4..k * 4 + 3],
+            &[want.0, want.1, want.2],
+            "the picture paints the face the shade a preview of it must match"
+        );
     }
 
     #[test]
