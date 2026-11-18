@@ -661,15 +661,122 @@ fn pushable(m: &Model, id: Id) -> bool {
     }
 }
 
+/// The largest push toward `by` the mesh allows, and the triangles it makes. `mesh::push` refuses a solid turned
+/// inside out; a bisection from zero keeps the preview on screen and gives the release the distance it showed.
+fn clamped_push(tris: &[[P3; 3]], face: &bimcraft_core::mesh::TopoFace, by: f64) -> (f64, Vec<[P3; 3]>) {
+    // The release runs the command, which measures the result and lets `Model::check` refuse a folded triangle too.
+    let valid = |d: f64| {
+        let out = bimcraft_core::mesh::push(tris, face, d).ok()?;
+        bimcraft_core::mesh::measure(&out).ok()?;
+        Some(out)
+    };
+    if let Some(out) = valid(by) {
+        return (by, out);
+    }
+    let (mut lo, mut hi) = (0.0, by);
+    let mut made = Vec::new();
+    for _ in 0..20 {
+        let mid = (lo + hi) / 2.0;
+        match valid(mid) {
+            Some(out) => {
+                lo = mid;
+                made = out;
+            }
+            None => hi = mid,
+        }
+    }
+    (lo, made)
+}
+
+/// The distance a released drag commits: the same clamp the preview used, from the same face the pick found.
+fn push_clamp(model: &Model, id: Id, at: P3, by: f64) -> f64 {
+    let Some(local) = model.form_point(id, at) else { return by };
+    let Some(Element::Component(c)) = model.elements.get(id) else { return by };
+    let Some(form) = model.families.get(&c.family).and_then(|f| f.forms.iter().find(|f| !f.mesh.is_empty())) else {
+        return by;
+    };
+    let Ok(face) = bimcraft_core::mesh::face_at(&form.mesh, local) else { return by };
+    clamped_push(&form.mesh, &face, by).0
+}
+
 /// The triangles a Push/Pull drag needs to draw: what the real core push makes, less what the canvas already shows.
 /// A solid push keeps every triangle's place, so an unchanged one is already drawn; a sheet's extrude drops the face
 /// and appends the solid, so its unchanged leading triangles are skipped by count instead.
-fn pushed_preview(tris: &[[P3; 3]], face: &bimcraft_core::mesh::TopoFace, by: f64) -> Vec<[P3; 3]> {
-    let Ok(out) = bimcraft_core::mesh::push(tris, face, by) else { return Vec::new() };
+fn preview_delta(tris: &[[P3; 3]], face: &bimcraft_core::mesh::TopoFace, out: &[[P3; 3]]) -> Vec<[P3; 3]> {
     let same_len = out.len() == tris.len();
     let skip = if same_len { 0 } else { tris.len().saturating_sub(face.tris.len()) };
-    out.into_iter().enumerate().filter(|(i, t)| *i >= skip && (!same_len || tris[*i] != *t)).map(|(_, t)| t).collect()
+    out.iter().enumerate().filter(|(i, t)| *i >= skip && (!same_len || tris[*i] != **t)).map(|(_, t)| *t).collect()
 }
+
+/// The edges a view draws on `tris`: where a face ends, or where two faces meet at an angle. Corners are shared by
+/// value (a push only moves them), so rounding to a micron keys the same corner of two triangles together.
+fn preview_edges(tris: &[[P3; 3]]) -> Vec<[P3; 2]> {
+    struct Edge {
+        a: P3,
+        b: P3,
+        n: P3,
+        other: Option<P3>,
+    }
+    let key = |p: P3| [(p[0] * 1e3).round() as i64, (p[1] * 1e3).round() as i64, (p[2] * 1e3).round() as i64];
+    let mut edges: std::collections::HashMap<([i64; 3], [i64; 3]), Edge> = std::collections::HashMap::new();
+    for t in tris {
+        let [a, b, c] = *t;
+        let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+        let m = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        let n = if m > 0.0 { [n[0] / m, n[1] / m, n[2] / m] } else { [0.0; 3] };
+        for [a, b] in [[a, b], [b, c], [c, a]] {
+            let (ka, kb) = (key(a), key(b));
+            let k = if ka <= kb { (ka, kb) } else { (kb, ka) };
+            if let Some(e) = edges.get_mut(&k) {
+                e.other = Some(n);
+            } else {
+                edges.insert(k, Edge { a, b, n, other: None });
+            }
+        }
+    }
+    edges
+        .into_values()
+        .filter(|e| e.other.is_none_or(|o| e.n[0] * o[0] + e.n[1] * o[1] + e.n[2] * o[2] < 0.999))
+        .map(|e| [e.a, e.b])
+        .collect()
+}
+
+/// The colour a world-space triangle is shaded in the view: the material under `look`, turned to the same light,
+/// from the same side the eye is on, as the processor's picture (`view3d::picture_cancellable`). The camera's axes
+/// are core-private, so they are derived here from the same public fields and constants.
+fn shaded(t: &[P3; 3], cam: &Camera, id: Id, base: Rgb, look: &Look) -> Color32 {
+    let a = cam.azimuth.to_radians();
+    let e = cam.elevation.clamp(-89.0, 89.0).to_radians();
+    let back = [e.cos() * a.cos(), e.cos() * a.sin(), e.sin()];
+    let right = [-a.sin(), a.cos(), 0.0];
+    let up = [back[1] * right[2] - back[2] * right[1], back[2] * right[0] - back[0] * right[2], back[0] * right[1] - back[1] * right[0]];
+    let l = [
+        right[0] * -0.35 + up[0] * 0.55 + back[0] * 0.75,
+        right[1] * -0.35 + up[1] * 0.55 + back[1] * 0.75,
+        right[2] * -0.35 + up[2] * 0.55 + back[2] * 0.75,
+    ];
+    let m = (l[0] * l[0] + l[1] * l[1] + l[2] * l[2]).sqrt();
+    let light = if m > 0.0 { [l[0] / m, l[1] / m, l[2] / m] } else { [0.0; 3] };
+    let u = [t[1][0] - t[0][0], t[1][1] - t[0][1], t[1][2] - t[0][2]];
+    let v = [t[2][0] - t[0][0], t[2][1] - t[0][1], t[2][2] - t[0][2]];
+    let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+    let nm = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+    let mut n = if nm > 0.0 { [n[0] / nm, n[1] / nm, n[2] / nm] } else { [0.0; 3] };
+    let eye = cam.eye();
+    let toward = |p: P3| eye.map_or(back, |q| [q[0] - p[0], q[1] - p[1], q[2] - p[2]]);
+    let w = toward(t[0]);
+    if n[0] * w[0] + n[1] * w[1] + n[2] * w[2] < 0.0 {
+        n = [-n[0], -n[1], -n[2]];
+    }
+    let k = 0.62 + 0.38 * (n[0] * light[0] + n[1] * light[1] + n[2] * light[2]).max(0.0);
+    let Rgb(r, g, b) = look.surface(id, base);
+    Color32::from_rgb((f64::from(r) * k).round() as u8, (f64::from(g) * k).round() as u8, (f64::from(b) * k).round() as u8)
+}
+
+/// The fallback colour of a component's mesh: the scene's `view3d::COMPONENT`.
+const MESH_COLOR: Rgb = Rgb(214, 204, 188);
 
 /// A Direct Model box's footprint area and volume as the HUD reads them. `Units::area`'s factor for a square metre
 /// is the linear factor squared, so its root is metres or feet per metre and its cube is the volume unit's.
@@ -2219,23 +2326,43 @@ impl BimApp {
             && let Ok(face) = bimcraft_core::mesh::face_at(&form.mesh, local)
         {
             let placement = model.component_placement(c);
+            let world = |q: P3| placement.place(if c.mirrored { [q[0], -q[1], q[2]] } else { q });
+            let in_style = look3.style() == VisualStyle::Shaded;
             let [r, g, b, _] = pal().accent.to_array();
             let fill = egui::Color32::from_rgba_unmultiplied(r, g, b, 80);
-            let world = |q: P3| placement.place(if c.mirrored { [q[0], -q[1], q[2]] } else { q });
-            for i in &face.tris {
-                let pts: Vec<egui::Pos2> = form.mesh[*i].iter().map(|q| screen(world(*q))).collect();
-                if pts.iter().all(|s| s.is_finite()) {
-                    p.add(egui::Shape::convex_polygon(pts, fill, egui::Stroke::NONE));
-                }
-            }
-            // Where the face would land if the drag let go here: the very mesh the commit will make, so the canvas
-            // cannot promise a push the release does not do. A sheet rises into a solid here too.
-            if let (Some(by), Some(h)) = (push_by.filter(|_| o.push_drag.is_some()), o.push_drag.clone()) {
-                let n = h.target().2;
-                for t in pushed_preview(&form.mesh, &face, by) {
-                    let pts: Vec<egui::Pos2> = t.iter().map(|q| screen(world(*q))).collect();
+            // The face held or under the cursor: a quiet promise of the pick, in the view's own style.
+            if in_style {
+                for i in &face.tris {
+                    let pts: Vec<egui::Pos2> = form.mesh[*i].iter().map(|q| screen(world(*q))).collect();
                     if pts.iter().all(|s| s.is_finite()) {
                         p.add(egui::Shape::convex_polygon(pts, fill, egui::Stroke::NONE));
+                    }
+                }
+            }
+            // Where the face would land if the drag let go here: the very mesh the commit will make, shaded as the
+            // model is and edged where its faces meet, so a sheet rising into a solid reads as the solid it becomes.
+            if let (Some(by), Some(h)) = (push_by.filter(|_| o.push_drag.is_some()), o.push_drag.clone()) {
+                let n = h.target().2;
+                let (by, out) = clamped_push(&form.mesh, &face, by);
+                let base = model.materials.get(&form.material).map_or(MESH_COLOR, |m| Rgb(m.color[0], m.color[1], m.color[2]));
+                if in_style {
+                    // egui paints in the order shapes are added, so far faces go first: an overlay has no depth buffer.
+                    let mut drawn = preview_delta(&form.mesh, &face, &out);
+                    let near = |t: &[P3; 3]| t.iter().map(|q| cam.project(*q).2).sum::<f64>();
+                    drawn.sort_by(|a, b| near(a).total_cmp(&near(b)));
+                    for t in drawn {
+                        let pts: Vec<egui::Pos2> = t.iter().map(|q| screen(world(*q))).collect();
+                        if pts.iter().all(|s| s.is_finite()) {
+                            let world_t = t.map(world);
+                            p.add(egui::Shape::convex_polygon(pts, shaded(&world_t, &cam, id, base, &look3), egui::Stroke::NONE));
+                        }
+                    }
+                }
+                let edge = color(look3.edge(id, view3d::EDGE));
+                for [a, b] in preview_edges(&out) {
+                    let (a, b) = (screen(world(a)), screen(world(b)));
+                    if a.is_finite() && b.is_finite() {
+                        p.line_segment([a, b], Stroke::new(1.0 / ppp.max(1.0), edge));
                     }
                 }
                 let read = screen([at[0] + n[0] * by, at[1] + n[1] * by, at[2] + n[2] * by]);
@@ -2548,6 +2675,8 @@ impl BimApp {
             && let Tool::PushPull(Some((held, _))) = &self.tool
             && held == &id
         {
+            // The release commits exactly what the preview drew, including where an inside-out push was clamped.
+            let by = push_clamp(&model, id, at, by);
             self.run("mesh_push_pull", json!({"component": id, "at": at, "distance": by}));
             self.tool = Tool::PushPull(None);
         }
@@ -3102,7 +3231,8 @@ mod push_preview_tests {
     fn a_sheet_pushed_draws_the_solid_it_becomes_not_a_teleporting_face() {
         let sheet = pane(0.0);
         let face = bimcraft_core::mesh::face_at(&sheet, [500.0, 500.0, 0.0]).unwrap();
-        let drawn = pushed_preview(&sheet, &face, 500.0);
+        let (_, out) = clamped_push(&sheet, &face, 500.0);
+        let drawn = preview_delta(&sheet, &face, &out);
         // The core push makes a 12-triangle solid; the preview draws what it made, not the sheet slid upward.
         assert_eq!(drawn.len(), 12, "{drawn:?}");
         assert_eq!(drawn.iter().flatten().map(|p| p[2]).fold(f64::MIN, f64::max), 500.0);
@@ -3130,8 +3260,19 @@ mod push_preview_tests {
     fn a_box_face_pushed_draws_the_moved_face_and_its_stretched_neighbours() {
         let box_tris = box_tris();
         let face = bimcraft_core::mesh::face_at(&box_tris, [500.0, 500.0, 1000.0]).unwrap();
-        let drawn = pushed_preview(&box_tris, &face, 500.0);
+        let (_, out) = clamped_push(&box_tris, &face, 500.0);
+        let drawn = preview_delta(&box_tris, &face, &out);
         assert!(!drawn.is_empty() && drawn.len() < box_tris.len(), "{} of {}", drawn.len(), box_tris.len());
         assert!(drawn.iter().flatten().any(|p| p[2] == 1500.0), "{drawn:?}");
+    }
+
+    #[test]
+    fn a_push_past_inside_out_is_clamped_to_the_last_distance_that_still_makes_the_solid() {
+        let box_tris = box_tris();
+        let face = bimcraft_core::mesh::face_at(&box_tris, [500.0, 500.0, 1000.0]).unwrap();
+        assert!(bimcraft_core::mesh::push(&box_tris, &face, -1000.0).is_err());
+        let (by, out) = clamped_push(&box_tris, &face, -1000.0);
+        assert!(by > -1000.0 && by < 0.0, "the clamp was {by}");
+        assert!(!out.is_empty());
     }
 }

@@ -434,6 +434,105 @@ fn a_mesh_face_is_pushed_by_dragging_it_in_the_3d_view() {
     }
 }
 
+/// While a Push/Pull drag runs, the pulled face and the walls it stretches are shaded like the model — the
+/// material's colour turned to the view's light — not a flat accent painted over the canvas.
+#[test]
+fn a_push_pull_drag_preview_is_shaded_like_the_model() {
+    for (name, mut h) in views(MESH_BOX) {
+        h.state_mut().set_tool(Tool::PushPull(None));
+        let at = h.state().screen3([500.0, 500.0, 1000.0]);
+        let to = at + vec2(0.0, -120.0);
+        h.hover_at(at);
+        h.run();
+        h.event(Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+        h.run();
+        for t in [0.25, 0.5, 0.75, 1.0] {
+            h.hover_at(at + (to - at) * t);
+            h.run();
+        }
+        let cam = h.state().orbit.camera.unwrap();
+        let o = &h.state().orbit;
+        let px = |p: Pos2| (f64::from((p.x - o.rect.min.x) * o.ppp), f64::from((p.y - o.rect.min.y) * o.ppp));
+        let by = cam.along_dir([0.0, 0.0, 1.0], [500.0, 500.0, 1000.0], px(at), px(to)).unwrap().round();
+        assert!(by > 100.0, "{name}: the drag pulled only {by} mm");
+        // Half way up a stretched wall: over the original box this is empty canvas, so only the preview draws here.
+        let wall = h.state().screen3([1000.0, 500.0, 1000.0 + by / 2.0]);
+        let [r, g, b, _] = h.render().unwrap().get_pixel(wall.x as u32, wall.y as u32).0;
+        assert!(r > b && g > b, "{name}: the stretched wall was [{r},{g},{b}], an accent fill not the material's shade");
+    }
+}
+
+/// A drag past where the solid turns inside out does not vanish: the release commits the last push that was legal,
+/// so the face stops at the limit instead of the command refusing and leaving the model untouched.
+#[test]
+fn an_overshooting_push_pull_drag_commits_the_last_valid_push() {
+    for (name, mut h) in views(MESH_BOX) {
+        h.state_mut().set_tool(Tool::PushPull(None));
+        let before = h.state().session.model.families["Direct Model"].forms[0].mesh.clone();
+        let at = h.state().screen3([500.0, 500.0, 1000.0]);
+        let probe = at + vec2(0.0, -120.0);
+        h.hover_at(at);
+        h.run();
+        h.event(Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+        h.run();
+        for t in [0.25, 0.5, 0.75, 1.0] {
+            h.hover_at(at + (probe - at) * t);
+            h.run();
+        }
+        // Scale the probe to a push that would turn the solid inside out, along whichever face the pick found.
+        let cam = h.state().orbit.camera.unwrap();
+        let held = *h.state().orbit.push_drag.as_ref().expect("{name}: a face was picked").target();
+        let o = &h.state().orbit;
+        let px = |p: Pos2| (f64::from((p.x - o.rect.min.x) * o.ppp), f64::from((p.y - o.rect.min.y) * o.ppp));
+        let per = cam.along_dir(held.2, held.1, px(at), px(probe)).unwrap().abs();
+        let to = at + (probe - at) * (-1200.0 / per) as f32;
+        for t in [0.5, 1.0] {
+            h.hover_at(at + (to - at) * t);
+            h.run();
+        }
+        h.event(Event::PointerButton { pos: to, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
+        h.run();
+        assert!(!h.state().status.error, "{name}: {}", h.state().status.text);
+        let after = &h.state().session.model.families["Direct Model"].forms[0].mesh;
+        assert!(before.as_ref() != after.as_ref(), "{name}: the overshoot was refused instead of clamped");
+    }
+}
+
+/// In a wireframe view the preview keeps to edges: no fills, so the view never promises a shaded face it would not draw.
+#[test]
+fn a_wireframe_view_shows_only_edges_while_a_face_is_dragged() {
+    for (name, mut h) in views(MESH_BOX) {
+        h.state_mut().run("visual_style", json!({"style": "wireframe"}));
+        h.run();
+        h.state_mut().set_tool(Tool::PushPull(None));
+        let at = h.state().screen3([500.0, 500.0, 1000.0]);
+        let to = at + vec2(0.0, -120.0);
+        let off = h.state().orbit.rect.min + vec2(30.0, 110.0);
+        h.run();
+        let shot = h.render().unwrap();
+        let paper = shot.get_pixel(off.x as u32, off.y as u32).0;
+        let rect = h.state().orbit.rect;
+        let filled = |shot: &image::RgbaImage| {
+            (rect.min.x as u32..rect.max.x as u32)
+                .flat_map(|x| (rect.min.y as u32..rect.max.y as u32).map(move |y| (x, y)))
+                .filter(|&(x, y)| shot.get_pixel(x, y).0 != paper)
+                .count()
+        };
+        let bare = filled(&shot);
+        h.hover_at(at);
+        h.run();
+        h.event(Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+        h.run();
+        for t in [0.25, 0.5, 0.75, 1.0] {
+            h.hover_at(at + (to - at) * t);
+            h.run();
+        }
+        let dragging = filled(&h.render().unwrap());
+        // Edges and the distance tag add a little ink; a shaded or accent fill would colour tens of thousands of pixels.
+        assert!(dragging.saturating_sub(bare) < 12_000, "{name}: a wireframe drag filled {} pixels", dragging.saturating_sub(bare));
+    }
+}
+
 #[test]
 fn a_mesh_face_is_pushed_by_a_typed_distance_in_the_3d_view() {
     for (name, mut h) in views(MESH_BOX) {
