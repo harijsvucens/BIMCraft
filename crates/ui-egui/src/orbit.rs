@@ -663,77 +663,15 @@ fn pushable(m: &Model, id: Id) -> bool {
     }
 }
 
-/// The largest push toward `by` the mesh allows, and the triangles it makes. `mesh::push` refuses a solid turned
-/// inside out; a bisection from zero keeps the preview on screen and gives the release the distance it showed.
-fn clamped_push(tris: &[[P3; 3]], face: &bimcraft_core::mesh::TopoFace, by: f64) -> (f64, Vec<[P3; 3]>) {
-    // The release runs the command, which measures the result and lets `Model::check` refuse a folded triangle too.
-    let valid = |d: f64| {
-        let out = bimcraft_core::mesh::push(tris, face, d).ok()?;
-        bimcraft_core::mesh::measure(&out).ok()?;
-        Some(out)
-    };
-    if let Some(out) = valid(by) {
-        return (by, out);
-    }
-    let (mut lo, mut hi) = (0.0, by);
-    let mut made = Vec::new();
-    for _ in 0..20 {
-        let mid = (lo + hi) / 2.0;
-        match valid(mid) {
-            Some(out) => {
-                lo = mid;
-                made = out;
-            }
-            None => hi = mid,
-        }
-    }
-    (lo, made)
-}
-
-/// The distance a released drag commits: the same clamp the preview used, from the same face the pick found.
-fn push_clamp(model: &Model, id: Id, at: P3, by: f64) -> f64 {
-    let Some(local) = model.form_point(id, at) else { return by };
-    let Some(Element::Component(c)) = model.elements.get(id) else { return by };
-    let Some(form) = model.families.get(&c.family).and_then(|f| f.forms.iter().find(|f| !f.mesh.is_empty())) else {
-        return by;
-    };
-    let Ok(face) = bimcraft_core::mesh::face_at(&form.mesh, local) else { return by };
-    clamped_push(&form.mesh, &face, by).0
-}
-
-/// The edges a view draws on `tris`: where a face ends, or where two faces meet at an angle. Corners are shared by
-/// value (a push only moves them), so rounding to a micron keys the same corner of two triangles together.
-fn preview_edges(tris: &[[P3; 3]]) -> Vec<[P3; 2]> {
-    struct Edge {
-        a: P3,
-        b: P3,
-        n: P3,
-        other: Option<P3>,
-    }
-    let key = |p: P3| [(p[0] * 1e3).round() as i64, (p[1] * 1e3).round() as i64, (p[2] * 1e3).round() as i64];
-    let mut edges: std::collections::HashMap<([i64; 3], [i64; 3]), Edge> = std::collections::HashMap::new();
-    for t in tris {
-        let [a, b, c] = *t;
-        let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-        let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-        let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
-        let m = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-        let n = if m > 0.0 { [n[0] / m, n[1] / m, n[2] / m] } else { [0.0; 3] };
-        for [a, b] in [[a, b], [b, c], [c, a]] {
-            let (ka, kb) = (key(a), key(b));
-            let k = if ka <= kb { (ka, kb) } else { (kb, ka) };
-            if let Some(e) = edges.get_mut(&k) {
-                e.other = Some(n);
-            } else {
-                edges.insert(k, Edge { a, b, n, other: None });
-            }
-        }
-    }
-    edges
-        .into_values()
-        .filter(|e| e.other.is_none_or(|o| e.n[0] * o[0] + e.n[1] * o[1] + e.n[2] * o[2] < 0.999))
-        .map(|e| [e.a, e.b])
-        .collect()
+/// The push a Push/Pull drag measures: the face the pick found, pushed as far as the mesh allows — the clamp and the
+/// triangles together, so the preview shows and the release commits the same thing. The clamp itself is the core's
+/// (`mesh::push_clamped`); this is the model's way to it, from the pick.
+fn push_measure(model: &Model, id: Id, at: P3, by: f64) -> Option<(f64, Vec<[P3; 3]>)> {
+    let local = model.form_point(id, at)?;
+    let Some(Element::Component(c)) = model.elements.get(id) else { return None };
+    let Some(form) = model.families.get(&c.family).and_then(|f| f.forms.iter().find(|f| !f.mesh.is_empty())) else { return None };
+    let face = bimcraft_core::mesh::face_at(&form.mesh, local).ok()?;
+    Some(bimcraft_core::mesh::push_clamped(&form.mesh, &face, by))
 }
 
 /// The colour a world-space triangle is shaded in the view: the core's one answer (`view3d::shade`, the picture's own),
@@ -1967,12 +1905,15 @@ impl BimApp {
                 self.tool = Tool::PushPull(Some((s.id, s.at)));
                 Some((s.id, s.at, s.normal))
             },
-            |(_, at, n), from, now| cam.along_dir(*n, *at, px(from), px(now)).map(f64::round),
+            |(id, at, n), from, now| {
+                let by = cam.along_dir(*n, *at, px(from), px(now)).map(f64::round)?;
+                push_measure(&model, *id, *at, by)
+            },
         );
         let push_by = push.preview;
         let push_dragged = push.suppressed;
         let mut pushed = None;
-        if let Some(((id, at, _), by)) = push.release
+        if let Some(((id, at, _), (by, _))) = push.release
             && by != 0.0
         {
             pushed = Some((id, at, by));
@@ -2315,7 +2256,6 @@ impl BimApp {
             && let Some(local) = model.form_point(id, at)
             && let Some(Element::Component(c)) = model.elements.get(id)
             && let Some(form) = model.families.get(&c.family).and_then(|f| f.forms.iter().find(|form| !form.mesh.is_empty()))
-            && let Ok(face) = bimcraft_core::mesh::face_at(&form.mesh, local)
         {
             let placement = model.component_placement(c);
             let world = |q: P3| placement.place(if c.mirrored { [q[0], -q[1], q[2]] } else { q });
@@ -2324,8 +2264,11 @@ impl BimApp {
             // A quarter's accent: the face keeps its own colour, yet the pick still reads on a light and a dark canvas.
             let fill = egui::Color32::from_rgba_unmultiplied(r, g, b, 25);
             // The face held or under the cursor: a quiet promise of the pick, in the view's own style. Once the drag
-            // measures a distance the moving mesh is the feedback, and the old face is out of the picture.
-            if in_style && o.push_drag.is_none() {
+            // measures a distance the moving mesh is the feedback, and the old face is out of the picture — so the
+            // face is derived (a weld over the form) only while no drag runs; the drag's own measure has the geometry.
+            if in_style && o.push_drag.is_none()
+                && let Ok(face) = bimcraft_core::mesh::face_at(&form.mesh, local)
+            {
                 for i in &face.tris {
                     let pts: Vec<egui::Pos2> = form.mesh[*i].iter().map(|q| screen(world(*q))).collect();
                     if pts.iter().all(|s| s.is_finite()) {
@@ -2333,13 +2276,13 @@ impl BimApp {
                     }
                 }
             }
-            // Where the face would land if the drag let go here: the very mesh the commit will make, shaded as the
-            // model is and edged where its faces meet, so a sheet rising into a solid reads as the solid it becomes.
-            if let (Some(by), Some(h)) = (push_by.filter(|_| o.push_drag.is_some()), o.push_drag.clone()) {
+            // Where the face would land if the drag let go here: the very mesh the commit will make — what the drag's
+            // measure already clamped and returned — shaded as the model is and edged where its faces meet, so a sheet
+            // rising into a solid reads as the solid it becomes.
+            if let (Some((by, out)), Some(h)) = (push_by.filter(|_| o.push_drag.is_some()), o.push_drag.clone()) {
                 let n = h.target().2;
-                let (by, out) = clamped_push(&form.mesh, &face, by);
                 let base = model.materials.get(&form.material).map_or(view3d::COMPONENT, |m| Rgb(m.color[0], m.color[1], m.color[2]));
-                let edges = preview_edges(&out);
+                let edges = bimcraft_core::mesh::edges(&out);
                 if in_style {
                     // The whole pushed mesh, not just what changed: the component itself is hidden, so every face
                     // must be drawn. egui paints in add order, so far faces go first — an overlay has no depth buffer.
@@ -2674,8 +2617,8 @@ impl BimApp {
             && let Tool::PushPull(Some((held, _))) = &self.tool
             && held == &id
         {
-            // The release commits exactly what the preview drew, including where an inside-out push was clamped.
-            let by = push_clamp(&model, id, at, by);
+            // The release commits exactly what the preview drew, clamp and all: the drag's measure returned the
+            // distance, so there is nothing to re-derive here.
             self.run("mesh_push_pull", json!({"component": id, "at": at, "distance": by}));
             self.tool = Tool::PushPull(None);
         }
@@ -3220,49 +3163,6 @@ mod worker_measurements {
 mod push_preview_tests {
     use super::*;
 
-    /// A square 1000 mm a side at height `z`, its two triangles facing up.
-    fn pane(z: f64) -> Vec<[P3; 3]> {
-        let p = [[0.0, 0.0, z], [1000.0, 0.0, z], [1000.0, 1000.0, z], [0.0, 1000.0, z]];
-        vec![[p[0], p[1], p[2]], [p[0], p[2], p[3]]]
-    }
-
-    #[test]
-    fn a_sheet_pushed_draws_the_solid_it_becomes_not_a_teleporting_face() {
-        let sheet = pane(0.0);
-        let face = bimcraft_core::mesh::face_at(&sheet, [500.0, 500.0, 0.0]).unwrap();
-        let (_, out) = clamped_push(&sheet, &face, 500.0);
-        // The core push makes a 12-triangle solid; the preview draws what it made, not the sheet slid upward.
-        assert_eq!(out.len(), 12, "{out:?}");
-        assert_eq!(out.iter().flatten().map(|p| p[2]).fold(f64::MIN, f64::max), 500.0);
-    }
-
-    /// The 1 m mesh box the 3D-view tests use, as triangles.
-    fn box_tris() -> Vec<[P3; 3]> {
-        let p = [
-            [0.0, 0.0, 0.0],
-            [1000.0, 0.0, 0.0],
-            [1000.0, 1000.0, 0.0],
-            [0.0, 1000.0, 0.0],
-            [0.0, 0.0, 1000.0],
-            [1000.0, 0.0, 1000.0],
-            [1000.0, 1000.0, 1000.0],
-            [0.0, 1000.0, 1000.0],
-        ];
-        [[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]]
-            .iter()
-            .map(|t| [p[t[0]], p[t[1]], p[t[2]]])
-            .collect()
-    }
-
-    #[test]
-    fn a_box_face_pushed_draws_the_moved_face_and_its_stretched_neighbours() {
-        let box_tris = box_tris();
-        let face = bimcraft_core::mesh::face_at(&box_tris, [500.0, 500.0, 1000.0]).unwrap();
-        let (_, out) = clamped_push(&box_tris, &face, 500.0);
-        assert_eq!(out.len(), box_tris.len());
-        assert!(out.iter().flatten().any(|p| p[2] == 1500.0), "{out:?}");
-    }
-
     #[test]
     fn far_to_near_orders_the_placed_triangles_not_the_family_axes() {
         let cam = Camera { azimuth: -45.0, elevation: 30.0, scale: 0.5, target: [0.0; 3], width: 640, height: 480, lens: None };
@@ -3272,15 +3172,5 @@ mod push_preview_tests {
         let turn = |q: P3| [-q[0], -q[1], q[2]];
         let order = far_first(vec![west, east], &cam, &turn);
         assert_eq!(order[0], east, "the triangle farther after placement must be painted first");
-    }
-
-    #[test]
-    fn a_push_past_inside_out_is_clamped_to_the_last_distance_that_still_makes_the_solid() {
-        let box_tris = box_tris();
-        let face = bimcraft_core::mesh::face_at(&box_tris, [500.0, 500.0, 1000.0]).unwrap();
-        assert!(bimcraft_core::mesh::push(&box_tris, &face, -1000.0).is_err());
-        let (by, out) = clamped_push(&box_tris, &face, -1000.0);
-        assert!(by > -1000.0 && by < 0.0, "the clamp was {by}");
-        assert!(!out.is_empty());
     }
 }
