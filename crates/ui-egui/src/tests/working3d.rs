@@ -328,13 +328,14 @@ fn the_face_under_the_cursor_is_lit_before_it_is_picked() {
         h.hover_at(at);
         h.run();
         let held = h.render().unwrap();
-        // The held tag reads above the pick now, so compare a point inside the face below it: the tint itself holds.
-        let q = at + vec2(0.0, 30.0);
-        assert_eq!(
-            lit.get_pixel(q.x as u32, q.y as u32).0,
-            held.get_pixel(q.x as u32, q.y as u32).0,
-            "{name}: the held light moved from the hovered one"
-        );
+        // The held tag reads above the pick now, so compare the strip of face below it: the tint itself holds.
+        let below = |a: &image::RgbaImage, b: &image::RgbaImage| {
+            let (x0, y0) = ((at.x - 60.0).max(0.0) as u32, (at.y + 20.0).max(0.0) as u32);
+            let (x1, y1) = ((at.x + 60.0).min(a.width() as f32 - 1.0) as u32, (at.y + 70.0).min(a.height() as f32 - 1.0) as u32);
+            (x0..x1).flat_map(|x| (y0..y1).map(move |y| (x, y))).filter(|&(x, y)| a.get_pixel(x, y) != b.get_pixel(x, y)).count()
+        };
+        let moved = below(&lit, &held);
+        assert_eq!(moved, 0, "{name}: the held light moved {moved} pixels from the hovered one");
         // Esc hands the light straight back to the hover: the same face stays lit, with the pointer still on it.
         key(&mut h, Key::Escape);
         h.hover_at(at);

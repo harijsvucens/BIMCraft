@@ -771,6 +771,14 @@ fn shaded(t: &[P3; 3], cam: &Camera, id: Id, base: Rgb, look: &Look) -> Color32 
 /// The fallback colour of a component's mesh: the scene's `view3d::COMPONENT`.
 const MESH_COLOR: Rgb = Rgb(214, 204, 188);
 
+/// The triangles in the order an overlay with no depth buffer must paint them: farthest from the eye first.
+/// `world` places the family's axes in the model, so a rotated or tilted component is ordered where it stands.
+fn far_first(mut tris: Vec<[P3; 3]>, cam: &Camera, world: &dyn Fn(P3) -> P3) -> Vec<[P3; 3]> {
+    let near = |t: &[P3; 3]| t.iter().map(|q| cam.project(world(*q)).2).sum::<f64>();
+    tris.sort_by(|a, b| near(a).total_cmp(&near(b)));
+    tris
+}
+
 /// A Direct Model box's footprint area and volume as the HUD reads them. `Units::area`'s factor for a square metre
 /// is the linear factor squared, so its root is metres or feet per metre and its cube is the volume unit's.
 pub(crate) fn box_reading(units: Units, (w, d, h): (f64, f64, f64)) -> String {
@@ -2363,10 +2371,7 @@ impl BimApp {
                 if in_style {
                     // The whole pushed mesh, not just what changed: the component itself is hidden, so every face
                     // must be drawn. egui paints in add order, so far faces go first — an overlay has no depth buffer.
-                    let mut drawn = out;
-                    let near = |t: &[P3; 3]| t.iter().map(|q| cam.project(*q).2).sum::<f64>();
-                    drawn.sort_by(|a, b| near(a).total_cmp(&near(b)));
-                    for t in drawn {
+                    for t in far_first(out, &cam, &world) {
                         let pts: Vec<egui::Pos2> = t.iter().map(|q| screen(world(*q))).collect();
                         if pts.iter().all(|s| s.is_finite()) {
                             let world_t = t.map(world);
@@ -3284,6 +3289,17 @@ mod push_preview_tests {
         let (_, out) = clamped_push(&box_tris, &face, 500.0);
         assert_eq!(out.len(), box_tris.len());
         assert!(out.iter().flatten().any(|p| p[2] == 1500.0), "{out:?}");
+    }
+
+    #[test]
+    fn far_to_near_orders_the_placed_triangles_not_the_family_axes() {
+        let cam = Camera { azimuth: -45.0, elevation: 30.0, scale: 0.5, target: [0.0; 3], width: 640, height: 480, lens: None };
+        let east = [[100.0, 0.0, 0.0], [110.0, 0.0, 0.0], [100.0, 10.0, 0.0]];
+        let west = [[-100.0, 0.0, 0.0], [-110.0, 0.0, 0.0], [-100.0, 10.0, 0.0]];
+        // A half turn about z puts the family's east triangle at the model's west, farther from the eye.
+        let turn = |q: P3| [-q[0], -q[1], q[2]];
+        let order = far_first(vec![west, east], &cam, &turn);
+        assert_eq!(order[0], east, "the triangle farther after placement must be painted first");
     }
 
     #[test]
