@@ -85,11 +85,7 @@ pub fn face_of(tris: &[[P3; 3]], id: usize) -> Result<TopoFace, String> {
 pub fn edges(tris: &[[P3; 3]]) -> Vec<[P3; 2]> {
     let (curves, faces) = facets(tris);
     let surface = |i: usize| -> Option<(bool, usize)> {
-        if let Some(f) = faces.get(i).copied().flatten() {
-            Some((false, f))
-        } else {
-            curves.get(i).copied().flatten().map(|c| (true, c))
-        }
+        if let Some(f) = faces.get(i).copied().flatten() { Some((false, f)) } else { curves.get(i).copied().flatten().map(|c| (true, c)) }
     };
     let key = |p: P3| p.map(|x| (x * 1e3).round() as i64);
     let mut sides: Vec<([i64; 3], [i64; 3], Option<(bool, usize)>, [P3; 2])> = Vec::with_capacity(tris.len() * 3);
@@ -108,9 +104,7 @@ pub fn edges(tris: &[[P3; 3]]) -> Vec<[P3; 2]> {
     let mut out = Vec::new();
     for on in sides.chunk_by(|a, b| (a.0, a.1) == (b.0, b.1)) {
         let one_surface = on.len() == 2 && on[0].2.is_some() && on[0].2 == on[1].2;
-        if !one_surface
-            && let Some(s) = on.first()
-        {
+        if !one_surface && let Some(s) = on.first() {
             out.push(s.3);
         }
     }

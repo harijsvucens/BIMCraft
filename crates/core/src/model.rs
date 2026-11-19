@@ -3953,6 +3953,15 @@ impl Model {
         placed.place([x, if c.mirrored { -y } else { y }, z])
     }
 
+    /// The form a mesh edit on the component `id` reaches, and its family: the family's first form with a mesh — the
+    /// same form the mesh commands take when none is named ([`Family::first_mesh`]). None when `id` is not a component
+    /// whose family has a mesh form.
+    pub fn push_form(&self, id: Id) -> Option<(usize, &Family)> {
+        let Element::Component(c) = self.elements.get(id)? else { return None };
+        let family = self.families.get(&c.family)?;
+        Some((family.first_mesh()?, family))
+    }
+
     /// Component `c`'s connectors, worked out for its type and values, with their place and the way they face in the
     /// model: mirrored if it is, then placed as its family's axes are ([`Model::component_placement`]), so one hosted on a
     /// tilted plane or a face carries them with it (a connector without a place has neither). None for a component whose

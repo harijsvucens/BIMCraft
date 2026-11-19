@@ -654,22 +654,14 @@ fn draws_on_faces(tool: &Tool) -> bool {
     )
 }
 
-/// Whether `id` is a component with a mesh form: the only thing a Push/Pull pick can change. The command edits
-/// the family's mesh, so a shared family changes every component of it; Direct Model boxes have their own.
-fn pushable(m: &Model, id: Id) -> bool {
-    match m.elements.get(id) {
-        Some(Element::Component(c)) => m.families.get(&c.family).is_some_and(|f| f.forms.iter().any(|f| !f.mesh.is_empty())),
-        _ => false,
-    }
-}
-
 /// The push a Push/Pull drag measures: the face the pick found, pushed as far as the mesh allows — the clamp and the
 /// triangles together, so the preview shows and the release commits the same thing. The clamp itself is the core's
-/// (`mesh::push_clamped`); this is the model's way to it, from the pick.
+/// (`mesh::push_clamped`); this is the model's way to it, from the pick, through the form the push reaches
+/// (`Model::push_form`).
 fn push_measure(model: &Model, id: Id, at: P3, by: f64) -> Option<(f64, Vec<[P3; 3]>)> {
     let local = model.form_point(id, at)?;
-    let Some(Element::Component(c)) = model.elements.get(id) else { return None };
-    let Some(form) = model.families.get(&c.family).and_then(|f| f.forms.iter().find(|f| !f.mesh.is_empty())) else { return None };
+    let (n, family) = model.push_form(id)?;
+    let form = &family.forms[n];
     let face = bimcraft_core::mesh::face_at(&form.mesh, local).ok()?;
     Some(bimcraft_core::mesh::push_clamped(&form.mesh, &face, by))
 }
@@ -681,11 +673,11 @@ fn shaded(t: &[P3; 3], cam: &Camera, id: Id, base: Rgb, look: &Look) -> Color32 
     Color32::from_rgb(r, g, b)
 }
 
-/// The triangles in the order an overlay with no depth buffer must paint them: farthest from the eye first.
-/// `world` places the family's axes in the model, so a rotated or tilted component is ordered where it stands.
-fn far_first(mut tris: Vec<[P3; 3]>, cam: &Camera, world: &dyn Fn(P3) -> P3) -> Vec<[P3; 3]> {
+/// The triangles in the order an overlay with no depth buffer must paint them, each with what paints it: farthest from
+/// the eye first. `world` places the family's axes in the model, so a rotated or tilted component is ordered where it stands.
+fn far_first<T>(mut tris: Vec<([P3; 3], T)>, cam: &Camera, world: &dyn Fn(P3) -> P3) -> Vec<([P3; 3], T)> {
     let near = |t: &[P3; 3]| t.iter().map(|q| cam.project(world(*q)).2).sum::<f64>();
-    tris.sort_by(|a, b| near(a).total_cmp(&near(b)));
+    tris.sort_by(|a, b| near(&a.0).total_cmp(&near(&b.0)));
     tris
 }
 
@@ -1901,7 +1893,7 @@ impl BimApp {
                 if !matches!(self.tool, Tool::PushPull(_)) || sketch_z.is_some() || picking {
                     return None;
                 }
-                let s = latest.and_then(|at| surface(&o.picker, &cam, at)).filter(|s| pushable(&model, s.id))?;
+                let s = latest.and_then(|at| surface(&o.picker, &cam, at)).filter(|s| model.push_form(s.id).is_some())?;
                 self.tool = Tool::PushPull(Some((s.id, s.at)));
                 Some((s.id, s.at, s.normal))
             },
@@ -2248,14 +2240,15 @@ impl BimApp {
             Tool::PushPull(None) if sketch_z.is_none() && !picking => hover
                 .filter(|_| o.drag.is_none())
                 .and_then(|at| surface(&o.picker, &cam, at))
-                .filter(|s| pushable(&model, s.id))
+                .filter(|s| model.push_form(s.id).is_some())
                 .map(|s| (s.id, s.at)),
             _ => None,
         };
         if let Some((id, at)) = lit_face
             && let Some(local) = model.form_point(id, at)
             && let Some(Element::Component(c)) = model.elements.get(id)
-            && let Some(form) = model.families.get(&c.family).and_then(|f| f.forms.iter().find(|form| !form.mesh.is_empty()))
+            && let Some((form_no, family)) = model.push_form(id)
+            && let Some(form) = family.forms.get(form_no)
         {
             let placement = model.component_placement(c);
             let world = |q: P3| placement.place(if c.mirrored { [q[0], -q[1], q[2]] } else { q });
@@ -2266,7 +2259,8 @@ impl BimApp {
             // The face held or under the cursor: a quiet promise of the pick, in the view's own style. Once the drag
             // measures a distance the moving mesh is the feedback, and the old face is out of the picture — so the
             // face is derived (a weld over the form) only while no drag runs; the drag's own measure has the geometry.
-            if in_style && o.push_drag.is_none()
+            if in_style
+                && o.push_drag.is_none()
                 && let Ok(face) = bimcraft_core::mesh::face_at(&form.mesh, local)
             {
                 for i in &face.tris {
@@ -2282,11 +2276,23 @@ impl BimApp {
             if let (Some((by, out)), Some(h)) = (push_by.filter(|_| o.push_drag.is_some()), o.push_drag.clone()) {
                 let n = h.target().2;
                 let base = model.materials.get(&form.material).map_or(view3d::COMPONENT, |m| Rgb(m.color[0], m.color[1], m.color[2]));
-                let edges = bimcraft_core::mesh::edges(&out);
+                // The hide is the whole component, so the overlay redraws every mesh form of the family, not only the
+                // one the push reaches: a two-material import keeps its other part in the picture while one is pushed.
+                let mut drawn: Vec<([P3; 3], Rgb)> = out.iter().map(|t| (*t, base)).collect();
+                let mut edges = bimcraft_core::mesh::edges(&out);
+                for (j, other) in family.forms.iter().enumerate() {
+                    if j == form_no || other.mesh.is_empty() {
+                        continue;
+                    }
+                    let other_base =
+                        model.materials.get(&other.material).map_or(view3d::COMPONENT, |m| Rgb(m.color[0], m.color[1], m.color[2]));
+                    drawn.extend(other.mesh.iter().map(|t| (*t, other_base)));
+                    edges.extend(bimcraft_core::mesh::edges(&other.mesh));
+                }
                 if in_style {
-                    // The whole pushed mesh, not just what changed: the component itself is hidden, so every face
+                    // The whole component, not just what changed: the component itself is hidden, so every face
                     // must be drawn. egui paints in add order, so far faces go first — an overlay has no depth buffer.
-                    for t in far_first(out, &cam, &world) {
+                    for (t, base) in far_first(drawn, &cam, &world) {
                         let pts: Vec<egui::Pos2> = t.iter().map(|q| screen(world(*q))).collect();
                         if pts.iter().all(|s| s.is_finite()) {
                             let world_t = t.map(world);
@@ -2501,7 +2507,7 @@ impl BimApp {
                         Status { text: t("Pick a face of a wall, a floor, a ceiling or a roof to place it on.").into(), error: true }
                 }
             },
-            Some(_) if pushing => match push_target.filter(|s| pushable(&model, s.id)) {
+            Some(_) if pushing => match push_target.filter(|s| model.push_form(s.id).is_some()) {
                 Some(s) => self.tool = Tool::PushPull(Some((s.id, s.at))),
                 None => self.status = Status { text: t("Pick a face of a mesh component to push or pull it.").into(), error: true },
             },
@@ -3170,7 +3176,7 @@ mod push_preview_tests {
         let west = [[-100.0, 0.0, 0.0], [-110.0, 0.0, 0.0], [-100.0, 10.0, 0.0]];
         // A half turn about z puts the family's east triangle at the model's west, farther from the eye.
         let turn = |q: P3| [-q[0], -q[1], q[2]];
-        let order = far_first(vec![west, east], &cam, &turn);
-        assert_eq!(order[0], east, "the triangle farther after placement must be painted first");
+        let order = far_first(vec![(west, ()), (east, ())], &cam, &turn);
+        assert_eq!(order[0].0, east, "the triangle farther after placement must be painted first");
     }
 }

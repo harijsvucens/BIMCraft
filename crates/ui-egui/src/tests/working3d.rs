@@ -460,6 +460,111 @@ fn a_held_face_reads_zero_before_anything_is_typed() {
     }
 }
 
+/// A drag hides the whole component, so the overlay must stand in for every mesh form of the family, not only the one
+/// the push reaches: a two-material import is two forms, and while one is pushed the other must stay in the picture.
+#[test]
+fn a_push_pull_drag_keeps_the_family_s_other_parts_in_the_picture() {
+    let dir = std::env::temp_dir().join("opencode");
+    let obj = dir.join("bimcraft-two-parts.obj");
+    let mtl = dir.join("two-parts.mtl");
+    let mut text = String::from("mtllib two-parts.mtl\no Two\n");
+    // A cube a metre each way, its points and faces as `MESH_BOX`'s are: the proven order, so the mesh closes a solid
+    // and a push of its top goes.
+    const PTS: [[f64; 3]; 8] = [
+        [0.0, 0.0, 0.0],
+        [1000.0, 0.0, 0.0],
+        [1000.0, 1000.0, 0.0],
+        [0.0, 1000.0, 0.0],
+        [0.0, 0.0, 1000.0],
+        [1000.0, 0.0, 1000.0],
+        [1000.0, 1000.0, 1000.0],
+        [0.0, 1000.0, 1000.0],
+    ];
+    const FACES: [[usize; 3]; 12] = [
+        [0, 2, 1],
+        [0, 3, 2],
+        [4, 5, 6],
+        [4, 6, 7],
+        [0, 1, 5],
+        [0, 5, 4],
+        [1, 2, 6],
+        [1, 6, 5],
+        [2, 3, 7],
+        [2, 7, 6],
+        [3, 0, 4],
+        [3, 4, 7],
+    ];
+    for (half, name, base) in [(0.0, "A", 0usize), (2000.0, "B", 8usize)] {
+        text.push_str(&format!("usemtl {name}\n"));
+        for p in PTS {
+            text.push_str(&format!("v {} {} {}\n", half + p[0], p[1], p[2]));
+        }
+        for f in FACES {
+            text.push_str(&format!("f {} {} {}\n", f[0] + base + 1, f[1] + base + 1, f[2] + base + 1));
+        }
+    }
+    std::fs::write(&obj, &text).unwrap();
+    std::fs::write(&mtl, "newmtl A\nKd 0.8 0.2 0.2\nnewmtl B\nKd 0.2 0.2 0.8\n").unwrap();
+    let script = format!("import_mesh {}", json!({"path": obj.to_string_lossy(), "at": [0, 0], "units": "mm", "up": "z"}));
+    for (name, mut h) in views(&script) {
+        assert_eq!(h.state().session.model.families["Two"].forms.len(), 2, "{name}: two materials, two mesh forms");
+        h.state_mut().set_tool(Tool::PushPull(None));
+        // Part A's top face, and part B's middle, a metre of air apart: their pixels are apart too.
+        let at = h.state().screen3([500.0, 500.0, 1000.0]);
+        let other = h.state().screen3([2500.0, 500.0, 500.0]);
+        h.hover_at(at);
+        h.run();
+        let bare = h.render().unwrap();
+        // Press part A's top and drag it upward, the way drag_screen does but with the drag held mid-way: while it
+        // runs, part B stays in the picture. A card shades a pixel its own rounding's way, so a small drift is not a
+        // vanishing part; the box stays inside the face, off its edges, where the ink is the same either way.
+        h.event(Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+        h.run();
+        h.hover_at(at + vec2(0.0, -30.0));
+        h.run();
+        assert!(
+            matches!(&h.state().tool, Tool::PushPull(Some(_))),
+            "{name}: the press at {at:?} picked nothing: {}",
+            h.state().status.text
+        );
+        h.hover_at(at + vec2(0.0, -90.0));
+        h.run();
+        let during = h.render().unwrap();
+        let (x0, y0) = ((other.x - 25.0).max(0.0) as u32, (other.y - 18.0).max(0.0) as u32);
+        let (x1, y1) = ((other.x + 25.0).min(bare.width() as f32 - 1.0) as u32, (other.y + 18.0).min(bare.height() as f32 - 1.0) as u32);
+        // What the test means: the part keeps its ink. The overlay paints a triangle at a time, so the seams along a
+        // face's inner diagonal blend a shade off the scene's own fill — ink either way, not a vanishing part. A pixel
+        // counts only where the scene had ink and the drag left the canvas's ground: a part gone is a thousand, a kept
+        // one none.
+        let bg = bare
+            .get_pixel(
+                ((h.state().orbit.rect.min.x + 8.0) as u32).min(bare.width() - 1),
+                ((h.state().orbit.rect.min.y + 8.0) as u32).min(bare.height() - 1),
+            )
+            .0;
+        let far = |p: &[u8; 4]| p.iter().zip(bg.iter()).map(|(u, v)| u.abs_diff(*v)).max().unwrap_or(0);
+        let gone = (x0..x1)
+            .flat_map(|x| (y0..y1).map(move |y| (x, y)))
+            .filter(|&(x, y)| far(&bare.get_pixel(x, y).0) > 30 && far(&during.get_pixel(x, y).0) < 30)
+            .count();
+        assert!(gone < 40, "{name}: the drag blanked {gone} pixels of the part it is not pushing");
+        // The release commits the push it showed.
+        h.event(Event::PointerButton {
+            pos: at + vec2(0.0, -90.0),
+            button: PointerButton::Primary,
+            pressed: false,
+            modifiers: Modifiers::NONE,
+        });
+        h.run();
+        assert!(!h.state().status.error, "{name}: {}", h.state().status.text);
+        let mesh = &h.state().session.model.families["Two"].forms[0].mesh;
+        let top = mesh.iter().flatten().map(|p| p[2]).fold(f64::MIN, f64::max);
+        assert!(top > 1000.0, "{name}: the drag left the top at {top}");
+    }
+    let _ = std::fs::remove_file(obj);
+    let _ = std::fs::remove_file(mtl);
+}
+
 /// The faint held tint still reads against both grounds, the light canvas's and the dark one's: the tool once looked
 /// dead for having no feedback, so the alpha-0 baseline and the tint must differ on either.
 #[test]
