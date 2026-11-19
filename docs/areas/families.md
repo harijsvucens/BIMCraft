@@ -1310,9 +1310,9 @@ back through the component's placement to find the face — but the edit is to t
 every instance of it; Direct Model boxes have a family of their own. A pick that is not a mesh component is refused with
 what to click instead. Esc drops the face.
 
-What it does not do yet, and the slices that follow: a filled draft overlay (the preview is only its edges), a distance
-dragged for Push/Pull (its distance is still typed), a free-form outline on any face, holes and openings through a face,
-booleans between meshes, and bevels. The plan is
+What it does not do yet, and the slices that follow: a filled draft overlay for a face held before a drag (the drag's
+preview is already shaded and edged, and commits the distance it showed), a free-form outline on any face, holes and
+openings through a face, booleans between meshes, and bevels. The plan is
 [Discussion #468](https://github.com/IPedrax/BIMCraft/discussions/468).
 ## Where the code lives
 

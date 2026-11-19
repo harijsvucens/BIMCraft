@@ -464,8 +464,10 @@ fn a_held_face_reads_zero_before_anything_is_typed() {
 /// the push reaches: a two-material import is two forms, and while one is pushed the other must stay in the picture.
 #[test]
 fn a_push_pull_drag_keeps_the_family_s_other_parts_in_the_picture() {
-    let dir = std::env::temp_dir().join("opencode");
-    let obj = dir.join("bimcraft-two-parts.obj");
+    // A directory of our own: CI's temp dir has no `opencode` folder, and a fixed file name would collide between runs.
+    let dir = std::env::temp_dir().join(format!("bimcraft-ui-two-parts-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let obj = dir.join("two-parts.obj");
     let mtl = dir.join("two-parts.mtl");
     let mut text = String::from("mtllib two-parts.mtl\no Two\n");
     // A cube a metre each way, its points and faces as `MESH_BOX`'s are: the proven order, so the mesh closes a solid
@@ -563,6 +565,7 @@ fn a_push_pull_drag_keeps_the_family_s_other_parts_in_the_picture() {
     }
     let _ = std::fs::remove_file(obj);
     let _ = std::fs::remove_file(mtl);
+    let _ = std::fs::remove_dir(dir);
 }
 
 /// The Direct Model box stands on the plane its first corner was clicked on: the opposite corner aimed over empty
@@ -575,7 +578,10 @@ fn a_direct_model_box_stands_on_its_first_click_s_plane() {
         // The first corner on the box's top face, a plane a metre over its level's.
         let first = h.state().screen3([400.0, 400.0, 1000.0]);
         click_at(&mut h, first);
-        assert!(matches!(&h.state().tool, Tool::DirectModel(Some(_))), "{name}: the first corner was not taken");
+        // The plane is a fact of the tool now, not something recovered by matching a corner against the view's slot.
+        let Tool::DirectModel(Some((corner, plane))) = &h.state().tool else { panic!("{name}: the first corner was not taken") };
+        assert!((corner.0 - 400.0).abs() < 1.0 && (corner.1 - 400.0).abs() < 1.0, "{name}: the tool kept corner {corner:?}");
+        assert!((plane.z - 1000.0).abs() < 1.0, "{name}: the tool's plane is at z {}, not the face's 1000", plane.z);
         // The opposite corner over empty space beyond the box, on the first plane's z: the ray through this pixel
         // meets the level's plane (z = 0) far to the south-west of where it meets z = 1000.
         let far = h.state().screen3([2500.0, 700.0, 1000.0]);
