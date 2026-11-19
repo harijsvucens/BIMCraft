@@ -27,7 +27,7 @@ use bimcraft_core::dims3d;
 use bimcraft_core::geom::{self, P2};
 use bimcraft_core::graphics::{Look, VisualStyle};
 use bimcraft_core::handles::{self, Handle};
-use bimcraft_core::model::{Dimension3D, Element, Id, Model, Ref3, TOL, ViewCamera};
+use bimcraft_core::model::{Dimension3D, Id, Model, Ref3, TOL, ViewCamera};
 use bimcraft_core::render::{self, Rgb};
 use bimcraft_core::snap::{self, Found, Kind, Reach, Snaps};
 use bimcraft_core::units::Units;
@@ -654,131 +654,6 @@ fn draws_on_faces(tool: &Tool) -> bool {
     )
 }
 
-/// Whether `id` is a component with a mesh form: the only thing a Push/Pull pick can change. The command edits
-/// the family's mesh, so a shared family changes every component of it; Direct Model boxes have their own.
-fn pushable(m: &Model, id: Id) -> bool {
-    match m.elements.get(id) {
-        Some(Element::Component(c)) => m.families.get(&c.family).is_some_and(|f| f.forms.iter().any(|f| !f.mesh.is_empty())),
-        _ => false,
-    }
-}
-
-/// The largest push toward `by` the mesh allows, and the triangles it makes. `mesh::push` refuses a solid turned
-/// inside out; a bisection from zero keeps the preview on screen and gives the release the distance it showed.
-fn clamped_push(tris: &[[P3; 3]], face: &bimcraft_core::mesh::TopoFace, by: f64) -> (f64, Vec<[P3; 3]>) {
-    // The release runs the command, which measures the result and lets `Model::check` refuse a folded triangle too.
-    let valid = |d: f64| {
-        let out = bimcraft_core::mesh::push(tris, face, d).ok()?;
-        bimcraft_core::mesh::measure(&out).ok()?;
-        Some(out)
-    };
-    if let Some(out) = valid(by) {
-        return (by, out);
-    }
-    let (mut lo, mut hi) = (0.0, by);
-    let mut made = Vec::new();
-    for _ in 0..20 {
-        let mid = (lo + hi) / 2.0;
-        match valid(mid) {
-            Some(out) => {
-                lo = mid;
-                made = out;
-            }
-            None => hi = mid,
-        }
-    }
-    (lo, made)
-}
-
-/// The distance a released drag commits: the same clamp the preview used, from the same face the pick found.
-fn push_clamp(model: &Model, id: Id, at: P3, by: f64) -> f64 {
-    let Some(local) = model.form_point(id, at) else { return by };
-    let Some(Element::Component(c)) = model.elements.get(id) else { return by };
-    let Some(form) = model.families.get(&c.family).and_then(|f| f.forms.iter().find(|f| !f.mesh.is_empty())) else {
-        return by;
-    };
-    let Ok(face) = bimcraft_core::mesh::face_at(&form.mesh, local) else { return by };
-    clamped_push(&form.mesh, &face, by).0
-}
-
-/// The edges a view draws on `tris`: where a face ends, or where two faces meet at an angle. Corners are shared by
-/// value (a push only moves them), so rounding to a micron keys the same corner of two triangles together.
-fn preview_edges(tris: &[[P3; 3]]) -> Vec<[P3; 2]> {
-    struct Edge {
-        a: P3,
-        b: P3,
-        n: P3,
-        other: Option<P3>,
-    }
-    let key = |p: P3| [(p[0] * 1e3).round() as i64, (p[1] * 1e3).round() as i64, (p[2] * 1e3).round() as i64];
-    let mut edges: std::collections::HashMap<([i64; 3], [i64; 3]), Edge> = std::collections::HashMap::new();
-    for t in tris {
-        let [a, b, c] = *t;
-        let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
-        let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
-        let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
-        let m = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-        let n = if m > 0.0 { [n[0] / m, n[1] / m, n[2] / m] } else { [0.0; 3] };
-        for [a, b] in [[a, b], [b, c], [c, a]] {
-            let (ka, kb) = (key(a), key(b));
-            let k = if ka <= kb { (ka, kb) } else { (kb, ka) };
-            if let Some(e) = edges.get_mut(&k) {
-                e.other = Some(n);
-            } else {
-                edges.insert(k, Edge { a, b, n, other: None });
-            }
-        }
-    }
-    edges
-        .into_values()
-        .filter(|e| e.other.is_none_or(|o| e.n[0] * o[0] + e.n[1] * o[1] + e.n[2] * o[2] < 0.999))
-        .map(|e| [e.a, e.b])
-        .collect()
-}
-
-/// The colour a world-space triangle is shaded in the view: the material under `look`, turned to the same light,
-/// from the same side the eye is on, as the processor's picture (`view3d::picture_cancellable`). The camera's axes
-/// are core-private, so they are derived here from the same public fields and constants.
-fn shaded(t: &[P3; 3], cam: &Camera, id: Id, base: Rgb, look: &Look) -> Color32 {
-    let a = cam.azimuth.to_radians();
-    let e = cam.elevation.clamp(-89.0, 89.0).to_radians();
-    let back = [e.cos() * a.cos(), e.cos() * a.sin(), e.sin()];
-    let right = [-a.sin(), a.cos(), 0.0];
-    let up = [back[1] * right[2] - back[2] * right[1], back[2] * right[0] - back[0] * right[2], back[0] * right[1] - back[1] * right[0]];
-    let l = [
-        right[0] * -0.35 + up[0] * 0.55 + back[0] * 0.75,
-        right[1] * -0.35 + up[1] * 0.55 + back[1] * 0.75,
-        right[2] * -0.35 + up[2] * 0.55 + back[2] * 0.75,
-    ];
-    let m = (l[0] * l[0] + l[1] * l[1] + l[2] * l[2]).sqrt();
-    let light = if m > 0.0 { [l[0] / m, l[1] / m, l[2] / m] } else { [0.0; 3] };
-    let u = [t[1][0] - t[0][0], t[1][1] - t[0][1], t[1][2] - t[0][2]];
-    let v = [t[2][0] - t[0][0], t[2][1] - t[0][1], t[2][2] - t[0][2]];
-    let n = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
-    let nm = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
-    let mut n = if nm > 0.0 { [n[0] / nm, n[1] / nm, n[2] / nm] } else { [0.0; 3] };
-    let eye = cam.eye();
-    let toward = |p: P3| eye.map_or(back, |q| [q[0] - p[0], q[1] - p[1], q[2] - p[2]]);
-    let w = toward(t[0]);
-    if n[0] * w[0] + n[1] * w[1] + n[2] * w[2] < 0.0 {
-        n = [-n[0], -n[1], -n[2]];
-    }
-    let k = 0.62 + 0.38 * (n[0] * light[0] + n[1] * light[1] + n[2] * light[2]).max(0.0);
-    let Rgb(r, g, b) = look.surface(id, base);
-    Color32::from_rgb((f64::from(r) * k).round() as u8, (f64::from(g) * k).round() as u8, (f64::from(b) * k).round() as u8)
-}
-
-/// The fallback colour of a component's mesh: the scene's `view3d::COMPONENT`.
-const MESH_COLOR: Rgb = Rgb(214, 204, 188);
-
-/// The triangles in the order an overlay with no depth buffer must paint them: farthest from the eye first.
-/// `world` places the family's axes in the model, so a rotated or tilted component is ordered where it stands.
-fn far_first(mut tris: Vec<[P3; 3]>, cam: &Camera, world: &dyn Fn(P3) -> P3) -> Vec<[P3; 3]> {
-    let near = |t: &[P3; 3]| t.iter().map(|q| cam.project(world(*q)).2).sum::<f64>();
-    tris.sort_by(|a, b| near(a).total_cmp(&near(b)));
-    tris
-}
-
 /// A Direct Model box's footprint area and volume as the HUD reads them. `Units::area`'s factor for a square metre
 /// is the linear factor squared, so its root is metres or feet per metre and its cube is the volume unit's.
 pub(crate) fn box_reading(units: Units, (w, d, h): (f64, f64, f64)) -> String {
@@ -793,7 +668,7 @@ fn base_point(tool: &Tool) -> Option<P2> {
     match tool {
         Tool::Wall(chain) => chain.last().copied(),
         Tool::Run(_, start) => *start,
-        Tool::DirectModel(Some(first)) => Some(*first),
+        Tool::DirectModel(Some(first)) => Some(first.0),
         _ => None,
     }
 }
@@ -1603,10 +1478,9 @@ impl BimApp {
                 self.place_run_lifted(from.level, at, (from.offset, micron(plane.z - m.elevation(from.level))));
             }
             Tool::Column => self.place_column(plane.level, at, plane.offset),
-            Tool::DirectModel(None) => self.tool = Tool::DirectModel(Some(at)),
-            Tool::DirectModel(Some(first)) => {
-                // Its start's plane, where it was clicked here; else the end's, as a run's.
-                let from = self.orbit.plane.filter(|(p, _)| *p == first).map_or(plane, |(_, p)| p);
+            Tool::DirectModel(None) => self.tool = Tool::DirectModel(Some((at, plane))),
+            Tool::DirectModel(Some((first, from))) => {
+                // The box stands on the plane its first corner was clicked on: the tool carries it.
                 self.place_box(first, at, from.level, from.offset);
                 self.tool = Tool::DirectModel(None);
             }
@@ -1970,8 +1844,7 @@ impl BimApp {
             &mut o.box_height_drag,
             matches!(self.tool, Tool::DirectModel(Some(_))),
             |_| {
-                let Tool::DirectModel(Some(first)) = &self.tool else { return None };
-                let (_, plane) = o.plane.filter(|(p, _)| p == first)?;
+                let Tool::DirectModel(Some((first, plane))) = &self.tool else { return None };
                 let base = crate::structure::direct_height(&model, &self.column_height)?;
                 Some(([first.0, first.1, model.elevation(plane.level) + plane.offset], base))
             },
@@ -1991,16 +1864,19 @@ impl BimApp {
                 if !matches!(self.tool, Tool::PushPull(_)) || sketch_z.is_some() || picking {
                     return None;
                 }
-                let s = latest.and_then(|at| surface(&o.picker, &cam, at)).filter(|s| pushable(&model, s.id))?;
+                let s = latest.and_then(|at| surface(&o.picker, &cam, at)).filter(|s| model.push_form(s.id).is_some())?;
                 self.tool = Tool::PushPull(Some((s.id, s.at)));
                 Some((s.id, s.at, s.normal))
             },
-            |(_, at, n), from, now| cam.along_dir(*n, *at, px(from), px(now)).map(f64::round),
+            |(id, at, n), from, now| {
+                let by = cam.along_dir(*n, *at, px(from), px(now)).map(f64::round)?;
+                crate::pushpull::measure(&model, *id, *at, by)
+            },
         );
         let push_by = push.preview;
         let push_dragged = push.suppressed;
         let mut pushed = None;
-        if let Some(((id, at, _), by)) = push.release
+        if let Some(((id, at, _), (by, _))) = push.release
             && by != 0.0
         {
             pushed = Some((id, at, by));
@@ -2105,7 +1981,7 @@ impl BimApp {
         let p = ui.painter_at(rect);
         // While a Push/Pull drag measures a distance the held component leaves the picture: the overlay below draws
         // the whole pushed mesh in its place, so grow and shrink both show exactly what the release will commit.
-        let hidden = o.push_drag.as_ref().filter(|_| push_by.is_some()).map(|h| h.target().0);
+        let hidden = crate::pushpull::hidden(&o.push_drag, push_by.is_some());
         let shot = Shown { model: &model, scene, cam, tints: &tints, marks: &plane_marks, dragged: reboxed, cut: boxed, caps, hidden };
         if let Some(status) = o.paint(ui.ctx(), &p, &mut self.card, mesh.as_ref(), shot) {
             self.status = status;
@@ -2277,7 +2153,13 @@ impl BimApp {
         let drawing = draws_on_faces(&self.tool) && sketch_z.is_none();
         let pushing = matches!(self.tool, Tool::PushPull(_)) && sketch_z.is_none();
         let last3 = o.plane.filter(|(q, _)| base_point(&self.tool) == Some(*q));
-        let held = last3.filter(|_| matches!(self.tool, Tool::Wall(_) | Tool::DirectModel(_))).map(|(_, p)| p);
+        // The plane a Direct Model box draws on rides its first corner in the tool; a wall chain keeps its last
+        // plane in the view's slot. The tool's own reads first, so no click elsewhere can move the box's.
+        let box_plane = match &self.tool {
+            Tool::DirectModel(Some((_, p))) => Some(*p),
+            _ => None,
+        };
+        let held = box_plane.or_else(|| last3.filter(|_| matches!(self.tool, Tool::Wall(_))).map(|(_, p)| p));
         let fallback = last3.filter(|_| matches!(self.tool, Tool::Run(..))).map(|(_, p)| p);
         let aimed = |picker: &Option<Picker>, at: Pos2| -> Option<(P3, CursorPlane, Found)> {
             let under = picker.as_ref().and_then(|k| k.surface(Some(scene), &cam, px(at)));
@@ -2289,8 +2171,15 @@ impl BimApp {
             && let at = screen(q)
             && at.is_finite()
         {
-            // The point before, at the height of the plane it went on.
-            let before = base_point(&self.tool).map(|b| [b.0, b.1, last3.map_or(plane.z, |(_, p)| p.z)]);
+            // The point before, at the height of the plane it went on: the tool's own plane for a Direct Model box,
+            // the view's slot for a wall chain.
+            let before = base_point(&self.tool).map(|b| {
+                let z = match &self.tool {
+                    Tool::DirectModel(Some((_, p))) => p.z,
+                    _ => last3.map_or(plane.z, |(_, p)| p.z),
+                };
+                [b.0, b.1, z]
+            });
             if let Some(b) = before
                 && let from = screen(b)
                 && from.is_finite()
@@ -2299,11 +2188,12 @@ impl BimApp {
                 let long = P2(b[0], b[1]).dist(P2(q[0], q[1])).hypot(q[2] - b[2]);
                 crate::canvas::tag(&p, at + vec2(12.0, -12.0), egui::Align2::LEFT_BOTTOM, model.units.with_unit(long));
             }
-            // A Direct Model box between its two clicks: the wireframe it will make, from the same box the commit makes.
-            if let Tool::DirectModel(Some(first)) = &self.tool
+            // A Direct Model box between its two clicks: the wireframe it will make, from the same box the commit makes,
+            // on the plane the tool carries — not the one the cursor is over now.
+            if let Tool::DirectModel(Some((first, box_plane))) = &self.tool
                 && let Some(height) = crate::structure::direct_height(&model, &self.column_height)
             {
-                let bottom = model.elevation(plane.level) + plane.offset;
+                let bottom = model.elevation(box_plane.level) + box_plane.offset;
                 let (lo, hi) = crate::structure::direct_box(*first, P2(q[0], q[1]), bottom, height);
                 for [a, b] in view3d::box_edges((lo, hi)).into_iter().filter_map(|[a, b]| cam.in_front(a, b)) {
                     p.line_segment([screen(a), screen(b)], Stroke::new(1.0, pal().accent));
@@ -2324,84 +2214,21 @@ impl BimApp {
             };
             crate::canvas::tag(&p, at + vec2(12.0, 14.0), egui::Align2::LEFT_TOP, name);
         }
-        // The face Push/Pull holds — or, before one is held, the one under the cursor, so the pick looks like it will
-        // land — filled where it stands, and what's typed beside it: the tool's on-canvas feedback while it waits for
-        // a distance. The face comes back through the same form_point the command will take, and a hover lights only
-        // what a click would take: the same `surface` the click asks, gated by `pushable`.
-        // shortcut: the face is re-derived from the point every frame (a weld over the form's triangles), carried from
-        // the pick instead by M0.2's face id; a held Direct Model box is 12 triangles, a 100k import is not.
-        let lit_face = match &self.tool {
-            Tool::PushPull(Some((id, at))) => Some((*id, *at)),
-            Tool::PushPull(None) if sketch_z.is_none() && !picking => hover
-                .filter(|_| o.drag.is_none())
-                .and_then(|at| surface(&o.picker, &cam, at))
-                .filter(|s| pushable(&model, s.id))
-                .map(|s| (s.id, s.at)),
-            _ => None,
+        // The Push/Pull gesture's paint — the face held or under the cursor, the pushed mesh while a drag runs, the
+        // reading beside it — in its own module; the view hands over what the frame holds.
+        let push_paint = crate::pushpull::Paint {
+            model: &model,
+            cam: &cam,
+            look3: &look3,
+            p: &p,
+            screen: &screen,
+            under: &|at| surface(&o.picker, &cam, at),
+            ppp,
+            hover,
+            drag_idle: o.drag.is_none(),
+            sketch_free: sketch_z.is_none() && !picking,
         };
-        if let Some((id, at)) = lit_face
-            && let Some(local) = model.form_point(id, at)
-            && let Some(Element::Component(c)) = model.elements.get(id)
-            && let Some(form) = model.families.get(&c.family).and_then(|f| f.forms.iter().find(|form| !form.mesh.is_empty()))
-            && let Ok(face) = bimcraft_core::mesh::face_at(&form.mesh, local)
-        {
-            let placement = model.component_placement(c);
-            let world = |q: P3| placement.place(if c.mirrored { [q[0], -q[1], q[2]] } else { q });
-            let in_style = look3.style() == VisualStyle::Shaded;
-            let [r, g, b, _] = pal().accent.to_array();
-            // A quarter's accent: the face keeps its own colour, yet the pick still reads on a light and a dark canvas.
-            let fill = egui::Color32::from_rgba_unmultiplied(r, g, b, 25);
-            // The face held or under the cursor: a quiet promise of the pick, in the view's own style. Once the drag
-            // measures a distance the moving mesh is the feedback, and the old face is out of the picture.
-            if in_style && o.push_drag.is_none() {
-                for i in &face.tris {
-                    let pts: Vec<egui::Pos2> = form.mesh[*i].iter().map(|q| screen(world(*q))).collect();
-                    if pts.iter().all(|s| s.is_finite()) {
-                        p.add(egui::Shape::convex_polygon(pts, fill, egui::Stroke::NONE));
-                    }
-                }
-            }
-            // Where the face would land if the drag let go here: the very mesh the commit will make, shaded as the
-            // model is and edged where its faces meet, so a sheet rising into a solid reads as the solid it becomes.
-            if let (Some(by), Some(h)) = (push_by.filter(|_| o.push_drag.is_some()), o.push_drag.clone()) {
-                let n = h.target().2;
-                let (by, out) = clamped_push(&form.mesh, &face, by);
-                let base = model.materials.get(&form.material).map_or(MESH_COLOR, |m| Rgb(m.color[0], m.color[1], m.color[2]));
-                let edges = preview_edges(&out);
-                if in_style {
-                    // The whole pushed mesh, not just what changed: the component itself is hidden, so every face
-                    // must be drawn. egui paints in add order, so far faces go first — an overlay has no depth buffer.
-                    for t in far_first(out, &cam, &world) {
-                        let pts: Vec<egui::Pos2> = t.iter().map(|q| screen(world(*q))).collect();
-                        if pts.iter().all(|s| s.is_finite()) {
-                            let world_t = t.map(world);
-                            p.add(egui::Shape::convex_polygon(pts, shaded(&world_t, &cam, id, base, &look3), egui::Stroke::NONE));
-                        }
-                    }
-                }
-                let edge = color(look3.edge(id, view3d::EDGE));
-                for [a, b] in edges {
-                    let (a, b) = (screen(world(a)), screen(world(b)));
-                    if a.is_finite() && b.is_finite() {
-                        p.line_segment([a, b], Stroke::new(1.0 / ppp.max(1.0), edge));
-                    }
-                }
-                let read = screen([at[0] + n[0] * by, at[1] + n[1] * by, at[2] + n[2] * by]);
-                if read.is_finite() {
-                    crate::canvas::tag(&p, read + vec2(12.0, -12.0), egui::Align2::LEFT_BOTTOM, model.units.with_unit(by));
-                }
-            }
-            // A held face reads its distance from the first frame, zero until digits arrive: the tag is the tool's
-            // feedback while it waits, not a reward for typing. A hover has no pick to measure yet, so no tag there.
-            if matches!(self.tool, Tool::PushPull(Some(_))) {
-                let text = if self.typed_length.is_empty() {
-                    model.units.with_unit(0.0)
-                } else {
-                    model.units.parse(&self.typed_length).map_or_else(|| self.typed_length.clone(), |d| model.units.with_unit(d))
-                };
-                crate::canvas::tag(&p, screen(at) + vec2(12.0, -12.0), egui::Align2::LEFT_BOTTOM, text);
-            }
-        }
+        crate::pushpull::paint(&self.tool, &self.typed_length, &o.push_drag, push_by, &push_paint);
         // Where a click lands on the floor being shaped, in plan: a point or corner within reach of it, else on an edge within
         // reach (the edge, to light up), else its top there.
         let snapped = |at: Pos2| -> Option<(P2, Option<[P3; 2]>, Option<bimcraft_core::view3d::ShapeSnap>)> {
@@ -2586,7 +2413,7 @@ impl BimApp {
                         Status { text: t("Pick a face of a wall, a floor, a ceiling or a roof to place it on.").into(), error: true }
                 }
             },
-            Some(_) if pushing => match push_target.filter(|s| pushable(&model, s.id)) {
+            Some(_) if pushing => match push_target.filter(|s| model.push_form(s.id).is_some()) {
                 Some(s) => self.tool = Tool::PushPull(Some((s.id, s.at))),
                 None => self.status = Status { text: t("Pick a face of a mesh component to push or pull it.").into(), error: true },
             },
@@ -2696,17 +2523,8 @@ impl BimApp {
         if let Some((qs, by)) = raise {
             self.shape_raise_all(&qs, by);
         }
-        // A Push/Pull drag let go: the face moves by what the drag showed. Esc or a tool switch during the drag let
-        // go of the pick first, and the push goes with it - keeping whatever tool the user chose instead.
-        if let Some((id, at, by)) = pushed
-            && let Tool::PushPull(Some((held, _))) = &self.tool
-            && held == &id
-        {
-            // The release commits exactly what the preview drew, including where an inside-out push was clamped.
-            let by = push_clamp(&model, id, at, by);
-            self.run("mesh_push_pull", json!({"component": id, "at": at, "distance": by}));
-            self.tool = Tool::PushPull(None);
-        }
+        // A Push/Pull drag let go: the face moves by what the drag showed (the module owns the gesture).
+        self.push_release(pushed);
         if let Some((landed, at)) = landed {
             match (&self.tool, landed) {
                 (Tool::ModifySubElements, _) => {
@@ -3241,74 +3059,5 @@ mod worker_measurements {
         if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
             eprintln!("{}", status.lines().filter(|l| l.starts_with("VmHWM") || l.starts_with("VmRSS")).collect::<Vec<_>>().join(", "));
         }
-    }
-}
-
-#[cfg(test)]
-mod push_preview_tests {
-    use super::*;
-
-    /// A square 1000 mm a side at height `z`, its two triangles facing up.
-    fn pane(z: f64) -> Vec<[P3; 3]> {
-        let p = [[0.0, 0.0, z], [1000.0, 0.0, z], [1000.0, 1000.0, z], [0.0, 1000.0, z]];
-        vec![[p[0], p[1], p[2]], [p[0], p[2], p[3]]]
-    }
-
-    #[test]
-    fn a_sheet_pushed_draws_the_solid_it_becomes_not_a_teleporting_face() {
-        let sheet = pane(0.0);
-        let face = bimcraft_core::mesh::face_at(&sheet, [500.0, 500.0, 0.0]).unwrap();
-        let (_, out) = clamped_push(&sheet, &face, 500.0);
-        // The core push makes a 12-triangle solid; the preview draws what it made, not the sheet slid upward.
-        assert_eq!(out.len(), 12, "{out:?}");
-        assert_eq!(out.iter().flatten().map(|p| p[2]).fold(f64::MIN, f64::max), 500.0);
-    }
-
-    /// The 1 m mesh box the 3D-view tests use, as triangles.
-    fn box_tris() -> Vec<[P3; 3]> {
-        let p = [
-            [0.0, 0.0, 0.0],
-            [1000.0, 0.0, 0.0],
-            [1000.0, 1000.0, 0.0],
-            [0.0, 1000.0, 0.0],
-            [0.0, 0.0, 1000.0],
-            [1000.0, 0.0, 1000.0],
-            [1000.0, 1000.0, 1000.0],
-            [0.0, 1000.0, 1000.0],
-        ];
-        [[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]]
-            .iter()
-            .map(|t| [p[t[0]], p[t[1]], p[t[2]]])
-            .collect()
-    }
-
-    #[test]
-    fn a_box_face_pushed_draws_the_moved_face_and_its_stretched_neighbours() {
-        let box_tris = box_tris();
-        let face = bimcraft_core::mesh::face_at(&box_tris, [500.0, 500.0, 1000.0]).unwrap();
-        let (_, out) = clamped_push(&box_tris, &face, 500.0);
-        assert_eq!(out.len(), box_tris.len());
-        assert!(out.iter().flatten().any(|p| p[2] == 1500.0), "{out:?}");
-    }
-
-    #[test]
-    fn far_to_near_orders_the_placed_triangles_not_the_family_axes() {
-        let cam = Camera { azimuth: -45.0, elevation: 30.0, scale: 0.5, target: [0.0; 3], width: 640, height: 480, lens: None };
-        let east = [[100.0, 0.0, 0.0], [110.0, 0.0, 0.0], [100.0, 10.0, 0.0]];
-        let west = [[-100.0, 0.0, 0.0], [-110.0, 0.0, 0.0], [-100.0, 10.0, 0.0]];
-        // A half turn about z puts the family's east triangle at the model's west, farther from the eye.
-        let turn = |q: P3| [-q[0], -q[1], q[2]];
-        let order = far_first(vec![west, east], &cam, &turn);
-        assert_eq!(order[0], east, "the triangle farther after placement must be painted first");
-    }
-
-    #[test]
-    fn a_push_past_inside_out_is_clamped_to_the_last_distance_that_still_makes_the_solid() {
-        let box_tris = box_tris();
-        let face = bimcraft_core::mesh::face_at(&box_tris, [500.0, 500.0, 1000.0]).unwrap();
-        assert!(bimcraft_core::mesh::push(&box_tris, &face, -1000.0).is_err());
-        let (by, out) = clamped_push(&box_tris, &face, -1000.0);
-        assert!(by > -1000.0 && by < 0.0, "the clamp was {by}");
-        assert!(!out.is_empty());
     }
 }

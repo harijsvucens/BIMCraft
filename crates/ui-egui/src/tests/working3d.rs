@@ -460,6 +460,147 @@ fn a_held_face_reads_zero_before_anything_is_typed() {
     }
 }
 
+/// A drag hides the whole component, so the overlay must stand in for every mesh form of the family, not only the one
+/// the push reaches: a two-material import is two forms, and while one is pushed the other must stay in the picture.
+#[test]
+fn a_push_pull_drag_keeps_the_family_s_other_parts_in_the_picture() {
+    // A directory of our own: CI's temp dir has no `opencode` folder, and a fixed file name would collide between runs.
+    let dir = std::env::temp_dir().join(format!("bimcraft-ui-two-parts-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let obj = dir.join("two-parts.obj");
+    let mtl = dir.join("two-parts.mtl");
+    let mut text = String::from("mtllib two-parts.mtl\no Two\n");
+    // A cube a metre each way, its points and faces as `MESH_BOX`'s are: the proven order, so the mesh closes a solid
+    // and a push of its top goes.
+    const PTS: [[f64; 3]; 8] = [
+        [0.0, 0.0, 0.0],
+        [1000.0, 0.0, 0.0],
+        [1000.0, 1000.0, 0.0],
+        [0.0, 1000.0, 0.0],
+        [0.0, 0.0, 1000.0],
+        [1000.0, 0.0, 1000.0],
+        [1000.0, 1000.0, 1000.0],
+        [0.0, 1000.0, 1000.0],
+    ];
+    const FACES: [[usize; 3]; 12] = [
+        [0, 2, 1],
+        [0, 3, 2],
+        [4, 5, 6],
+        [4, 6, 7],
+        [0, 1, 5],
+        [0, 5, 4],
+        [1, 2, 6],
+        [1, 6, 5],
+        [2, 3, 7],
+        [2, 7, 6],
+        [3, 0, 4],
+        [3, 4, 7],
+    ];
+    for (half, name, base) in [(0.0, "A", 0usize), (2000.0, "B", 8usize)] {
+        text.push_str(&format!("usemtl {name}\n"));
+        for p in PTS {
+            text.push_str(&format!("v {} {} {}\n", half + p[0], p[1], p[2]));
+        }
+        for f in FACES {
+            text.push_str(&format!("f {} {} {}\n", f[0] + base + 1, f[1] + base + 1, f[2] + base + 1));
+        }
+    }
+    std::fs::write(&obj, &text).unwrap();
+    std::fs::write(&mtl, "newmtl A\nKd 0.8 0.2 0.2\nnewmtl B\nKd 0.2 0.2 0.8\n").unwrap();
+    let script = format!("import_mesh {}", json!({"path": obj.to_string_lossy(), "at": [0, 0], "units": "mm", "up": "z"}));
+    for (name, mut h) in views(&script) {
+        assert_eq!(h.state().session.model.families["Two"].forms.len(), 2, "{name}: two materials, two mesh forms");
+        h.state_mut().set_tool(Tool::PushPull(None));
+        // Part A's top face, and part B's middle, a metre of air apart: their pixels are apart too.
+        let at = h.state().screen3([500.0, 500.0, 1000.0]);
+        let other = h.state().screen3([2500.0, 500.0, 500.0]);
+        h.hover_at(at);
+        h.run();
+        let bare = h.render().unwrap();
+        // Press part A's top and drag it upward, the way drag_screen does but with the drag held mid-way: while it
+        // runs, part B stays in the picture. A card shades a pixel its own rounding's way, so a small drift is not a
+        // vanishing part; the box stays inside the face, off its edges, where the ink is the same either way.
+        h.event(Event::PointerButton { pos: at, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+        h.run();
+        h.hover_at(at + vec2(0.0, -30.0));
+        h.run();
+        assert!(
+            matches!(&h.state().tool, Tool::PushPull(Some(_))),
+            "{name}: the press at {at:?} picked nothing: {}",
+            h.state().status.text
+        );
+        h.hover_at(at + vec2(0.0, -90.0));
+        h.run();
+        let during = h.render().unwrap();
+        let (x0, y0) = ((other.x - 25.0).max(0.0) as u32, (other.y - 18.0).max(0.0) as u32);
+        let (x1, y1) = ((other.x + 25.0).min(bare.width() as f32 - 1.0) as u32, (other.y + 18.0).min(bare.height() as f32 - 1.0) as u32);
+        // What the test means: the part keeps its ink. The overlay paints a triangle at a time, so the seams along a
+        // face's inner diagonal blend a shade off the scene's own fill — ink either way, not a vanishing part. A pixel
+        // counts only where the scene had ink and the drag left the canvas's ground: a part gone is a thousand, a kept
+        // one none.
+        let bg = bare
+            .get_pixel(
+                ((h.state().orbit.rect.min.x + 8.0) as u32).min(bare.width() - 1),
+                ((h.state().orbit.rect.min.y + 8.0) as u32).min(bare.height() - 1),
+            )
+            .0;
+        let far = |p: &[u8; 4]| p.iter().zip(bg.iter()).map(|(u, v)| u.abs_diff(*v)).max().unwrap_or(0);
+        let gone = (x0..x1)
+            .flat_map(|x| (y0..y1).map(move |y| (x, y)))
+            .filter(|&(x, y)| far(&bare.get_pixel(x, y).0) > 30 && far(&during.get_pixel(x, y).0) < 30)
+            .count();
+        assert!(gone < 40, "{name}: the drag blanked {gone} pixels of the part it is not pushing");
+        // The release commits the push it showed.
+        h.event(Event::PointerButton {
+            pos: at + vec2(0.0, -90.0),
+            button: PointerButton::Primary,
+            pressed: false,
+            modifiers: Modifiers::NONE,
+        });
+        h.run();
+        assert!(!h.state().status.error, "{name}: {}", h.state().status.text);
+        let mesh = &h.state().session.model.families["Two"].forms[0].mesh;
+        let top = mesh.iter().flatten().map(|p| p[2]).fold(f64::MIN, f64::max);
+        assert!(top > 1000.0, "{name}: the drag left the top at {top}");
+    }
+    let _ = std::fs::remove_file(obj);
+    let _ = std::fs::remove_file(mtl);
+    let _ = std::fs::remove_dir(dir);
+}
+
+/// The Direct Model box stands on the plane its first corner was clicked on: the opposite corner aimed over empty
+/// space lands where that plane puts the view's ray, not where the view's default level would — a metre and a half
+/// away here. The tool carries its plane, so the preview and the commit agree wherever the pointer roams.
+#[test]
+fn a_direct_model_box_stands_on_its_first_click_s_plane() {
+    for (name, mut h) in views(MESH_BOX) {
+        h.state_mut().set_tool(Tool::DirectModel(None));
+        // The first corner on the box's top face, a plane a metre over its level's.
+        let first = h.state().screen3([400.0, 400.0, 1000.0]);
+        click_at(&mut h, first);
+        // The plane is a fact of the tool now, not something recovered by matching a corner against the view's slot.
+        let Tool::DirectModel(Some((corner, plane))) = &h.state().tool else { panic!("{name}: the first corner was not taken") };
+        assert!((corner.0 - 400.0).abs() < 1.0 && (corner.1 - 400.0).abs() < 1.0, "{name}: the tool kept corner {corner:?}");
+        assert!((plane.z - 1000.0).abs() < 1.0, "{name}: the tool's plane is at z {}, not the face's 1000", plane.z);
+        // The opposite corner over empty space beyond the box, on the first plane's z: the ray through this pixel
+        // meets the level's plane (z = 0) far to the south-west of where it meets z = 1000.
+        let far = h.state().screen3([2500.0, 700.0, 1000.0]);
+        click_at(&mut h, far);
+        let m = &h.state().session.model;
+        let Element::Component(c) = m.elements.values().next_back().unwrap() else { panic!("{name}: no component") };
+        // The family's mesh is centred on the box's middle and the component carries it back: the plan extents in the model.
+        let mesh = &m.families[&c.family].forms[0].mesh;
+        let (lo, hi) = mesh
+            .iter()
+            .flatten()
+            .fold(([f64::MAX; 2], [f64::MIN; 2]), |(lo, hi), p| ([lo[0].min(p[0]), lo[1].min(p[1])], [hi[0].max(p[0]), hi[1].max(p[1])]));
+        let (west, east, south, north) = (c.at.0 + lo[0], c.at.0 + hi[0], c.at.1 + lo[1], c.at.1 + hi[1]);
+        assert!((east - 2500.0).abs() < 60.0, "{name}: the box reaches x {east}, not the first plane's 2500");
+        assert!((north - 700.0).abs() < 60.0, "{name}: the box reaches y {north}, not the first plane's 700");
+        assert!(west > 300.0 && south > 300.0, "{name}: the box stands at ({west}, {south})");
+    }
+}
+
 /// The faint held tint still reads against both grounds, the light canvas's and the dark one's: the tool once looked
 /// dead for having no feedback, so the alpha-0 baseline and the tint must differ on either.
 #[test]

@@ -69,6 +69,7 @@ mod presets;
 mod projectinfo;
 mod properties;
 mod purge;
+mod pushpull;
 pub mod recent;
 mod reinforce;
 mod renames;
@@ -300,9 +301,9 @@ pub enum Tool {
     Shaft(Option<P2>),
     /// A mass: the corners of its footprint, as clicked so far.
     Mass(Vec<P2>),
-    /// A free-form mesh box drawn in the 3D view from two opposite corners on a level face: its first corner, once clicked.
-    /// Direct Model's first creation path.
-    DirectModel(Option<P2>),
+    /// A free-form mesh box drawn in the 3D view from two opposite corners on the plane its first corner was clicked
+    /// on: the first corner and that plane, once clicked. Direct Model's first creation path.
+    DirectModel(Option<(P2, bimcraft_core::workplane::CursorPlane)>),
     /// Push/Pull on a mesh face in the 3D view: the component and the world point picked, waiting for a typed distance.
     PushPull(Option<(Id, P3)>),
     /// A detail line in the Options Bar's line style: its points, as clicked so far.

@@ -8518,11 +8518,7 @@ fn mesh_form(c: &str, p: &Value, m: &Model, family: &str) -> Result<usize, Strin
             }
             Ok(n)
         }
-        None => f
-            .forms
-            .iter()
-            .position(|form| !form.mesh.is_empty())
-            .ok_or_else(|| bad(c, format!("`{family}` has no mesh: its forms are sketches"))),
+        None => f.first_mesh().ok_or_else(|| bad(c, format!("`{family}` has no mesh: its forms are sketches"))),
     }
 }
 

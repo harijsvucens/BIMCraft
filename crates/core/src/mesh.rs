@@ -79,6 +79,41 @@ pub fn face_of(tris: &[[P3; 3]], id: usize) -> Result<TopoFace, String> {
     faces(tris).into_iter().find(|f| f.id == id).ok_or_else(|| format!("this mesh has no flat face {id}: `mesh_check` lists them"))
 }
 
+/// One directed side of a triangle as `edges` groups it: its welded ends, the surface it belongs to, and where it stands.
+type Side = ([i64; 3], [i64; 3], Option<(bool, usize)>, [P3; 2]);
+
+/// The edges a drawing shows on these triangles: a side walked once (a boundary), and one whose two sides lie in
+/// different surfaces — the surfaces [`facets`] makes, which the picture's own edges use, so what a preview shows is
+/// what the picture draws. A bend the surfaces merge along draws no edge, whatever a normal's dot product would say.
+pub fn edges(tris: &[[P3; 3]]) -> Vec<[P3; 2]> {
+    let (curves, faces) = facets(tris);
+    let surface = |i: usize| -> Option<(bool, usize)> {
+        if let Some(f) = faces.get(i).copied().flatten() { Some((false, f)) } else { curves.get(i).copied().flatten().map(|c| (true, c)) }
+    };
+    let key = |p: P3| p.map(|x| (x * 1e3).round() as i64);
+    let mut sides: Vec<Side> = Vec::with_capacity(tris.len() * 3);
+    for (i, t) in tris.iter().enumerate() {
+        let of = surface(i);
+        for k in 0..3 {
+            let (a, b) = (t[k], t[(k + 1) % 3]);
+            let (qa, qb) = (key(a), key(b));
+            if qa == qb {
+                continue;
+            }
+            sides.push((qa.min(qb), qa.max(qb), of, [a, b]));
+        }
+    }
+    sides.sort_unstable_by_key(|s| (s.0, s.1));
+    let mut out = Vec::new();
+    for on in sides.chunk_by(|a, b| (a.0, a.1) == (b.0, b.1)) {
+        let one_surface = on.len() == 2 && on[0].2.is_some() && on[0].2 == on[1].2;
+        if !one_surface && let Some(s) = on.first() {
+            out.push(s.3);
+        }
+    }
+    out
+}
+
 /// The surface `group`'s triangles cover, mm².
 fn area(tris: &[[P3; 3]], group: &[usize]) -> f64 {
     group
@@ -572,6 +607,33 @@ pub fn push(tris: &[[P3; 3]], face: &TopoFace, distance: f64) -> Result<Vec<[P3;
     Ok(out)
 }
 
+/// The largest push toward `by` the mesh allows, and the triangles it makes: [`push`] refuses a solid turned inside out
+/// and [`measure`] a fold, so a bisection from zero finds the last distance that keeps both. A preview draws what this
+/// returns and a release commits the distance with it, so what is shown is what is made.
+pub fn push_clamped(tris: &[[P3; 3]], face: &TopoFace, by: f64) -> (f64, Vec<[P3; 3]>) {
+    let valid = |d: f64| {
+        let out = push(tris, face, d).ok()?;
+        measure(&out).ok()?;
+        Some(out)
+    };
+    if let Some(out) = valid(by) {
+        return (by, out);
+    }
+    let (mut lo, mut hi) = (0.0, by);
+    let mut made = Vec::new();
+    for _ in 0..20 {
+        let mid = (lo + hi) / 2.0;
+        match valid(mid) {
+            Some(out) => {
+                lo = mid;
+                made = out;
+            }
+            None => hi = mid,
+        }
+    }
+    (lo, made)
+}
+
 /// `tris` with `face` raised `distance` mm into a solid and the face left as its near end, its copy standing at the far one,
 /// with a wall of two triangles along each of `rim`'s edges: what a sheet becomes when a hand pulls it up, off either side.
 fn extrude(tris: &[[P3; 3]], keys: &[[Corner; 3]], face: &TopoFace, rim: &[OnRim], distance: f64) -> Result<Vec<[P3; 3]>, String> {
@@ -855,5 +917,69 @@ mod tests {
         assert!(e.contains("curved side"), "{e}");
         let top = face_at(&tris, [0.0, 0.0, 1000.0]).expect("its cap");
         assert_eq!(top.tris.len(), n - 2, "the whole cap is one face");
+    }
+
+    #[test]
+    fn a_prisms_strips_are_one_surface_so_its_sides_draw_no_edges_and_its_rims_do() {
+        // The 24-sided prism above: the picture draws its rims and nothing down a side, so a preview of it must not
+        // either. The preview's old rule (a normal's dot short of 0.999, a 2.6-degree turn) drew a strip edge at every
+        // 15-degree bend, which the committed picture never did.
+        let n = 24;
+        let ring = |z: f64| -> Vec<P3> {
+            (0..n)
+                .map(|k| {
+                    let a = k as f64 * std::f64::consts::TAU / n as f64;
+                    [1000.0 * a.cos(), 1000.0 * a.sin(), z]
+                })
+                .collect()
+        };
+        let (lo, hi) = (ring(0.0), ring(1000.0));
+        let mut tris = Vec::new();
+        for k in 0..n {
+            let (a, b) = (k, (k + 1) % n);
+            tris.push([lo[a], lo[b], hi[b]]);
+            tris.push([lo[a], hi[b], hi[a]]);
+        }
+        for k in 1..n - 1 {
+            tris.push([lo[0], lo[k + 1], lo[k]]);
+            tris.push([hi[0], hi[k], hi[k + 1]]);
+        }
+        let drawn = edges(&tris);
+        assert_eq!(drawn.len(), 2 * n, "each ring's rim, and nothing else");
+        assert!(drawn.iter().all(|[a, b]| (a[2] - b[2]).abs() < 1e-9), "no edge runs down a side");
+    }
+
+    #[test]
+    fn a_bend_the_surfaces_merge_along_draws_no_edge_between_the_two() {
+        // Two triangles meeting at 5.7 degrees, under the 20 the surfaces merge at: one surface, so the edge they share
+        // is not drawn. The preview's old rule drew it — 0.995 is short of its 0.999 — while the picture did not.
+        let a = [[0.0, 0.0, 0.0], [0.0, 1000.0, 0.0], [1000.0, 0.0, 0.0]];
+        let b = [[0.0, 1000.0, 0.0], [0.0, 0.0, 0.0], [-995.1, 500.0, -99.6]];
+        let drawn = edges(&[a, b]);
+        assert_eq!(drawn.len(), 4, "each triangle's two outer sides");
+        assert!(
+            !drawn.iter().any(|[p, q]| p[0].abs() < 1e-9 && q[0].abs() < 1e-9 && p[2].abs() < 1e-9 && q[2].abs() < 1e-9),
+            "the edge they share is not drawn"
+        );
+    }
+
+    #[test]
+    fn a_push_past_inside_out_is_clamped_to_the_last_distance_that_still_makes_the_solid() {
+        let tris = box_tris(1000.0);
+        let face = face_at(&tris, [500.0, 500.0, 1000.0]).expect("the top");
+        assert!(push(&tris, &face, -1000.0).is_err());
+        let (by, out) = push_clamped(&tris, &face, -1000.0);
+        assert!(by > -1000.0 && by < 0.0, "the clamp was {by}");
+        assert!(!out.is_empty(), "the triangles the clamp found, for a preview to draw");
+    }
+
+    #[test]
+    fn a_clamped_push_that_fits_is_the_push_itself() {
+        let sheet = pane(1000.0, 0.0);
+        let face = face_at(&sheet, [500.0, 500.0, 0.0]).expect("the sheet's face");
+        let (by, out) = push_clamped(&sheet, &face, 500.0);
+        assert_eq!(by, 500.0, "nothing to clamp");
+        assert_eq!(out.len(), 12, "the core push makes the solid a preview draws");
+        assert_eq!(out.iter().flatten().map(|p| p[2]).fold(f64::MIN, f64::max), 500.0);
     }
 }

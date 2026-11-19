@@ -1797,6 +1797,12 @@ fn renamed_in_label(value: &str, from: &str, to: &str) -> String {
 }
 
 impl Family {
+    /// The form a mesh edit reaches when none is named: the first with a mesh. The one home of that default, so a
+    /// command and a view that ask after it cannot disagree.
+    pub fn first_mesh(&self) -> Option<usize> {
+        self.forms.iter().position(|form| !form.mesh.is_empty())
+    }
+
     /// Each material it names, given to `f`, which may put another in its place: its material parameters' values, its
     /// types' values of them, and its forms' materials (a form made of a material parameter names that, which is no
     /// material's name).
@@ -3637,6 +3643,17 @@ mod tests {
 
     fn with<'a>(values: &'a [(&'a str, f64)]) -> impl FnMut(&str) -> Result<f64, String> + 'a {
         move |n: &str| values.iter().find(|(k, _)| *k == n).map(|(_, v)| *v).ok_or_else(|| format!("no `{n}`"))
+    }
+
+    #[test]
+    fn a_family_s_first_mesh_form_is_what_a_mesh_edit_reaches() {
+        let mut f = Family::default();
+        assert_eq!(f.first_mesh(), None, "a family of sketches only has no form a push reaches");
+        f.forms.push(Form::default());
+        assert_eq!(f.first_mesh(), None, "a sketch form is no mesh");
+        let meshed = Form { mesh: Arc::new(vec![[[0.0; 3]; 3]; 1]), ..Form::default() };
+        f.forms.push(meshed);
+        assert_eq!(f.first_mesh(), Some(1), "the first form with a mesh, counted from 0");
     }
 
     #[test]
