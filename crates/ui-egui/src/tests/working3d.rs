@@ -565,6 +565,36 @@ fn a_push_pull_drag_keeps_the_family_s_other_parts_in_the_picture() {
     let _ = std::fs::remove_file(mtl);
 }
 
+/// The Direct Model box stands on the plane its first corner was clicked on: the opposite corner aimed over empty
+/// space lands where that plane puts the view's ray, not where the view's default level would — a metre and a half
+/// away here. The tool carries its plane, so the preview and the commit agree wherever the pointer roams.
+#[test]
+fn a_direct_model_box_stands_on_its_first_click_s_plane() {
+    for (name, mut h) in views(MESH_BOX) {
+        h.state_mut().set_tool(Tool::DirectModel(None));
+        // The first corner on the box's top face, a plane a metre over its level's.
+        let first = h.state().screen3([400.0, 400.0, 1000.0]);
+        click_at(&mut h, first);
+        assert!(matches!(&h.state().tool, Tool::DirectModel(Some(_))), "{name}: the first corner was not taken");
+        // The opposite corner over empty space beyond the box, on the first plane's z: the ray through this pixel
+        // meets the level's plane (z = 0) far to the south-west of where it meets z = 1000.
+        let far = h.state().screen3([2500.0, 700.0, 1000.0]);
+        click_at(&mut h, far);
+        let m = &h.state().session.model;
+        let Element::Component(c) = m.elements.values().next_back().unwrap() else { panic!("{name}: no component") };
+        // The family's mesh is centred on the box's middle and the component carries it back: the plan extents in the model.
+        let mesh = &m.families[&c.family].forms[0].mesh;
+        let (lo, hi) = mesh
+            .iter()
+            .flatten()
+            .fold(([f64::MAX; 2], [f64::MIN; 2]), |(lo, hi), p| ([lo[0].min(p[0]), lo[1].min(p[1])], [hi[0].max(p[0]), hi[1].max(p[1])]));
+        let (west, east, south, north) = (c.at.0 + lo[0], c.at.0 + hi[0], c.at.1 + lo[1], c.at.1 + hi[1]);
+        assert!((east - 2500.0).abs() < 60.0, "{name}: the box reaches x {east}, not the first plane's 2500");
+        assert!((north - 700.0).abs() < 60.0, "{name}: the box reaches y {north}, not the first plane's 700");
+        assert!(west > 300.0 && south > 300.0, "{name}: the box stands at ({west}, {south})");
+    }
+}
+
 /// The faint held tint still reads against both grounds, the light canvas's and the dark one's: the tool once looked
 /// dead for having no feedback, so the alpha-0 baseline and the tint must differ on either.
 #[test]

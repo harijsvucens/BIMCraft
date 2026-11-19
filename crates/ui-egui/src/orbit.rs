@@ -695,7 +695,7 @@ fn base_point(tool: &Tool) -> Option<P2> {
     match tool {
         Tool::Wall(chain) => chain.last().copied(),
         Tool::Run(_, start) => *start,
-        Tool::DirectModel(Some(first)) => Some(*first),
+        Tool::DirectModel(Some(first)) => Some(first.0),
         _ => None,
     }
 }
@@ -1505,10 +1505,9 @@ impl BimApp {
                 self.place_run_lifted(from.level, at, (from.offset, micron(plane.z - m.elevation(from.level))));
             }
             Tool::Column => self.place_column(plane.level, at, plane.offset),
-            Tool::DirectModel(None) => self.tool = Tool::DirectModel(Some(at)),
-            Tool::DirectModel(Some(first)) => {
-                // Its start's plane, where it was clicked here; else the end's, as a run's.
-                let from = self.orbit.plane.filter(|(p, _)| *p == first).map_or(plane, |(_, p)| p);
+            Tool::DirectModel(None) => self.tool = Tool::DirectModel(Some((at, plane))),
+            Tool::DirectModel(Some((first, from))) => {
+                // The box stands on the plane its first corner was clicked on: the tool carries it.
                 self.place_box(first, at, from.level, from.offset);
                 self.tool = Tool::DirectModel(None);
             }
@@ -1872,8 +1871,7 @@ impl BimApp {
             &mut o.box_height_drag,
             matches!(self.tool, Tool::DirectModel(Some(_))),
             |_| {
-                let Tool::DirectModel(Some(first)) = &self.tool else { return None };
-                let (_, plane) = o.plane.filter(|(p, _)| p == first)?;
+                let Tool::DirectModel(Some((first, plane))) = &self.tool else { return None };
                 let base = crate::structure::direct_height(&model, &self.column_height)?;
                 Some(([first.0, first.1, model.elevation(plane.level) + plane.offset], base))
             },
@@ -2182,7 +2180,13 @@ impl BimApp {
         let drawing = draws_on_faces(&self.tool) && sketch_z.is_none();
         let pushing = matches!(self.tool, Tool::PushPull(_)) && sketch_z.is_none();
         let last3 = o.plane.filter(|(q, _)| base_point(&self.tool) == Some(*q));
-        let held = last3.filter(|_| matches!(self.tool, Tool::Wall(_) | Tool::DirectModel(_))).map(|(_, p)| p);
+        // The plane a Direct Model box draws on rides its first corner in the tool; a wall chain keeps its last
+        // plane in the view's slot. The tool's own reads first, so no click elsewhere can move the box's.
+        let box_plane = match &self.tool {
+            Tool::DirectModel(Some((_, p))) => Some(*p),
+            _ => None,
+        };
+        let held = box_plane.or_else(|| last3.filter(|_| matches!(self.tool, Tool::Wall(_))).map(|(_, p)| p));
         let fallback = last3.filter(|_| matches!(self.tool, Tool::Run(..))).map(|(_, p)| p);
         let aimed = |picker: &Option<Picker>, at: Pos2| -> Option<(P3, CursorPlane, Found)> {
             let under = picker.as_ref().and_then(|k| k.surface(Some(scene), &cam, px(at)));
@@ -2194,8 +2198,15 @@ impl BimApp {
             && let at = screen(q)
             && at.is_finite()
         {
-            // The point before, at the height of the plane it went on.
-            let before = base_point(&self.tool).map(|b| [b.0, b.1, last3.map_or(plane.z, |(_, p)| p.z)]);
+            // The point before, at the height of the plane it went on: the tool's own plane for a Direct Model box,
+            // the view's slot for a wall chain.
+            let before = base_point(&self.tool).map(|b| {
+                let z = match &self.tool {
+                    Tool::DirectModel(Some((_, p))) => p.z,
+                    _ => last3.map_or(plane.z, |(_, p)| p.z),
+                };
+                [b.0, b.1, z]
+            });
             if let Some(b) = before
                 && let from = screen(b)
                 && from.is_finite()
@@ -2204,11 +2215,12 @@ impl BimApp {
                 let long = P2(b[0], b[1]).dist(P2(q[0], q[1])).hypot(q[2] - b[2]);
                 crate::canvas::tag(&p, at + vec2(12.0, -12.0), egui::Align2::LEFT_BOTTOM, model.units.with_unit(long));
             }
-            // A Direct Model box between its two clicks: the wireframe it will make, from the same box the commit makes.
-            if let Tool::DirectModel(Some(first)) = &self.tool
+            // A Direct Model box between its two clicks: the wireframe it will make, from the same box the commit makes,
+            // on the plane the tool carries — not the one the cursor is over now.
+            if let Tool::DirectModel(Some((first, box_plane))) = &self.tool
                 && let Some(height) = crate::structure::direct_height(&model, &self.column_height)
             {
-                let bottom = model.elevation(plane.level) + plane.offset;
+                let bottom = model.elevation(box_plane.level) + box_plane.offset;
                 let (lo, hi) = crate::structure::direct_box(*first, P2(q[0], q[1]), bottom, height);
                 for [a, b] in view3d::box_edges((lo, hi)).into_iter().filter_map(|[a, b]| cam.in_front(a, b)) {
                     p.line_segment([screen(a), screen(b)], Stroke::new(1.0, pal().accent));
