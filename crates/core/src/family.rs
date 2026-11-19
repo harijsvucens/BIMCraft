@@ -3651,8 +3651,7 @@ mod tests {
         assert_eq!(f.first_mesh(), None, "a family of sketches only has no form a push reaches");
         f.forms.push(Form::default());
         assert_eq!(f.first_mesh(), None, "a sketch form is no mesh");
-        let mut meshed = Form::default();
-        meshed.mesh = Arc::new(vec![[[0.0; 3]; 3]; 1]);
+        let meshed = Form { mesh: Arc::new(vec![[[0.0; 3]; 3]; 1]), ..Form::default() };
         f.forms.push(meshed);
         assert_eq!(f.first_mesh(), Some(1), "the first form with a mesh, counted from 0");
     }

@@ -6043,7 +6043,7 @@ msgstr ""
 msgid "Home"
 msgstr ""
 
-#: crates/ui-egui/src/orbit.rs:2606
+#: crates/ui-egui/src/orbit.rs:2600
 msgid "Home View"
 msgstr ""
 
@@ -9283,7 +9283,7 @@ msgstr ""
 msgid "Pick a corner, an edge or a face of the model to dimension."
 msgstr ""
 
-#: crates/ui-egui/src/orbit.rs:2466
+#: crates/ui-egui/src/orbit.rs:2460
 msgid "Pick a corner, an edge or a face of the model to measure."
 msgstr ""
 
@@ -9291,11 +9291,11 @@ msgstr ""
 msgid "Pick a curved wall or an arc."
 msgstr ""
 
-#: crates/ui-egui/src/orbit.rs:2424
+#: crates/ui-egui/src/orbit.rs:2418
 msgid "Pick a face of a mesh component to push or pull it."
 msgstr ""
 
-#: crates/ui-egui/src/orbit.rs:2419
+#: crates/ui-egui/src/orbit.rs:2413
 msgid "Pick a face of a wall, a floor, a ceiling or a roof to place it on."
 msgstr ""
 
@@ -14922,7 +14922,7 @@ msgstr ""
 
 #: crates/ui-egui/src/canvas.rs:2003
 #: crates/ui-egui/src/editor/document.rs:1245
-#: crates/ui-egui/src/orbit.rs:2609
+#: crates/ui-egui/src/orbit.rs:2603
 msgid "Zoom to Fit"
 msgstr ""
 
@@ -15090,7 +15090,7 @@ msgstr ""
 msgid "click its line's end"
 msgstr ""
 
-#: crates/ui-egui/src/orbit.rs:2542
+#: crates/ui-egui/src/orbit.rs:2536
 msgid "click on the floor's top"
 msgstr ""
 
@@ -15490,7 +15490,7 @@ msgstr ""
 msgid "this machine"
 msgstr ""
 
-#: crates/ui-egui/src/orbit.rs:2440
+#: crates/ui-egui/src/orbit.rs:2434
 #: crates/ui-egui/src/paper.rs:172
 #: crates/ui-egui/src/section.rs:423
 msgid "this tool works in plan views: open one from the Project Browser"

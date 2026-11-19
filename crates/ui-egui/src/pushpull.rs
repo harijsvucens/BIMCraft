@@ -43,6 +43,10 @@ pub(crate) struct Paint<'a> {
     /// What the picture shows at a screen point, the same surface a click would take.
     pub under: &'a dyn Fn(Pos2) -> Option<Surface>,
     pub ppp: f32,
+    /// Where the pointer is, whether another drag holds the view, and whether a work plane is being set or picked.
+    pub hover: Option<Pos2>,
+    pub drag_idle: bool,
+    pub sketch_free: bool,
 }
 
 /// The gesture's paint: the face held — or, before one is held, the one under the cursor, so the pick looks like it
@@ -51,20 +55,11 @@ pub(crate) struct Paint<'a> {
 /// what a click would take: the same surface the click asks, gated by `Model::push_form`.
 /// shortcut: the face is re-derived from the point every frame (a weld over the form's triangles), carried from
 /// the pick instead by M0.2's face id; a held Direct Model box is 12 triangles, a 100k import is not.
-pub(crate) fn paint(
-    tool: &Tool,
-    typed: &str,
-    push_drag: &Option<Held<(Id, P3, P3)>>,
-    push_by: Option<(f64, Vec<[P3; 3]>)>,
-    drag_idle: bool,
-    hover: Option<Pos2>,
-    sketch_free: bool,
-    v: &Paint,
-) {
+pub(crate) fn paint(tool: &Tool, typed: &str, push_drag: &Option<Held<(Id, P3, P3)>>, push_by: Option<(f64, Vec<[P3; 3]>)>, v: &Paint) {
     let lit_face = match tool {
         Tool::PushPull(Some((id, at))) => Some((*id, *at)),
-        Tool::PushPull(None) if sketch_free => {
-            hover.filter(|_| drag_idle).and_then(|at| (v.under)(at)).filter(|s| v.model.push_form(s.id).is_some()).map(|s| (s.id, s.at))
+        Tool::PushPull(None) if v.sketch_free => {
+            v.hover.filter(|_| v.drag_idle).and_then(|at| (v.under)(at)).filter(|s| v.model.push_form(s.id).is_some()).map(|s| (s.id, s.at))
         }
         _ => None,
     };

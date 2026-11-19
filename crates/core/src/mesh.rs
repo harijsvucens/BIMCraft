@@ -79,6 +79,9 @@ pub fn face_of(tris: &[[P3; 3]], id: usize) -> Result<TopoFace, String> {
     faces(tris).into_iter().find(|f| f.id == id).ok_or_else(|| format!("this mesh has no flat face {id}: `mesh_check` lists them"))
 }
 
+/// One directed side of a triangle as `edges` groups it: its welded ends, the surface it belongs to, and where it stands.
+type Side = ([i64; 3], [i64; 3], Option<(bool, usize)>, [P3; 2]);
+
 /// The edges a drawing shows on these triangles: a side walked once (a boundary), and one whose two sides lie in
 /// different surfaces — the surfaces [`facets`] makes, which the picture's own edges use, so what a preview shows is
 /// what the picture draws. A bend the surfaces merge along draws no edge, whatever a normal's dot product would say.
@@ -88,7 +91,7 @@ pub fn edges(tris: &[[P3; 3]]) -> Vec<[P3; 2]> {
         if let Some(f) = faces.get(i).copied().flatten() { Some((false, f)) } else { curves.get(i).copied().flatten().map(|c| (true, c)) }
     };
     let key = |p: P3| p.map(|x| (x * 1e3).round() as i64);
-    let mut sides: Vec<([i64; 3], [i64; 3], Option<(bool, usize)>, [P3; 2])> = Vec::with_capacity(tris.len() * 3);
+    let mut sides: Vec<Side> = Vec::with_capacity(tris.len() * 3);
     for (i, t) in tris.iter().enumerate() {
         let of = surface(i);
         for k in 0..3 {
@@ -100,7 +103,7 @@ pub fn edges(tris: &[[P3; 3]]) -> Vec<[P3; 2]> {
             sides.push((qa.min(qb), qa.max(qb), of, [a, b]));
         }
     }
-    sides.sort_unstable_by(|x, y| (x.0, x.1).cmp(&(y.0, y.1)));
+    sides.sort_unstable_by_key(|s| (s.0, s.1));
     let mut out = Vec::new();
     for on in sides.chunk_by(|a, b| (a.0, a.1) == (b.0, b.1)) {
         let one_surface = on.len() == 2 && on[0].2.is_some() && on[0].2 == on[1].2;

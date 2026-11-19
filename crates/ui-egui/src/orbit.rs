@@ -2224,17 +2224,11 @@ impl BimApp {
             screen: &screen,
             under: &|at| surface(&o.picker, &cam, at),
             ppp,
-        };
-        crate::pushpull::paint(
-            &self.tool,
-            &self.typed_length,
-            &o.push_drag,
-            push_by,
-            o.drag.is_none(),
             hover,
-            sketch_z.is_none() && !picking,
-            &push_paint,
-        );
+            drag_idle: o.drag.is_none(),
+            sketch_free: sketch_z.is_none() && !picking,
+        };
+        crate::pushpull::paint(&self.tool, &self.typed_length, &o.push_drag, push_by, &push_paint);
         // Where a click lands on the floor being shaped, in plan: a point or corner within reach of it, else on an edge within
         // reach (the edge, to light up), else its top there.
         let snapped = |at: Pos2| -> Option<(P2, Option<[P3; 2]>, Option<bimcraft_core::view3d::ShapeSnap>)> {
