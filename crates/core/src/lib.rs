@@ -7,6 +7,7 @@ pub mod align;
 #[cfg(test)]
 mod align_tests;
 pub mod alignment;
+pub mod arrangement;
 pub mod autosave;
 #[cfg(test)]
 mod autosave_tests;
@@ -58,6 +59,7 @@ pub mod demand;
 pub mod derived;
 pub mod dims;
 pub mod dims3d;
+pub mod dm;
 mod doors;
 pub mod dps;
 pub mod dr;
@@ -159,6 +161,7 @@ pub mod link;
 pub mod loads;
 pub mod massing;
 pub mod memory;
+pub mod mesh;
 pub mod mesh_in;
 #[cfg(test)]
 mod mesh_in_tests;
@@ -270,6 +273,7 @@ mod underlay_tests;
 pub mod units;
 #[cfg(test)]
 mod units_tests;
+pub mod vec3;
 #[cfg(test)]
 mod vertical_tools_tests;
 pub mod view3d;

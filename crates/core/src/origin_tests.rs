@@ -261,10 +261,10 @@ fn a_component_on_a_face_keeps_its_place_along_it_and_follows_the_origin_across_
     let n = s.model.host_at(&component(&s.model, id).host.unwrap()).unwrap().normal;
     // Its family's zero moved only across the face: by the origin's part along the face's normal, back.
     let shift: [f64; 3] = std::array::from_fn(|k| now.origin[k] - was.origin[k]);
-    let along_normal = crate::view3d::dot(shift, n);
+    let along_normal = crate::vec3::dot(shift, n);
     assert_eq!(r3(shift), r3(n.map(|v| v * along_normal)), "moved across the face only");
     let [a, b, z] = was.axes;
-    let across = crate::view3d::dot(std::array::from_fn(|k| o[0] * a[k] + o[1] * b[k] + o[2] * z[k]), n);
+    let across = crate::vec3::dot(std::array::from_fn(|k| o[0] * a[k] + o[1] * b[k] + o[2] * z[k]), n);
     assert_eq!(rounded(along_normal), rounded(-across));
     assert_eq!(component(&s.model, id).host.unwrap().offset, component(&before, id).host.unwrap().offset, "its Offset from Host stays");
 }

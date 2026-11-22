@@ -13,7 +13,7 @@
 use super::*;
 use crate::hosting::HostRef;
 use crate::model::{Element, Model};
-use crate::view3d::dot;
+use crate::vec3::dot;
 
 /// The origin, in a family's own axes, that the instances placed of it were placed against: what [`Model::settle_origins`]
 /// compares with the family's origin. Bookkeeping, not part of what the family is: two families that differ only by it are

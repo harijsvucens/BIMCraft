@@ -16,7 +16,8 @@ use crate::csg;
 use crate::font;
 use crate::geom::P2;
 use crate::model::{MAX_COORD, MAX_TEXT};
-use crate::view3d::{P3, add, cross, mul};
+use crate::vec3::{add, cross, mul};
+use crate::view3d::P3;
 
 mod bounds;
 pub mod constraints;
@@ -890,6 +891,11 @@ pub struct Form {
     /// Shared, so an undo step's copy of the model doesn't copy it.
     #[serde(default, skip_serializing_if = "no_mesh")]
     pub mesh: Arc<Vec<[P3; 3]>>,
+    /// The exact solid, as base64 of a `solidcore` `SCBREP05` body. Authoritative when present:
+    /// `mesh` is then only the tessellated display and picking cache regenerated from it.
+    /// A form made by an older build has none and keeps its sketch or mesh until converted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub brep: Option<String>,
     /// A Blend's top (F6): lines in its host plane's axes, at `to` along its normal; its `sketch` is then its base, at `from`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub top: Vec<sketch::FormLine>,
@@ -981,6 +987,8 @@ struct FormIn {
     #[serde(default)]
     mesh: Arc<Vec<[P3; 3]>>,
     #[serde(default)]
+    brep: Option<String>,
+    #[serde(default)]
     top: Vec<sketch::FormLine>,
     #[serde(default)]
     sweep: Option<forms::Swept>,
@@ -1034,6 +1042,7 @@ impl TryFrom<FormIn> for Form {
             material: f.material,
             visible: f.visible,
             mesh: f.mesh,
+            brep: f.brep,
             top: f.top,
             sweep: f.sweep,
             twist: f.twist,
@@ -1284,6 +1293,13 @@ pub const MAX_CHAIN: usize = 16;
 pub const MAX_BUILT: usize = 400_000;
 /// Triangles one form, as a file brings it, may have.
 pub const MAX_TRIANGLES: usize = 100_000;
+
+/// The one sentence for triangles past [`MAX_TRIANGLES`], wherever a mesh is written, built or read back:
+/// `what` would make too many for one form. Every cap site answers with this, so a cap change is one
+/// number and one sentence, not a grep hunt through wordings.
+pub fn over_triangles(what: &str, tris: usize) -> Option<String> {
+    (tris > MAX_TRIANGLES).then(|| format!("{what} would be more than {MAX_TRIANGLES} triangles, the most a form holds"))
+}
 
 /// Parameters, forms, symbols and types one family may have.
 pub const MAX_PARAMETERS: usize = 64;
@@ -1803,6 +1819,12 @@ fn renamed_in_label(value: &str, from: &str, to: &str) -> String {
 }
 
 impl Family {
+    /// The form a mesh edit reaches when none is named: the first with a mesh. The one home of that default, so a
+    /// command and a view that ask after it cannot disagree.
+    pub fn first_mesh(&self) -> Option<usize> {
+        self.forms.iter().position(|form| !form.mesh.is_empty())
+    }
+
     /// Each material it names, given to `f`, which may put another in its place: its material parameters' values, its
     /// types' values of them, and its forms' materials (a form made of a material parameter names that, which is no
     /// material's name).
@@ -2265,6 +2287,16 @@ impl Family {
                 return Err(format!("{who}: its sketch has {} lines, more than {}", form.sketch.len(), sketch::MAX_SKETCH));
             }
             forms::check_kind(form).map_err(|e| format!("{who}: {e}"))?;
+            // A mesh is measured here as the commands measure it: a corner off the model, or a triangle folded on itself, is no
+            // form. An open sheet is a form as a direct model starts one, so it is measured, not refused.
+            if !form.mesh.is_empty() {
+                crate::mesh::measure(&form.mesh).map_err(|e| format!("{who}: its mesh: {e}"))?;
+            }
+            // The exact solid is authoritative: a damaged one is a model error, not a drawing
+            // that silently falls back to a cache that no longer matches it.
+            if let Some(brep) = &form.brep {
+                crate::dm::brep::decode(brep).map_err(|e| format!("{who}: its exact solid: {e}"))?;
+            }
             if form.mesh.is_empty() {
                 self.frame(&form.host).map_err(|e| format!("{who}: its host: {e}"))?;
             }
@@ -3185,8 +3217,8 @@ fn revolve(
 
 /// A form a file brought as triangles: its outline seen from above, the hull round them.
 fn mesh(tris: &[[P3; 3]], material: String) -> Result<Piece, String> {
-    if tris.len() > MAX_TRIANGLES {
-        return Err(format!("it has more than {MAX_TRIANGLES} triangles"));
+    if let Some(why) = over_triangles("it", tris.len()) {
+        return Err(why);
     }
     if tris.iter().flatten().flatten().any(|x| !x.is_finite() || x.abs() > MAX_COORD) {
         return Err("a corner of it isn't a usable number".into());
@@ -3641,6 +3673,29 @@ mod tests {
     }
 
     #[test]
+    fn a_form_keeps_its_exact_solid_through_a_file_round_trip() {
+        let brep = "U0NSQlAwNQ-test".to_owned();
+        let form = Form { brep: Some(brep.clone()), ..Form::default() };
+        let text = serde_json::to_string(&form).expect("write form");
+        let back: Form = serde_json::from_str(&text).expect("read form");
+        assert_eq!(back.brep.as_deref(), Some(brep.as_str()));
+        // A form that never had an exact solid writes nothing, so an older build reads it unchanged.
+        let plain = serde_json::to_string(&Form::default()).expect("write plain form");
+        assert!(!plain.contains("\"brep\""), "a legacy form writes no brep key: {plain}");
+    }
+
+    #[test]
+    fn a_family_s_first_mesh_form_is_what_a_mesh_edit_reaches() {
+        let mut f = Family::default();
+        assert_eq!(f.first_mesh(), None, "a family of sketches only has no form a push reaches");
+        f.forms.push(Form::default());
+        assert_eq!(f.first_mesh(), None, "a sketch form is no mesh");
+        let meshed = Form { mesh: Arc::new(vec![[[0.0; 3]; 3]; 1]), ..Form::default() };
+        f.forms.push(meshed);
+        assert_eq!(f.first_mesh(), Some(1), "the first form with a mesh, counted from 0");
+    }
+
+    #[test]
     fn formulas_read_as_revits_do() {
         let values = [("Width", 1000.0), ("Leg Height", 700.0)];
         for (formula, want) in [
@@ -3768,7 +3823,7 @@ mod tests {
     /// A closed surface's volume: the triangles' signed tetrahedra from the origin, positive while
     /// they face out.
     fn volume(tris: &[[P3; 3]]) -> f64 {
-        tris.iter().map(|[a, b, c]| crate::view3d::dot(*a, crate::view3d::cross(*b, *c)) / 6.0).sum::<f64>()
+        tris.iter().map(|[a, b, c]| crate::vec3::dot(*a, crate::vec3::cross(*b, *c)) / 6.0).sum::<f64>()
     }
 
     #[test]

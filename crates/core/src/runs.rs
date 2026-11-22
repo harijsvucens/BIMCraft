@@ -6,7 +6,8 @@
 use crate::geom::{self, P2};
 use crate::model::{Element, Id, Justify, MAX_SLOPE, Model, Run, RunType, TOL, Wall, heading};
 use crate::profiles::Piece;
-use crate::view3d::{P3, add, cross, mul, sub, unit};
+use crate::vec3::{add, cross, mul, sub, unit};
+use crate::view3d::P3;
 use crate::walls::{self, Axis, Plane};
 
 /// Sides a round run's tube is drawn with.
@@ -722,7 +723,7 @@ mod tests {
 
     fn volume(tris: &[[P3; 3]]) -> f64 {
         // The divergence theorem: the sum of the signed volumes of the tetrahedra to the origin; positive if turned out.
-        tris.iter().map(|[a, b, c]| crate::view3d::dot(*a, crate::view3d::cross(*b, *c)) / 6.0).sum()
+        tris.iter().map(|[a, b, c]| crate::vec3::dot(*a, crate::vec3::cross(*b, *c)) / 6.0).sum()
     }
 
     #[test]

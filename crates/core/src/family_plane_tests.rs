@@ -50,7 +50,7 @@ fn built(s: &Session, i: usize) -> ([f64; 3], [f64; 3], f64) {
             hi[k] = hi[k].max(p[k]);
         }
     }
-    let volume = piece.tris.iter().map(|[a, b, c]| crate::view3d::dot(*a, crate::view3d::cross(*b, *c)) / 6.0).sum();
+    let volume = piece.tris.iter().map(|[a, b, c]| crate::vec3::dot(*a, crate::vec3::cross(*b, *c)) / 6.0).sum();
     (lo.map(|x| x + 0.0), hi.map(|x| x + 0.0), volume)
 }
 
@@ -93,7 +93,7 @@ fn fingerprint(f: &Family, values: &BTreeMap<String, crate::family::Val>) -> (u6
         .unwrap_or_default()
         .iter()
         .flat_map(|p| p.tris.iter())
-        .map(|[a, b, c]| crate::view3d::dot(*a, crate::view3d::cross(*b, *c)) / 6.0)
+        .map(|[a, b, c]| crate::vec3::dot(*a, crate::vec3::cross(*b, *c)) / 6.0)
         .sum();
     (h, volume)
 }

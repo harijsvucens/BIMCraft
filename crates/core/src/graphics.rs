@@ -1115,7 +1115,7 @@ pub fn graphics_of(m: &Model, view: impl Key) -> Option<&Graphics> {
 }
 
 /// What a view's graphics come to for each element of the model.
-#[derive(Default, PartialEq)]
+#[derive(Clone, Default, PartialEq)]
 pub struct Look {
     hidden: BTreeSet<Id>,
     /// The layers of each CAD drawing it hides, by the drawing's name.
@@ -1226,6 +1226,13 @@ impl Look {
     /// This look cut to section box `section` instead: a box being dragged, before its command runs.
     pub fn with_section_box(self, section: Option<([f64; 3], [f64; 3])>) -> Look {
         Look { section, ..self }
+    }
+
+    /// This look with element `id` hidden: the component a Push/Pull drag is moving, whose place the shaded preview
+    /// takes. The view's own hides stay as they are.
+    pub fn with_hidden(mut self, id: Id) -> Look {
+        self.hidden.insert(id);
+        self
     }
 
     /// What the default 3D view looks like: as its own view's graphics say once something has changed

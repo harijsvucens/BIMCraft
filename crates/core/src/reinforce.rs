@@ -9,7 +9,8 @@ use serde_json::{Map, Value};
 use crate::geom::P2;
 use crate::model::{Element, MAX_COORD, MAX_TEXT, Model, TOL, heading};
 use crate::rebar::{DIAMETERS, GRADE, MAX_BARS};
-use crate::view3d::{P3, add, mul, sub, unit};
+use crate::vec3::{add, mul, sub, unit};
+use crate::view3d::P3;
 use crate::walls::Plane;
 
 mod en1992;
@@ -501,7 +502,7 @@ pub fn bars(m: &Model, host: &Element, p: &Value) -> Result<Made, String> {
             }
             let along = unit(sub(g.b, g.a));
             let across = unit([-along[1], along[0], 0.0]);
-            let up = crate::view3d::cross(along, across);
+            let up = crate::vec3::cross(along, across);
             let level = m.level_of(host).map_or(0.0, |l| m.elevation(l));
             let f = Frame { o: [g.a[0], g.a[1], g.a[2] - level], a: along, b: across, c: up };
             let bars = beam(&f, g.length(), (g.width, g.depth), &x, a)?;

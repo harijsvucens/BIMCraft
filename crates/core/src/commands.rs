@@ -23,9 +23,9 @@ use crate::lines::{DetailLine, LineStyle};
 use crate::massing;
 use crate::memory;
 use crate::model::{
-    CEILING_HEIGHT, CadImport, Ceiling, CeilingType, Column, ColumnType, Component, DEFAULT_HEIGHT, DimKind, Dimension, Dimension3D,
-    Element, End, Extrusion, Face, Facing, Flips, Floor, FloorType, Grid, Guid, HostRef, Hosted, Id, Key, Landing, Layer, LeaderKind,
-    Level, Line, Location, MAX_COORD, MAX_POINTS, MAX_SLOPE, MAX_TEXT, Mass, Model, Note, Opening, OpeningType, Orient,
+    CEILING_HEIGHT, CURRENT_DM_FORMAT, CadImport, Ceiling, CeilingType, Column, ColumnType, Component, DEFAULT_HEIGHT, DimKind, Dimension,
+    Dimension3D, Element, End, Extrusion, Face, Facing, Flips, Floor, FloorType, Grid, Guid, HostRef, Hosted, Id, Key, Landing, Layer,
+    LeaderKind, Level, Line, Location, MAX_COORD, MAX_POINTS, MAX_SLOPE, MAX_TEXT, Mass, Model, Note, Opening, OpeningType, Orient,
     PARAMETER_CATEGORIES, ParameterKind, Pattern, Perspective, PlanView, PointCloud, ProjectParameter, PropertyLine, Railing, RailingType,
     Ramp, Rebar, Ref3, Reference, Roof, RoofType, Room, RoomArea, RoomSeparator, STAIR_WIDTH, Schedule, Scope, Section, SectionBox, Shaft,
     Sheet, Side, Spot, Stair, TOL, Tag, Toposolid, Unbound, View3D, Viewport, Wall, WallType, heading, paper,
@@ -2160,6 +2160,174 @@ other_files(
         work_plane::component,
     )
     .menu("Architecture > Component"),
+    edit(
+        "mesh",
+        ui_msg!("Mesh"),
+        &[],
+        "{points, triangles, name?, level?, at?: [x, y]} makes a free-form mesh a family of its own, a Generic Model with \
+         one form of its triangles, and places it: `points` are [x, y, z] in mm, up to 10,000, and `triangles` three indices \
+         into them each, wound counter-clockwise seen from outside, so the triangles close a solid: every edge walked once \
+         each way. The family is about the middle of its plan and its lowest point; the component stands where the points are \
+         in the world, on `level` (the lowest by default), its plan moved by `at`. `name` names the family (Direct Model by \
+         default, numbered if the project has one). Returns the family's `name`, the `component`'s id, the `origin` its \
+         mesh's axes are about, its `triangles` and its `volume` in m³. Push a face of it with `mesh_push_pull`",
+        mesh,
+    ),
+    edit(
+        "convert_to_mesh",
+        ui_msg!("Convert to Mesh"),
+        &[],
+        "{id} turns one built element into a direct mesh: a unique Generic Model family with one mesh form, placed where \
+         the element stood, and the original is deleted in the same undo step. The mesh is the element's own solid geometry \
+         in the scene — a plain wall or a column becomes one box — with the family about the middle of its plan and its \
+         lowest point. This is one-way, like Archicad's Morph: parametric joins, compound layers and hosted openings are \
+         gone, and an arc becomes facets. An element that carries a door, a window or another hosted element is refused so \
+         nothing is orphaned, as is a pinned element, one already a direct mesh, and geometry that is not one closed solid \
+         (a wall split by openings is not supported yet). Returns the new `family` name, the `component` id, its `origin`, \
+         the `triangles`, the `volume` in m³ and whether the mesh is `solid`. Push a face of it with `mesh_push_pull`",
+        convert_to_mesh,
+    ),
+    edit(
+        "convert_to_exact_solid",
+        ui_msg!("Convert to Exact Solid"),
+        &[],
+        "{id} turns one built element into one watertight exact solid: a unique Generic Model family with a `brep` form \
+         (base64 SCBREP05) and a tessellated display cache, placed where the element stood, the original deleted in the same \
+         undo step. Unlike `convert_to_mesh` it sews every render prism and unions them, so a wall split by openings becomes \
+         one editable solid. An element that is pinned, hosted by another, already a mesh, or with no solid geometry is \
+         refused. Returns the new `family` name, the `component` id, its `origin`, the `triangles`, the `volume` in m³ and \
+         whether the result is `solid`",
+        convert_to_exact_solid,
+    ),
+    edit(
+        "dm_create",
+        ui_msg!("Direct Model: create solid"),
+        &[],
+        "Create one exact solid directly: `kind` is `box` (with `size: [x, y, z]`) or `cylinder` (with `radius` and \
+         `height`), `origin: [x, y, z]` places it in draft-local coordinates, and `level` names the level it stands on. \
+         The geometry carries its own world position in a unique Generic Model family's `brep` form; the component sits \
+         at the origin so the exact solid lands where it was made. Returns the new `family`, `component`, `triangles`, \
+         `volume` in m³ and whether it is `solid`",
+        dm_create,
+    ),
+    edit(
+        "finish_direct",
+        ui_msg!("Direct Model: finish"),
+        &[],
+        "Commit a Direct Mode session atomically: `bodies` is a list of `{brep, name}` where `brep` is the base64 \
+         SCBREP05 bytes of one draft body; `level` names the level and `source`, when given, is one built element to \
+         delete in the same undo step. Every body becomes its own Generic Model family and component with a regenerated \
+         display cache, `dm_format` is stamped, and one undo restores the project. Returns the new `components` and \
+         `families`",
+        finish_direct,
+    ),
+    edit(
+        "dm_make",
+        ui_msg!("Direct Model: make draft solid"),
+        &[],
+        "Make one exact solid for a Direct Mode draft without touching the project: `kind` is `box` (with `size`) or \
+         `cylinder` (with `radius` and `height`), and `origin: [x, y, z]` places it. Returns the base64 SCBREP05 `brep`, \
+         `triangles` and `volume` in m³. The studio holds the result until Finish commits it with `finish_direct`",
+        dm_make,
+    ),
+    edit(
+        "dm_edit",
+        ui_msg!("Direct Model: edit solid"),
+        &[],
+        "Apply one exact-solid edit to a draft body and return the new `brep`: `op` is `push` (with `faces` and a \
+         `distance`), `bevel` (with `edges`, `radius` and optional `chamfer`), `move` (with `delta: [x, y, z]`), or \
+         `union`, `cut` and `intersect` (with a second `tool` brep). `target` is the base64 SCBREP05 of the body to edit. \
+         The result is returned, not written to the project, so the studio can hold the draft until Finish",
+        dm_edit,
+    ),
+    edit(
+        "mesh_push_pull",
+        ui_msg!("Push/Pull"),
+        &[],
+        "{family, at: [x, y, z] | face, distance, form?} or {component, at: [x, y, z] | face, distance, form?} moves the flat face of one of a \
+         family's meshes that `at` lies on, or that `face` names (the id `mesh_check` lists), `distance` mm along the face's normal, out of the solid where that is positive, as \
+         SketchUp's Push/Pull: every \
+         corner the face shares with the triangles beside it moves with it and those triangles stretch, so a box grows or \
+         shrinks and nothing comes apart. A face with no other face beside it, as an imported sheet has, rises into a solid \
+         instead: it stays as the near end, a copy stands at the far end and walls run round its boundary, so one push turns a \
+         flat sheet into a box. With `family`, `at` is in the form's own axes, the `origin` `mesh` replies with; with `component` \
+         (a component's GUID) it is a point of the model, taken back through where the component stands, its turn, level and \
+         mirroring, so a pick in a view can be given as it is. `form` counts the family's forms from 1, its first mesh by default. A \
+         curved side, such as a cylinder's, is no flat face: it has no plane of its own and nothing pushes it; a push of 0 is refused, and \
+         one that would turn the solid inside out is clamped to the last distance that still closes — the same clamp a drag preview shows, so what is drawn is what is made. Returns the `family` and `form` it changed, the applied `distance`, the \
+         face's `normal`, the `triangles` of it and the form's signed `volume` in m³. The fork's kernel experiment also names \
+         its `backend` (`kernel` or `mesh`), the push's `push_ms`, and, when the kernel refused and the mesh path answered, \
+         the kernel's `fallback` reason; the sheet-into-solid rule is the mesh path's, the kernel never sews an open sheet",
+        mesh_push_pull,
+    ),
+    edit(
+        "mesh_erase",
+        ui_msg!("Erase"),
+        &[],
+        "{family, at: [x, y, z] | face, form?} or {component, at: [x, y, z] | face, form?} takes away one flat face of a \
+         family's mesh, the one `at` lies on or that `face` names (the id `mesh_check` lists), as SketchUp's Erase: the face's \
+         triangles go and a hole opens where it stood, so a solid becomes an `open sheet`. With `family`, \
+         `at` is in the form's own axes, the `origin` `mesh` replies with; with `component` (a component's GUID) it is a point of \
+         the model, taken back through where the component stands, its turn, level and mirroring, so a pick in a view can be \
+         given as it is. `form` counts the family's forms from 1, its first mesh by default. A curved side has no flat face to \
+         erase, and a mesh's only face cannot be taken: a form needs a triangle. A face's id is its first triangle's index, so \
+         the surviving faces renumber after an erase: re-run `mesh_check` to name one again. Returns the `family`, `form`, the \
+         erased `face` id and its `normal`, how many of its `triangles` went, and what the mesh makes now: `kind`, `solid` and \
+         `volume` in m³ (an open sheet's `volume` is the signed sum over a surface, not an enclosed space)",
+        mesh_erase,
+    ),
+    edit(
+        "mesh_punch_through",
+        ui_msg!("Punch Through"),
+        &[],
+        "{family, at: [x, y, z] | face, loop: [[x, y, z], ...], form?} or {component, at: [x, y, z] | face, loop: \
+         [[x, y, z], ...], form?} punches a closed loop drawn on one flat face through to the parallel face opposite it: \
+         both faces become rings and the loop's sides close between them, so a solid keeps a through-hole. `loop` takes three \
+         or more corners of the face, in order, each lying on that face; the nearest face facing the other way is the one it \
+         reaches. With `family`, `at` and `loop` are in the form's own axes; with `component` (a component's GUID) they are \
+         points of the model, taken back through where it stands, its turn, level and mirroring. `form` counts the family's \
+         forms from 1, its first mesh by default. An open sheet, a loop off the face, a solid with no parallel opposite face, \
+         and a loop that does not lie inside it are refused. Returns the `family`, `form`, the `face` id, its `normal`, the \
+         mesh's `kind`, `solid`, `triangles` and `volume` in m³",
+        mesh_punch_through,
+    ),
+    edit(
+        "mesh_move_edge",
+        ui_msg!("Move Edge"),
+        &[],
+        "{family, at: [x, y, z], to: [x, y, z], form?} or {component, at: [x, y, z], to: [x, y, z], form?} moves an edge of \
+         a family's mesh: `at` is a point along the edge and `to` is where that point goes, so both ends shift by the same \
+         step. Every face the edge touches must stay flat: a gable ridge between two slopes moves, while a quad pulled by \
+         one of its corners, or a move that turns a solid inside out, is refused. With `family`, the points are in the form's \
+         own axes, the `origin` `mesh` replies with; with `component` (a component's GUID) they are points of the model, taken \
+         back through where it stands, its turn, level and mirroring, so picks in a view can be given as they are. `form` counts \
+         the family's forms from 1, its first mesh by default. An edge inside one face (a triangulation diagonal), one on a \
+         curved surface, a corner where edges meet, or a move of nothing is refused. Returns the `family`, `form`, the `by` \
+         step in the form's axes, and the mesh's `kind`, `solid`, `triangles` and `volume` in m³",
+        mesh_move_edge,
+    ),
+    edit(
+        "mesh_move",
+        ui_msg!("Move"),
+        &[],
+        "{component, by: [dx, dy, dz]} moves a direct-modeled mesh component whole in the model by that step in x, y and z \
+         (mm), as dragging it in a 3D view does: its mesh is unchanged, only where the component stands — its plan location \
+         and its Offset from Host — changes. `component` is the component's GUID, as `mesh_push_pull` takes. A step of zero \
+         changes nothing and makes no undo step; a pinned component is refused. Returns the component's `id`, its new `at` \
+         and `offset`, and the `by` step",
+        mesh_move,
+    ),
+    edit(
+        "mesh_check",
+        "Mesh Check",
+        &[],
+        "{family, form?} what one of a family's meshes makes of itself: `kind` is `solid` (every edge shared by two triangles, \
+         facing apart), `open sheet` (a surface with an edge on one triangle, as an imported model may be) or what is wrong with \
+         it (an edge shared by more than two, a triangle turned round), with `solid`, the space it encloses `volume` in m³, its \
+         `area` in m² and its `triangles`. `form` counts the family's forms from 1, its first mesh by default. The measuring a \
+         push and a form's own check read, one place",
+        mesh_check,
+    ),
     edit(
         "flip",
         "Flip",
@@ -9803,6 +9971,751 @@ fn import_mesh(s: &mut Session, p: &Value) -> R {
     Ok(json!({"components": components, "families": families, "left_out": left_out}))
 }
 
+/// A free-form mesh as a Generic Model family of its own, placed: what the Family Editor's imported triangles are, made
+/// from points and indices, so a model can be drawn and pushed into shape by commands.
+fn mesh(s: &mut Session, p: &Value) -> R {
+    use crate::family::{Category, Family, Form};
+    let c = "mesh";
+    let level = level_param(c, &s.model, p, "level")?;
+    let elevation = s.model.elevation(level);
+    let at = point_opt(c, p, "at")?.unwrap_or(P2(0.0, 0.0));
+    let points = points3(c, p, "points")?;
+    if points.len() < 3 {
+        return Err(bad(c, "`points` needs three points at least, to make a triangle of"));
+    }
+    let tris = triangles(c, p, &points)?;
+    // The family stands on its base, its middle on its origin; the component puts it back where the points are.
+    let (lo, hi) = points.iter().fold(([f64::MAX; 3], [f64::MIN; 3]), |(lo, hi), q| {
+        ([lo[0].min(q[0]), lo[1].min(q[1]), lo[2].min(q[2])], [hi[0].max(q[0]), hi[1].max(q[1]), hi[2].max(q[2])])
+    });
+    let origin = [((lo[0] + hi[0]) / 2.0 * 1e3).round() / 1e3, ((lo[1] + hi[1]) / 2.0 * 1e3).round() / 1e3, (lo[2] * 1e3).round() / 1e3];
+    let local: Vec<[[f64; 3]; 3]> = tris.iter().map(|t| t.map(|q| [q[0] - origin[0], q[1] - origin[1], q[2] - origin[2]])).collect();
+    let made = crate::mesh::solid(local).map_err(|e| bad(c, format!("these triangles are no closed solid: {e}")))?;
+    let (local, volume) = (made.tris, made.measure.volume / 1e9);
+    let m = Arc::make_mut(&mut s.model);
+    let stem = string(c, p, "name")?.map(|n| n.trim().to_string()).filter(|n| !n.is_empty()).unwrap_or_else(|| "Direct Model".into());
+    let name = (1..=1000)
+        .map(|n| if n == 1 { stem.clone() } else { format!("{} ({n})", stem.chars().take(MAX_TEXT - 8).collect::<String>()) })
+        .find(|n| !m.families.contains_key(n))
+        .ok_or_else(|| bad(c, format!("the project has too many families named `{stem}`")))?;
+    let mut family =
+        Family { category: Category::Generic, forms: vec![Form { mesh: Arc::new(local), ..Form::default() }], ..Family::default() };
+    family.types.insert("Default".into(), BTreeMap::new());
+    family.check(&|_| true).map_err(|e| bad(c, e))?;
+    m.families.insert(name.clone(), family);
+    let component = m.insert(Element::Component(Component {
+        tilt: None,
+        adaptive: None,
+        family: name.clone(),
+        type_name: "Default".into(),
+        level,
+        at: P2(at.0 + origin[0], at.1 + origin[1]),
+        angle: 0.0,
+        offset: origin[2] - elevation,
+        mirrored: false,
+        params: BTreeMap::new(),
+        host: None,
+        panel: None,
+    }));
+    Ok(json!({"family": name, "component": component, "origin": origin, "triangles": tris.len(), "volume": (volume * 1e6).round() / 1e6}))
+}
+
+/// One built element becomes a unique mesh family, placed where it stood, and the original goes in the same undo step.
+/// MOD-04's one-way boundary: the scene's own triangles are the source, so anything that tessellates can convert. The
+/// refusal names what would be orphaned or what cannot be welded into one solid.
+fn convert_to_mesh(s: &mut Session, p: &Value) -> R {
+    use crate::family::{Category, Family, Form};
+    let c = "convert_to_mesh";
+    let ids = ids_param(c, &s.model, p)?;
+    if ids.len() != 1 {
+        return Err(bad(c, "`id` must name one element to convert"));
+    }
+    let id = ids[0];
+    let m = &s.model;
+    if m.is_pinned(id) {
+        return Err(bad(c, format!("{id} is pinned: `unpin` it first to convert it")));
+    }
+    let guid = m.guid(id);
+    let lookup = m.lookup();
+    if let Some(hosted) = lookup.referrers(&guid).find(|r| match m.elements.get(*r) {
+        Some(Element::Wall(w)) => w.panel_of.is_some_and(|q| q.host == guid),
+        Some(Element::Door(o) | Element::Window(o)) => o.host == guid,
+        Some(Element::Railing(r)) => r.host == Some(guid),
+        Some(Element::Rebar(r)) => r.host == Some(guid),
+        Some(Element::Component(cp)) => cp.host.as_ref().is_some_and(|h| h.host.guid() == guid),
+        _ => false,
+    }) {
+        return Err(bad(c, format!("{hosted} is hosted by {id}: remove what hangs on it before converting, so nothing is orphaned")));
+    }
+    let element = m.elements.get(id).ok_or_else(|| bad(c, format!("no element {id}")))?;
+    if let Element::Component(cp) = element
+        && m.families.get(&cp.family).is_some_and(|f| f.first_mesh().is_some())
+    {
+        return Err(bad(c, format!("{id} is already a direct mesh")));
+    }
+    let level = m.level_of(element).ok_or_else(|| bad(c, format!("{id} is not on a level and cannot be converted")))?;
+    let elevation = m.elevation(level);
+    let stem = format!("Converted {}", element.category());
+    let solids = crate::view3d::solids_of(m, id);
+    if solids.is_empty() {
+        return Err(bad(c, format!("{id} has no solid geometry to convert")));
+    }
+    if solids.len() > 1 {
+        return Err(bad(c, format!("{id} is made of {} solids; only one closed solid converts today", solids.len())));
+    }
+    let tris = solids[0].triangles();
+    let (lo, hi) = tris.iter().flatten().fold(([f64::MAX; 3], [f64::MIN; 3]), |(lo, hi), q| {
+        ([lo[0].min(q[0]), lo[1].min(q[1]), lo[2].min(q[2])], [hi[0].max(q[0]), hi[1].max(q[1]), hi[2].max(q[2])])
+    });
+    let origin = [((lo[0] + hi[0]) / 2.0 * 1e3).round() / 1e3, ((lo[1] + hi[1]) / 2.0 * 1e3).round() / 1e3, (lo[2] * 1e3).round() / 1e3];
+    let local: Vec<[[f64; 3]; 3]> = tris.iter().map(|t| t.map(|q| [q[0] - origin[0], q[1] - origin[1], q[2] - origin[2]])).collect();
+    let made = crate::mesh::solid(local).map_err(|e| bad(c, format!("{id} cannot become one closed mesh: {e}")))?;
+    let (local, volume) = (made.tris, made.measure.volume / 1e9);
+    let name = (1..=1000)
+        .map(|n| if n == 1 { stem.clone() } else { format!("{} ({n})", stem.chars().take(MAX_TEXT - 8).collect::<String>()) })
+        .find(|n| !m.families.contains_key(n))
+        .ok_or_else(|| bad(c, format!("the project has too many families named `{stem}`")))?;
+    let mut family =
+        Family { category: Category::Generic, forms: vec![Form { mesh: Arc::new(local), ..Form::default() }], ..Family::default() };
+    family.types.insert("Default".into(), BTreeMap::new());
+    family.check(&|_| true).map_err(|e| bad(c, e))?;
+    // Refusals are all above: from here the engine rolls back on any error, so the delete and the insert are one step.
+    delete_ids(s, &[id])?;
+    let m = Arc::make_mut(&mut s.model);
+    m.families.insert(name.clone(), family);
+    let component = m.insert(Element::Component(Component {
+        tilt: None,
+        adaptive: None,
+        family: name.clone(),
+        type_name: "Default".into(),
+        level,
+        at: P2(origin[0], origin[1]),
+        angle: 0.0,
+        offset: origin[2] - elevation,
+        mirrored: false,
+        params: BTreeMap::new(),
+        host: None,
+        panel: None,
+    }));
+    Ok(json!({"family": name, "component": component, "origin": origin, "triangles": tris.len(),
+              "volume": (volume * 1e6).round() / 1e6, "solid": true}))
+}
+
+/// One built element into one watertight exact solid. The refusal order matches
+/// `convert_to_mesh`, so a hosted or pinned element is never silently orphaned.
+fn convert_to_exact_solid(s: &mut Session, p: &Value) -> R {
+    use crate::family::{Category, Family, Form};
+    let c = "convert_to_exact_solid";
+    let ids = ids_param(c, &s.model, p)?;
+    if ids.len() != 1 {
+        return Err(bad(c, "`id` must name one element to convert"));
+    }
+    let id = ids[0];
+    let m = &s.model;
+    if m.is_pinned(id) {
+        return Err(bad(c, format!("{id} is pinned: `unpin` it first to convert it")));
+    }
+    let guid = m.guid(id);
+    let lookup = m.lookup();
+    if let Some(hosted) = lookup.referrers(&guid).find(|r| match m.elements.get(*r) {
+        Some(Element::Wall(w)) => w.panel_of.is_some_and(|q| q.host == guid),
+        Some(Element::Door(o) | Element::Window(o)) => o.host == guid,
+        Some(Element::Railing(r)) => r.host == Some(guid),
+        Some(Element::Rebar(r)) => r.host == Some(guid),
+        Some(Element::Component(cp)) => cp.host.as_ref().is_some_and(|h| h.host.guid() == guid),
+        _ => false,
+    }) {
+        return Err(bad(c, format!("{hosted} is hosted by {id}: remove what hangs on it before converting, so nothing is orphaned")));
+    }
+    let element = m.elements.get(id).ok_or_else(|| bad(c, format!("no element {id}")))?;
+    if let Element::Component(cp) = element
+        && m.families.get(&cp.family).is_some_and(|f| f.first_mesh().is_some())
+    {
+        return Err(bad(c, format!("{id} is already a direct mesh")));
+    }
+    let level = m.level_of(element).ok_or_else(|| bad(c, format!("{id} is not on a level and cannot be converted")))?;
+    let committed = crate::dm::convert::element(m, id).map_err(|e| bad(c, format!("{id} cannot become one exact solid: {e}")))?;
+    let tris = &committed.cache.triangles;
+    if tris.is_empty() {
+        return Err(bad(c, format!("{id} produced no display triangles")));
+    }
+    let (lo, hi) = tris.iter().flatten().fold(([f64::MAX; 3], [f64::MIN; 3]), |(lo, hi), q| {
+        ([lo[0].min(q[0]), lo[1].min(q[1]), lo[2].min(q[2])], [hi[0].max(q[0]), hi[1].max(q[1]), hi[2].max(q[2])])
+    });
+    let origin = [((lo[0] + hi[0]) / 2.0 * 1e3).round() / 1e3, ((lo[1] + hi[1]) / 2.0 * 1e3).round() / 1e3, (lo[2] * 1e3).round() / 1e3];
+    let mut form = Form::default();
+    // The display cache is in world coordinates; place the family so it lands where it did.
+    crate::dm::brep::write(&mut form, &committed);
+    let stem = "Converted Exact Solid";
+    let name = (1..=1000)
+        .map(|n| if n == 1 { stem.to_owned() } else { format!("{stem} ({n})") })
+        .find(|n| !m.families.contains_key(n))
+        .ok_or_else(|| bad(c, format!("the project has too many families named `{stem}`")))?;
+    let mut family = Family { category: Category::Generic, forms: vec![form], ..Family::default() };
+    family.types.insert("Default".into(), BTreeMap::new());
+    family.check(&|_| true).map_err(|e| bad(c, e))?;
+    // All refusals are above: from here the engine rolls back on any error, so this is one step.
+    delete_ids(s, &[id])?;
+    let m = Arc::make_mut(&mut s.model);
+    m.dm_format = Some(CURRENT_DM_FORMAT);
+    m.families.insert(name.clone(), family);
+    let component = m.insert(Element::Component(Component {
+        tilt: None,
+        adaptive: None,
+        family: name.clone(),
+        type_name: "Default".into(),
+        level,
+        // The exact solid and its cache are in world coordinates, so the instance does not move them.
+        at: P2(0.0, 0.0),
+        angle: 0.0,
+        offset: 0.0,
+        mirrored: false,
+        params: BTreeMap::new(),
+        host: None,
+        panel: None,
+    }));
+    let measure = crate::mesh::measure(tris).map_err(|e| bad(c, format!("the converted solid cannot be measured: {e}")))?;
+    Ok(json!({"family": name, "component": component, "origin": origin,
+              "triangles": tris.len(), "volume": (measure.volume / 1e9 * 1e6).round() / 1e6,
+              "solid": measure.is_solid()}))
+}
+
+/// Install one exact solid as a unique family and component, stamping the fork format. Every
+/// refusal is made by the caller before this runs; from here the engine rolls back on any error.
+fn dm_install(s: &mut Session, level: crate::ids::Guid, name: String, form: crate::family::Form) -> Result<Id, String> {
+    use crate::family::{Category, Family};
+    let mut family = Family { category: Category::Generic, forms: vec![form], ..Family::default() };
+    family.types.insert("Default".into(), BTreeMap::new());
+    family.check(&|_| true)?;
+    let m = Arc::make_mut(&mut s.model);
+    m.dm_format = Some(CURRENT_DM_FORMAT);
+    m.families.insert(name.clone(), family);
+    Ok(m.insert(Element::Component(Component {
+        tilt: None,
+        adaptive: None,
+        family: name,
+        type_name: "Default".into(),
+        level,
+        // The exact solid and its cache carry draft-local world coordinates; do not move them twice.
+        at: P2(0.0, 0.0),
+        angle: 0.0,
+        offset: 0.0,
+        mirrored: false,
+        params: BTreeMap::new(),
+        host: None,
+        panel: None,
+    })))
+}
+
+fn dm_name(m: &Model, stem: &str) -> Result<String, String> {
+    (1..=1000)
+        .map(|n| if n == 1 { stem.to_owned() } else { format!("{stem} ({n})") })
+        .find(|n| !m.families.contains_key(n))
+        .ok_or_else(|| format!("the project has too many families named `{stem}`"))
+}
+
+/// Create one exact solid from a primitive, directly, without converting a BIM element.
+fn dm_create(s: &mut Session, p: &Value) -> R {
+    use crate::dm::kernel::{Kernel, Prim};
+    use crate::family::Form;
+    let c = "dm_create";
+    let level = level_param(c, &s.model, p, "level")?;
+    let origin = point3_req(c, p, "origin")?;
+    let prim = match string(c, p, "kind")?.as_deref() {
+        Some("box") => Prim::Box { origin, size: point3_req(c, p, "size")? },
+        Some("cylinder") => {
+            let radius = num(c, p, "radius")?.ok_or_else(|| bad(c, "`radius` is required for a cylinder"))?;
+            let height = num(c, p, "height")?.ok_or_else(|| bad(c, "`height` is required for a cylinder"))?;
+            Prim::Cylinder { origin, radius, height }
+        }
+        _ => return Err(bad(c, "`kind` must be `box` or `cylinder`")),
+    };
+    let made = Kernel::create(prim).map_err(|e| bad(c, format!("the solid was refused: {e}")))?;
+    let tris = made.cache.triangles.clone();
+    let name = dm_name(&s.model, "Direct Solid")?;
+    let mut form = Form::default();
+    crate::dm::brep::write(&mut form, &made);
+    let component = dm_install(s, level, name.clone(), form)?;
+    let measure = crate::mesh::measure(&tris).map_err(|e| bad(c, format!("the new solid cannot be measured: {e}")))?;
+    Ok(json!({"family": name, "component": component, "brep": crate::dm::brep::encode(&made.data),
+              "triangles": tris.len(), "volume": (measure.volume / 1e9 * 1e6).round() / 1e6, "solid": measure.is_solid()}))
+}
+
+/// Commit the studio's draft bodies in one undo step.
+fn finish_direct(s: &mut Session, p: &Value) -> R {
+    use crate::dm::kernel::Kernel;
+    use crate::family::Form;
+    let c = "finish_direct";
+    let level = level_param(c, &s.model, p, "level")?;
+    let bodies = p.get("bodies").and_then(Value::as_array).ok_or_else(|| bad(c, "`bodies` must be a list"))?;
+    if bodies.is_empty() || bodies.len() > 100 {
+        return Err(bad(c, "`bodies` must hold from one to 100 solids"));
+    }
+    let mut ready = Vec::new();
+    let mut used: BTreeSet<String> = BTreeSet::new();
+    for (i, body) in bodies.iter().enumerate() {
+        let text = body.get("brep").and_then(Value::as_str).ok_or_else(|| bad(c, format!("body {i} has no `brep`")))?;
+        let data = crate::dm::brep::decode(text).map_err(|e| bad(c, format!("body {i}: {e}")))?;
+        let committed =
+            Kernel::from_data(&data).and_then(|k| k.commit()).map_err(|e| bad(c, format!("body {i} is not a valid solid: {e}")))?;
+        let stem = body.get("name").and_then(Value::as_str).unwrap_or("Direct Solid");
+        let mut name = stem.to_owned();
+        let mut n = 1;
+        while s.model.families.contains_key(&name) || used.contains(&name) {
+            n += 1;
+            name = format!("{stem} ({n})");
+        }
+        used.insert(name.clone());
+        let mut form = Form::default();
+        crate::dm::brep::write(&mut form, &committed);
+        ready.push((name, form));
+    }
+    // All refusals are above. The delete and every install are one engine step.
+    if let Some(guid) = id_opt(c, p, "source")? {
+        let source = s.model.elements.id(guid).ok_or_else(|| bad(c, format!("there is no element {guid}")))?;
+        delete_ids(s, &[source])?;
+    }
+    let mut components = Vec::new();
+    let mut families = Vec::new();
+    for (name, form) in ready {
+        let id = dm_install(s, level, name.clone(), form)?;
+        components.push(id);
+        families.push(name);
+    }
+    Ok(json!({"components": components, "families": families}))
+}
+
+/// Make a primitive for a draft: no family, no component, no `dm_format`, no project mutation.
+fn dm_make(_s: &mut Session, p: &Value) -> R {
+    use crate::dm::kernel::{Kernel, Prim};
+    let c = "dm_make";
+    let origin = point3_req(c, p, "origin")?;
+    let prim = match string(c, p, "kind")?.as_deref() {
+        Some("box") => Prim::Box { origin, size: point3_req(c, p, "size")? },
+        Some("cylinder") => {
+            let radius = num(c, p, "radius")?.ok_or_else(|| bad(c, "`radius` is required"))?;
+            let height = num(c, p, "height")?.ok_or_else(|| bad(c, "`height` is required"))?;
+            Prim::Cylinder { origin, radius, height }
+        }
+        _ => return Err(bad(c, "`kind` must be `box` or `cylinder`")),
+    };
+    let made = Kernel::create(prim).map_err(|e| bad(c, format!("the solid was refused: {e}")))?;
+    let measure = crate::mesh::measure(&made.cache.triangles).map_err(|e| bad(c, format!("the solid cannot be measured: {e}")))?;
+    Ok(json!({"brep": crate::dm::brep::encode(&made.data), "triangles": made.cache.triangles.len(),
+              "volume": (measure.volume / 1e9 * 1e6).round() / 1e6, "solid": measure.is_solid()}))
+}
+
+/// One exact-solid edit, returning the new brep. The studio holds the draft outside `Model`, so
+/// an edit takes its bodies as base64 and hands back the result for the next drag or Finish.
+fn dm_edit(_s: &mut Session, p: &Value) -> R {
+    use crate::dm::kernel::{BoolOp, BrepData, EdgeId, Edit, FaceId, Kernel};
+    let c = "dm_edit";
+    let read = |key: &str| -> Result<BrepData, String> {
+        let text = p.get(key).and_then(Value::as_str).ok_or_else(|| bad(c, format!("`{key}` is required")))?;
+        crate::dm::brep::decode(text).map_err(|e| bad(c, format!("{key}: {e}")))
+    };
+    let target = read("target")?;
+    let op = string(c, p, "op")?.ok_or_else(|| bad(c, "`op` is required"))?;
+    let edit = match op.as_str() {
+        "push" => {
+            let faces: Vec<FaceId> = p
+                .get("faces")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(|v| v.as_u64()).map(|v| FaceId(v as u32)).collect())
+                .unwrap_or_default();
+            Edit::Push { faces, distance: num(c, p, "distance")?.ok_or_else(|| bad(c, "`distance` is required"))? }
+        }
+        "bevel" => {
+            let edges: Vec<EdgeId> = p
+                .get("edges")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter_map(|v| v.as_u64()).map(|v| EdgeId(v as u32)).collect())
+                .unwrap_or_default();
+            Edit::Bevel {
+                edges,
+                radius: num(c, p, "radius")?.ok_or_else(|| bad(c, "`radius` is required"))?,
+                chamfer: p.get("chamfer").and_then(Value::as_bool).unwrap_or(false),
+            }
+        }
+        "move" => Edit::Move { delta: point3_req(c, p, "delta")? },
+        "union" | "cut" | "intersect" => {
+            let op = if op == "union" {
+                BoolOp::Union
+            } else if op == "cut" {
+                BoolOp::Subtract
+            } else {
+                BoolOp::Intersect
+            };
+            Edit::Boolean { other: read("tool")?, op }
+        }
+        _ => return Err(bad(c, "`op` must be push, bevel, move, union, cut or intersect")),
+    };
+    let mut k = Kernel::from_data(&target).map_err(|e| bad(c, format!("the target is not a valid solid: {e}")))?;
+    let out = k.edit(edit).map_err(|e| bad(c, format!("the edit was refused: {e}")))?;
+    let measure = crate::mesh::measure(&out.cache.triangles).map_err(|e| bad(c, format!("the result cannot be measured: {e}")))?;
+    Ok(json!({"brep": crate::dm::brep::encode(&out.data),
+              "triangles": out.cache.triangles.len(),
+              "volume": (measure.volume / 1e9 * 1e6).round() / 1e6}))
+}
+
+/// The triangles of a mesh, as the three indices into `points` each that a command gives them.
+fn triangles(c: &str, p: &Value, points: &[[f64; 3]]) -> Result<Vec<[[f64; 3]; 3]>, String> {
+    let a = p
+        .get("triangles")
+        .and_then(Value::as_array)
+        .ok_or_else(|| bad(c, "`triangles` [[i, j, k], …] is required: three indices into `points` each"))?;
+    if a.is_empty() {
+        return Err(bad(c, "`triangles` is empty: a mesh is a triangle at least"));
+    }
+    if let Some(why) = crate::family::over_triangles("a mesh", a.len()) {
+        return Err(bad(c, why));
+    }
+    a.iter()
+        .map(|t| {
+            let ix: Option<[usize; 3]> = t.as_array().and_then(|s| {
+                let [i, j, k] = s.as_slice() else { return None };
+                Some([usize::try_from(i.as_u64()?).ok()?, usize::try_from(j.as_u64()?).ok()?, usize::try_from(k.as_u64()?).ok()?])
+            });
+            let [i, j, k] = ix.ok_or_else(|| bad(c, format!("`triangles`: {t} is not three indices into `points`")))?;
+            let at = |n: usize| {
+                points
+                    .get(n)
+                    .copied()
+                    .ok_or_else(|| bad(c, format!("`triangles`: {t} names point {n}, and `points` holds {}", points.len())))
+            };
+            Ok([at(i)?, at(j)?, at(k)?])
+        })
+        .collect()
+}
+
+/// The form of `family` a mesh command names: its `form` counted from 1, or its first mesh. One place, so `mesh_check`,
+/// `mesh_push_pull` and what comes after read a form the same way.
+fn mesh_form(c: &str, p: &Value, m: &Model, family: &str) -> Result<usize, String> {
+    let f = m.families.get(family).ok_or_else(|| bad(c, format!("the project has no family `{family}`")))?;
+    let want = match p.get("form") {
+        v if absent(v) => None,
+        Some(v) => {
+            let n = v.as_u64().filter(|n| *n >= 1).ok_or_else(|| bad(c, format!("`form` counts a family's forms from 1, got {v}")))?;
+            Some(usize::try_from(n - 1).map_err(|_| bad(c, format!("`form` counts a family's forms from 1, got {v}")))?)
+        }
+        None => None,
+    };
+    match want {
+        Some(n) => {
+            let form = f.forms.get(n).ok_or_else(|| bad(c, format!("`{family}` has {} forms, not {}", f.forms.len(), n + 1)))?;
+            if form.mesh.is_empty() {
+                return Err(bad(c, format!("form {} of `{family}` has no mesh: it is a sketch", n + 1)));
+            }
+            Ok(n)
+        }
+        None => f.first_mesh().ok_or_else(|| bad(c, format!("`{family}` has no mesh: its forms are sketches"))),
+    }
+}
+
+/// A point param of a mesh command, in the family's axes (none when the command names a face instead).
+type MeshPoint = Option<[f64; 3]>;
+
+/// The family a mesh command edits and its point params in that family's axes: one seam for the three commands' shared
+/// arguments. A `component` carries its placement, so its points are taken back through it; a bare `family` takes them as
+/// they are. A key left out becomes `None`, so a command can name a face instead.
+fn mesh_target(c: &str, p: &Value, m: &Model, keys: &[&str]) -> Result<(String, Vec<MeshPoint>), String> {
+    let family = string(c, p, "family")?;
+    let component = id_opt(c, p, "component")?;
+    match (family, component) {
+        (given, Some(guid)) => {
+            let Some(id) = m.elements.id(guid) else { return Err(bad(c, "the project has no `component` of that GUID")) };
+            let Some(crate::model::Element::Component(comp)) = m.elements.get(id) else {
+                return Err(bad(c, "`component` must be a component, the one whose family's mesh is edited"));
+            };
+            if let Some(name) = given
+                && name != comp.family
+            {
+                return Err(bad(c, format!("component {id} is of `{}`, not `{name}`", comp.family)));
+            }
+            let points = keys
+                .iter()
+                .map(|key| {
+                    if absent(p.get(key)) {
+                        return Ok(None);
+                    }
+                    let world = point3_req(c, p, key)?;
+                    m.form_point(id, world).map(Some).ok_or_else(|| bad(c, "that component has no place to take the point back through"))
+                })
+                .collect::<Result<Vec<_>, String>>()?;
+            Ok((comp.family.clone(), points))
+        }
+        (Some(name), None) => {
+            let points = keys
+                .iter()
+                .map(|key| if absent(p.get(key)) { Ok(None) } else { point3_req(c, p, key).map(Some) })
+                .collect::<Result<Vec<_>, String>>()?;
+            Ok((name, points))
+        }
+        (None, None) => {
+            Err(bad(c, "`family` (with `at` a point of its mesh's axes) or `component` (with `at` a point of the model) is required"))
+        }
+    }
+}
+
+/// The face id a mesh command names when it names one instead of a point.
+fn mesh_face_id(c: &str, p: &Value) -> Result<Option<usize>, String> {
+    match p.get("face") {
+        v if absent(v) => Ok(None),
+        Some(v) => {
+            let n = v.as_u64().ok_or_else(|| bad(c, format!("`face` is the id `mesh_check` lists, a number, not {v}")))?;
+            usize::try_from(n).map(Some).map_err(|_| bad(c, format!("`face` is the id `mesh_check` lists, a number, not {v}")))
+        }
+        None => Ok(None),
+    }
+}
+
+/// The face by the id or point a mesh command names, answered from a weld the command already made.
+fn mesh_face(
+    c: &str,
+    id: Option<usize>,
+    at: Option<[f64; 3]>,
+    tris: &[[[f64; 3]; 3]],
+    prepared: &crate::mesh::Prepared,
+) -> Result<crate::mesh::TopoFace, String> {
+    match (id, at) {
+        (Some(id), _) => prepared.face_of(id).map_err(|e| bad(c, e)),
+        (None, Some(at)) => prepared.face_at(tris, at).map_err(|e| bad(c, e)),
+        (None, None) => Err(bad(c, "`at`, a point on the face, or `face`, the id `mesh_check` lists, is required")),
+    }
+}
+
+/// Write a mesh command's result back to its form. Nothing is copied until the result is known to be a change.
+fn mesh_write(s: &mut Session, c: &str, family: &str, index: usize, mesh: Vec<[[f64; 3]; 3]>) -> Result<(), String> {
+    let m = Arc::make_mut(&mut s.model);
+    let form = m
+        .families
+        .get_mut(family)
+        .and_then(|f| f.forms.get_mut(index))
+        .ok_or_else(|| bad(c, format!("the project has no family `{family}`")))?;
+    form.mesh = Arc::new(mesh);
+    Ok(())
+}
+
+/// What a family's mesh makes of itself: a solid, an open sheet, or no surface at all, with the space it encloses and the
+/// surface it has. `mesh::measure` is the one place those are worked out, so this is what a push and a form's checks read.
+fn mesh_check(s: &mut Session, p: &Value) -> R {
+    let c = "mesh_check";
+    let family = string(c, p, "family")?.ok_or_else(|| bad(c, "`family` is required: the family whose mesh is measured"))?;
+    let index = mesh_form(c, p, &s.model, &family)?;
+    let form = s
+        .model
+        .families
+        .get(&family)
+        .and_then(|f| f.forms.get(index))
+        .ok_or_else(|| bad(c, format!("the project has no family `{family}`")))?;
+    let m = crate::mesh::measure(&form.mesh).map_err(|e| bad(c, e))?;
+    let round = |v: f64| (v * 1e6).round() / 1e6;
+    let faces: Vec<Value> = crate::mesh::faces(&form.mesh)
+        .into_iter()
+        .map(|f| json!({"id": f.id, "area": round(f.area / 1e6), "normal": f.normal, "triangles": f.tris.len()}))
+        .collect();
+    Ok(json!({
+        "family": family,
+        "form": index + 1,
+        "kind": m.kind.word(),
+        "solid": m.is_solid(),
+        "volume": round(m.volume / 1e9),
+        "area": round(m.area / 1e6),
+        "triangles": m.triangles,
+        "faces": faces,
+    }))
+}
+
+/// One flat face of a family's mesh pushed along its normal: a solid grown or shrunk by a hand, as SketchUp pulls one.
+fn mesh_push_pull(s: &mut Session, p: &Value) -> R {
+    let c = "mesh_push_pull";
+    let face_id = mesh_face_id(c, p)?;
+    let keys: &[&str] = if face_id.is_some() { &[] } else { &["at"] };
+    let (family, points) = mesh_target(c, p, &s.model, keys)?;
+    let distance = num(c, p, "distance")?.ok_or_else(|| bad(c, "`distance` in mm is required: how far the face moves along its normal"))?;
+    if distance == 0.0 {
+        return Err(bad(c, "`distance` is 0: a push of nothing moves no face"));
+    }
+    let index = mesh_form(c, p, &s.model, &family)?;
+    // Nothing is copied until the push is known to be one: `Arc::make_mut` alone would make an undo step.
+    let (face, pushed, landed_by, volume, same, backend, push_ms, fallback) = {
+        let f = s.model.families.get(&family).ok_or_else(|| bad(c, format!("the project has no family `{family}`")))?;
+        let form = &f.forms[index];
+        let prepared = crate::mesh::prepare(&form.mesh).map_err(|e| bad(c, e))?;
+        let face = mesh_face(c, face_id, points.first().copied().flatten(), &form.mesh[..], &prepared)?;
+        // The one push seam: the same answer a drag's preview drew, clamp and all. One weld answers
+        // the face question and the push, instead of welding the same triangles at each seam.
+        let started = std::time::Instant::now();
+        let landed = crate::dm::push_prepared(&prepared, &form.mesh, &face, distance).map_err(|e| bad(c, e))?;
+        let push_ms = started.elapsed().as_millis() as u64;
+        let volume = landed.measure.volume / 1e9;
+        let same = *form.mesh == landed.tris;
+        (face, landed.tris, landed.by, volume, same, landed.backend, push_ms, landed.fallback)
+    };
+    let reply = json!({
+        "family": family,
+        "form": index + 1,
+        "face": face.id,
+        "normal": face.normal,
+        "distance": landed_by,
+        "triangles": face.tris.len(),
+        "volume": (volume * 1e6).round() / 1e6,
+        "backend": backend,
+        "push_ms": push_ms,
+        "fallback": fallback,
+    });
+    if same {
+        return Ok(reply);
+    }
+    mesh_write(s, c, &family, index, pushed)?;
+    Ok(reply)
+}
+
+/// One flat face of a family's mesh taken away, as SketchUp's Erase: its triangles go and a hole opens where it stood, so a
+/// solid becomes an open sheet.
+fn mesh_erase(s: &mut Session, p: &Value) -> R {
+    let c = "mesh_erase";
+    let face_id = mesh_face_id(c, p)?;
+    let keys: &[&str] = if face_id.is_some() { &[] } else { &["at"] };
+    let (family, points) = mesh_target(c, p, &s.model, keys)?;
+    let index = mesh_form(c, p, &s.model, &family)?;
+    let (face, erased, measure) = {
+        let f = s.model.families.get(&family).ok_or_else(|| bad(c, format!("the project has no family `{family}`")))?;
+        let form = &f.forms[index];
+        let prepared = crate::mesh::prepare(&form.mesh).map_err(|e| bad(c, e))?;
+        let face = mesh_face(c, face_id, points.first().copied().flatten(), &form.mesh[..], &prepared)?;
+        let erased = crate::mesh::erase(&form.mesh, &face).map_err(|e| bad(c, e))?;
+        let measure = crate::mesh::measure(&erased).map_err(|e| bad(c, e))?;
+        (face, erased, measure)
+    };
+    let round = |v: f64| (v * 1e6).round() / 1e6;
+    let reply = json!({
+        "family": family,
+        "form": index + 1,
+        "face": face.id,
+        "normal": face.normal,
+        "triangles": face.tris.len(),
+        "kind": measure.kind.word(),
+        "solid": measure.is_solid(),
+        "volume": round(measure.volume / 1e9),
+    });
+    mesh_write(s, c, &family, index, erased)?;
+    Ok(reply)
+}
+
+/// A closed loop drawn on one flat face punched through to the parallel opposite face: both faces become rings and the
+/// loop's sides close between them, leaving a through-hole in a sealed solid.
+fn mesh_punch_through(s: &mut Session, p: &Value) -> R {
+    let c = "mesh_punch_through";
+    let face_id = mesh_face_id(c, p)?;
+    let keys: &[&str] = if face_id.is_some() { &[] } else { &["at"] };
+    let (family, points) = mesh_target(c, p, &s.model, keys)?;
+    let index = mesh_form(c, p, &s.model, &family)?;
+    let guid = id_opt(c, p, "component")?;
+    let hole: Vec<[f64; 3]> = points3(c, p, "loop")?
+        .into_iter()
+        .map(|q| match guid {
+            Some(guid) => {
+                let id = s.model.elements.id(guid).ok_or_else(|| bad(c, "no element has that `component` GUID"))?;
+                s.model.form_point(id, q).ok_or_else(|| bad(c, "that component has no place to take the loop back through"))
+            }
+            None => Ok(q),
+        })
+        .collect::<Result<_, String>>()?;
+    let (out_face, out_normal, punched) = {
+        let f = s.model.families.get(&family).ok_or_else(|| bad(c, format!("the project has no family `{family}`")))?;
+        let form = &f.forms[index];
+        let prepared = crate::mesh::prepare(&form.mesh).map_err(|e| bad(c, e))?;
+        let face = mesh_face(c, face_id, points.first().copied().flatten(), &form.mesh[..], &prepared)?;
+        (face.id, face.normal, crate::mesh::punch_through(&form.mesh, &face, &hole).map_err(|e| bad(c, e))?)
+    };
+    let measure = crate::mesh::measure(&punched).map_err(|e| bad(c, e))?;
+    if !measure.is_solid() {
+        return Err(bad(c, "the punch would not leave a sealed solid; the loop must lie inside one flat face"));
+    }
+    let round = |v: f64| (v * 1e6).round() / 1e6;
+    let reply = json!({
+        "family": family,
+        "form": index + 1,
+        "face": out_face,
+        "normal": out_normal,
+        "kind": measure.kind.word(),
+        "solid": measure.is_solid(),
+        "triangles": punched.len(),
+        "volume": round(measure.volume / 1e9),
+    });
+    mesh_write(s, c, &family, index, punched)?;
+    Ok(reply)
+}
+
+/// One edge of a family's mesh moved so that both faces beside it stay flat, as dragging a gable ridge raises both slopes.
+fn mesh_move_edge(s: &mut Session, p: &Value) -> R {
+    let c = "mesh_move_edge";
+    let (family, points) = mesh_target(c, p, &s.model, &["at", "to"])?;
+    let at = points[0].ok_or_else(|| bad(c, "`at`, the point on the edge, is required"))?;
+    let to = points[1].ok_or_else(|| bad(c, "`to`, where the edge goes, is required"))?;
+    let index = mesh_form(c, p, &s.model, &family)?;
+    let (moved, measure, step) = {
+        let f = s.model.families.get(&family).ok_or_else(|| bad(c, format!("the project has no family `{family}`")))?;
+        let form = &f.forms[index];
+        let moved = crate::mesh::move_edge(&form.mesh, at, to).map_err(|e| bad(c, e))?;
+        let measure = crate::mesh::measure(&moved).map_err(|e| bad(c, e))?;
+        (moved, measure, [to[0] - at[0], to[1] - at[1], to[2] - at[2]])
+    };
+    let round = |v: f64| (v * 1e6).round() / 1e6;
+    let reply = json!({
+        "family": family,
+        "form": index + 1,
+        "by": step,
+        "kind": measure.kind.word(),
+        "solid": measure.is_solid(),
+        "triangles": moved.len(),
+        "volume": round(measure.volume / 1e9),
+    });
+    mesh_write(s, c, &family, index, moved)?;
+    Ok(reply)
+}
+
+/// Move a mesh component whole, in all three dimensions: a rigid translation of where the component stands, so its form's
+/// triangles — and so the family every instance shares — are left alone. The mesh commands after this one still take the
+/// same points: a pick is taken back through the new placement by `form_point`.
+fn mesh_move(s: &mut Session, p: &Value) -> R {
+    let c = "mesh_move";
+    let guid = id_opt(c, p, "component")?.ok_or_else(|| bad(c, "`component`, the GUID of the mesh component to move, is required"))?;
+    let id = s.model.elements.id(guid).ok_or_else(|| bad(c, "the project has no `component` of that GUID"))?;
+    let by = point3_req(c, p, "by")?;
+    // A step of zero is allowed: it is no change and makes no undo step. Only the numbers are held to the model's reach.
+    if by.iter().any(|v| !v.is_finite() || v.abs() > MAX_COORD) {
+        return Err(bad(c, format!("`by` is a step of three finite numbers of mm within {MAX_COORD}")));
+    }
+    let (old_at, old_offset) = match s.model.elements.get(id) {
+        Some(Element::Component(comp)) if s.model.push_form(id).is_some() => (comp.at, comp.offset),
+        _ => return Err(bad(c, "`component` must be a direct-modeled component: one that holds a mesh form")),
+    };
+    refuse_pinned(c, &s.model, &[id], "move")?;
+    let at = crate::geom::P2(old_at.0 + by[0], old_at.1 + by[1]);
+    let offset = old_offset + by[2];
+    if at.0.abs() > MAX_COORD || at.1.abs() > MAX_COORD || offset.abs() > MAX_COORD {
+        return Err(bad(c, format!("the move would put the component outside the {MAX_COORD} mm a model reaches")));
+    }
+    let round = |v: f64| (v * 1e3).round() / 1e3;
+    let reply = json!({
+        "id": id,
+        "at": [round(at.0), round(at.1)],
+        "offset": round(offset),
+        "by": by,
+    });
+    if at == old_at && offset == old_offset {
+        return Ok(reply);
+    }
+    let m = Arc::make_mut(&mut s.model);
+    if let Some(Element::Component(comp)) = m.elements.get_mut(id) {
+        comp.at = at;
+        comp.offset = offset;
+    }
+    Ok(reply)
+}
+
 fn import_cad(s: &mut Session, p: &Value) -> R {
     let c = "import_cad";
     let m = &s.model;
@@ -17168,7 +18081,7 @@ fn family(s: &mut Session, p: &Value) -> R {
             .iter()
             .filter(|q| !q.datum())
             .map(|q| {
-                json!({"guid": q.guid, "id": q.id, "name": q.name, "offset": crate::view3d::dot(q.start, q.frame().z), "start": q.start, "end": q.end})
+                json!({"guid": q.guid, "id": q.id, "name": q.name, "offset": crate::vec3::dot(q.start, q.frame().z), "start": q.start, "end": q.end})
             })
             .collect();
         // Each form's ends and its sketch's lines, worked out for the type.

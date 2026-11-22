@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use crate::commands::{micron, next_number, tidy};
 use crate::family::{
-    Category, Connector, ConnectorKind, ConnectorSystem, Expr, Family, Flow, Form, IfcClass, Load, MAX_TRIANGLES, Parameter,
+    Category, Connector, ConnectorKind, ConnectorSystem, Expr, Family, Flow, Form, IfcClass, Load, Parameter, over_triangles,
 };
 use crate::geom::{self, P2};
 use crate::library::Kind;
@@ -32,7 +32,8 @@ use crate::model::{
 use crate::phasing;
 use crate::stairs;
 use crate::step::{self, Entity, File, V};
-use crate::view3d::{P3, add, cross, dot, mul, sub, unit};
+use crate::vec3::{add, cross, dot, mul, sub, unit};
+use crate::view3d::P3;
 use crate::walls::{self, Axis, Plane};
 use serde_json::json;
 
@@ -554,7 +555,7 @@ struct Found {
 /// with `width` level and `depth` square to that; round where the section's corners are many and all as far out. An axis that
 /// stands has its width along east. None for too few points.
 fn run_in(pts: &[P3], axis: Option<P3>) -> Option<Found> {
-    use crate::view3d::{add, cross, dot, mul, sub, unit};
+    use crate::vec3::{add, cross, dot, mul, sub, unit};
     if pts.len() < 4 {
         return None;
     }
@@ -3377,8 +3378,8 @@ pub(crate) fn from_step(file: File, name: &str, seed: u64, budget: &Budget) -> R
         if groups.is_empty() && exact.is_empty() {
             return false;
         }
-        if groups.values().map(Vec::len).sum::<usize>() > MAX_TRIANGLES {
-            leave(skipped, seen, id, &format!("its body has more than {MAX_TRIANGLES} triangles"));
+        if let Some(why) = over_triangles("its body", groups.values().map(Vec::len).sum::<usize>()) {
+            leave(skipped, seen, id, &why);
             return true;
         }
         let mut forms: Vec<Form> =

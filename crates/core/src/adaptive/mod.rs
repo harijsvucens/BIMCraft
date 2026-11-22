@@ -20,7 +20,8 @@ mod revit_tests;
 mod tests;
 
 use crate::family::{Expr, Piece, PlaneRef, Planes, Val};
-use crate::view3d::{P3, add, dot, mul, sub};
+use crate::vec3::{add, dot, mul, sub};
+use crate::view3d::P3;
 pub use frame::Frame;
 use frame::{EPS, norm, unit};
 pub use geometry::Mesh;

@@ -236,6 +236,10 @@ pub const MAX_SLOPE: f64 = 75.0;
 /// 20 has none, and reading it as 21 gives it the type the standards name; a build that reads up to 20 would leave both out as
 /// fields it doesn't know and draw every grid in the one line it had, not say "saved by a newer BIMCraft".
 pub const FORMAT: u32 = 21;
+/// The fork's own file version, in `dm_format` beside [`FORMAT`]. It never collides with an upstream
+/// bump: `FORMAT` keeps tracking official BIMCraft, and a fork build refuses a file whose `dm_format`
+/// it is too old to read, so it cannot silently drop an exact solid it does not understand.
+pub const CURRENT_DM_FORMAT: u32 = 1;
 /// How far past the model a level reaches without an extent of its own, mm.
 pub const LEVEL_PAST: f64 = 1000.0;
 
@@ -4203,6 +4207,10 @@ pub struct Model {
     /// Which version of the file this is: [`FORMAT`] when written; none, a file from before GUIDs.
     #[serde(default)]
     pub format: u32,
+    /// The fork's exact-solid file version. None in an official BIMCraft file; written only when
+    /// the project carries a form whose `brep` must survive. A newer one is refused on open.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dm_format: Option<u32>,
     pub name: String,
     /// Seeds the IFC GlobalIds, so every export of this model keeps them.
     pub uid: u64,
@@ -4457,6 +4465,7 @@ impl Model {
         };
         let mut m = Model {
             format: FORMAT,
+            dm_format: None,
             name: name.into(),
             uid: fresh_uid(),
             units: Units::default(),
@@ -4926,6 +4935,15 @@ impl Model {
         placed.place([x, if c.mirrored { -y } else { y }, z])
     }
 
+    /// The form a mesh edit on the component `id` reaches, and its family: the family's first form with a mesh — the
+    /// same form the mesh commands take when none is named ([`Family::first_mesh`]). None when `id` is not a component
+    /// whose family has a mesh form.
+    pub fn push_form(&self, id: Id) -> Option<(usize, &Family)> {
+        let Element::Component(c) = self.elements.get(id)? else { return None };
+        let family = self.families.get(&c.family)?;
+        Some((family.first_mesh()?, family))
+    }
+
     /// Component `c`'s connectors, worked out for its type and values, with their place and the way they face in the
     /// model: mirrored if it is, then placed as its family's axes are ([`Model::component_placement`]), so one hosted on a
     /// tilted plane or a face carries them with it (a connector without a place has neither). None for a component whose
@@ -5049,6 +5067,14 @@ impl Model {
         if !(4..=u64::from(FORMAT)).contains(&format) {
             return Ok(None);
         }
+        // A fork file this build is too old for must reach read_whole, which says why instead of
+        // silently dropping the exact solids it cannot understand.
+        if let Some(raw) = top.get("dm_format") {
+            let Ok(f) = serde_json::from_str::<u64>(raw.get()) else { return Ok(None) };
+            if f > u64::from(CURRENT_DM_FORMAT) {
+                return Ok(None);
+            }
+        }
         let Some(raw) = elements else { return Ok(None) };
         let raw: Vec<(String, &RawValue)> = raw.into_iter().collect();
         /// An element as a file holds it: its id, its GUID if it has one, it, and the fields of it left out.
@@ -5127,6 +5153,16 @@ impl Model {
         if format > u64::from(FORMAT) {
             return Err(format!(
                 "it was saved by a newer BIMCraft (file format {format}; this one reads up to {FORMAT}): update BIMCraft to open it"
+            ));
+        }
+        let dm_format = match v.get("dm_format") {
+            None | Some(Value::Null) => None,
+            Some(x) => Some(x.as_u64().ok_or("`dm_format` must be a whole number")?),
+        };
+        if dm_format.is_some_and(|f| f > u64::from(CURRENT_DM_FORMAT)) {
+            return Err(format!(
+                "it was saved by a newer direct-modeling build (dm_format {}; this one reads up to {CURRENT_DM_FORMAT}): update BIMCraft to open it",
+                dm_format.unwrap_or(0)
             ));
         }
         if format < 4 {
@@ -10640,6 +10676,7 @@ impl Model {
     pub(crate) fn same_settings(&self, o: &Model) -> bool {
         let Model {
             format,
+            dm_format: _,
             name,
             uid,
             units,

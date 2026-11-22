@@ -207,10 +207,10 @@ pub fn stage(mut m: Model, family: &Family, values: &BTreeMap<String, Val>, show
     for p in family.planes.iter().filter(|p| !p.level && shown(p.guid)) {
         let f = p.frame();
         // The line it is drawn as, across the room: the room's corners taken onto its x.
-        let along = |q: P3| view3d::dot(view3d::sub(q, f.origin), f.x);
+        let along = |q: P3| crate::vec3::dot(crate::vec3::sub(q, f.origin), f.x);
         let corners = (0..8).map(|k| [[room.0, room.1][k & 1][0], [room.0, room.1][(k >> 1) & 1][1], [room.0, room.1][k >> 2][2]]);
         let (t0, t1) = corners.map(along).fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), t| (a.min(t), b.max(t)));
-        let at = |t: f64| view3d::add(f.origin, view3d::mul(f.x, t));
+        let at = |t: f64| crate::vec3::add(f.origin, crate::vec3::mul(f.x, t));
         let plane = ReferencePlane { name: p.name.clone(), start: at(t0), end: at(t1), up: f.y };
         planes.insert(m.insert(Element::RefPlane(plane)), p.guid);
     }
@@ -876,9 +876,12 @@ mod tests {
             let w = Which::Elevation(side);
             let (a, b) = (st.to_view(w, [0.0, 0.0, 100.0]), st.to_view(w, [0.0, 0.0, 900.0]));
             let (s, e, up) = new_plane(&st, w, a, b).unwrap();
-            assert!(view3d::dot(view3d::sub(s, [0.0, 0.0, 100.0]), view3d::sub(s, [0.0, 0.0, 100.0])) < 1e-6, "{side:?}: {s:?}");
+            assert!(
+                crate::vec3::dot(crate::vec3::sub(s, [0.0, 0.0, 100.0]), crate::vec3::sub(s, [0.0, 0.0, 100.0])) < 1e-6,
+                "{side:?}: {s:?}"
+            );
             assert!((e[2] - 900.0).abs() < 1e-6);
-            let normal = view3d::cross(view3d::sub(e, s), up);
+            let normal = crate::vec3::cross(crate::vec3::sub(e, s), up);
             let l = side.looking();
             assert!((normal[0] * l.0 + normal[1] * l.1).abs() < 1e-6, "{side:?}: its normal lies in the elevation's plane");
         }

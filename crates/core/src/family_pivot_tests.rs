@@ -47,9 +47,9 @@ fn tris(f: &Family, t: &str) -> Vec<Vec<[[f64; 3]; 3]>> {
 fn same(a: &[Vec<[[f64; 3]; 3]>], b: &[Vec<[[f64; 3]; 3]>]) -> bool {
     let close = |p: &[f64; 3], q: &[f64; 3]| p.iter().zip(q).all(|(u, v)| (u - v).abs() < 1e-6);
     let area = |t: &[[f64; 3]; 3]| {
-        let (u, v) = (crate::view3d::sub(t[1], t[0]), crate::view3d::sub(t[2], t[0]));
-        let c = crate::view3d::cross(u, v);
-        crate::view3d::dot(c, c).sqrt() / 2.0
+        let (u, v) = (crate::vec3::sub(t[1], t[0]), crate::vec3::sub(t[2], t[0]));
+        let c = crate::vec3::cross(u, v);
+        crate::vec3::dot(c, c).sqrt() / 2.0
     };
     a.len() == b.len()
         && a.iter().zip(b).all(|(x, y)| {

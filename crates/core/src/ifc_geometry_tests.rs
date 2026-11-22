@@ -6,7 +6,8 @@
 
 use crate::import::{Imported, ifc};
 use crate::model::{Element, Model};
-use crate::view3d::{P3, cross, dot};
+use crate::vec3::{cross, dot};
+use crate::view3d::P3;
 
 /// An IFC4 file's text in millimetres and radians, entity by entity: proxies in one storey, each a body of the items given.
 pub(crate) struct G {

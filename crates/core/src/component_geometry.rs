@@ -48,14 +48,14 @@ impl ComponentInstance {
         let [a, b, c] = self.axes;
         let w = |v: [f64; 3]| 1.0 / (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
         let (wa, wb, wc) = (n[0] * w(a), n[1] * w(b), n[2] * w(c));
-        crate::view3d::unit(std::array::from_fn(|i| a[i] * wa + b[i] * wb + c[i] * wc))
+        crate::vec3::unit(std::array::from_fn(|i| a[i] * wa + b[i] * wb + c[i] * wc))
     }
 
     /// The other way: a normal of the copy, of its shape.
     pub(crate) fn local_normal(&self, n: [f64; 3]) -> [f64; 3] {
         let dot = |v: [f64; 3]| v[0] * n[0] + v[1] * n[1] + v[2] * n[2];
         let [a, b, c] = self.axes;
-        crate::view3d::unit([dot(a), dot(b), dot(c)])
+        crate::vec3::unit([dot(a), dot(b), dot(c)])
     }
 
     /// Whether its axes span space, so a normal can be placed.
@@ -387,7 +387,7 @@ mod tests {
                         [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]]
                     };
                     let expected = instance.normal(normal(local));
-                    let actual = crate::view3d::unit(normal(world));
+                    let actual = crate::vec3::unit(normal(world));
                     for axis in 0..3 {
                         assert!((actual[axis] - expected[axis]).abs() <= expected[axis].abs().max(1.0) * 1e-9);
                     }

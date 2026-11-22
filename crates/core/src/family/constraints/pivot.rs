@@ -9,7 +9,7 @@
 //! pivot. The swing row is hard for a parameter and soft for the pivot's own angle, which a dimension may then set.
 
 use super::*;
-use crate::view3d::sub;
+use crate::vec3::sub;
 
 /// How far a swing may be, either way, in degrees.
 pub const MAX_SWING: f64 = 360.0;

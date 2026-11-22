@@ -2452,7 +2452,7 @@ fn a_mirrored_component_is_its_familys_mirror_image() {
             .component_local_pieces(c)
             .iter()
             .flat_map(|p| &p.tris)
-            .map(|[a, b, c]| crate::view3d::dot(*a, crate::view3d::cross(*b, *c)) / 6.0)
+            .map(|[a, b, c]| crate::vec3::dot(*a, crate::vec3::cross(*b, *c)) / 6.0)
             .sum()
     };
     let chair = run(&mut s, "component", json!({"family": "Chair", "at": [0, 0]}))["id"].as_u64().unwrap();
@@ -2795,6 +2795,26 @@ fn hostile_params_never_panic_or_break_the_model() {
         json!({"name": "F", "types": {"A": {}}, "parameters": [{"name": "W", "formula": "W + 1"}], "forms": [{"circle": {"centre": [0, 0], "radius": "W"}, "to": 1}]}),
         json!({"name": "F", "types": {"A": {"Nope": 1}}, "forms": [{"profile": "x"}]}),
         json!({"name": "F", "types": {"A": {}}, "forms": [{"mesh": [[[0, 0, 0], [1e300, 0, 0], [0, 1, 0]]]}]}),
+        json!({"points": [[0, 0, 0], [1000, 0, 0], [0, 1000, 0], [0, 0, 1000]], "triangles": [[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]]}),
+        json!({"points": [[0, 0, 0], [1000, 0, 0], [0, 1000, 0], [0, 0, 1000]], "triangles": [[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]], "name": 5}),
+        json!({"points": [[0, 0, 0], [1000, 0, 0], [0, 1000, 0]], "triangles": [[0, u64::MAX, 2], [0, 0, 0]]}),
+        json!({"family": "No such mesh", "at": [0, 0, 0], "distance": 1}),
+        json!({"family": "Direct Model", "at": [1e300, 0, 0], "distance": 1e300, "form": 0}),
+        json!({"family": "Direct Model", "at": [0, -200, 1000], "distance": f64::MAX}),
+        json!({"family": "Direct Model", "at": [0, -200, 1000], "distance": 1}),
+        json!({"family": "Direct Model", "at": [0, 0, 0], "distance": 1, "form": 9}),
+        json!({"family": "Direct Model", "form": 0}),
+        json!({"family": "Sweep Sheet", "form": 1e9}),
+        json!({"family": "Sweep Sheet", "at": [200, 200, 0], "distance": 500}),
+        json!({"family": "Sweep Sheet", "at": [200, 200, 0], "distance": f64::MAX}),
+        json!({"family": "Sweep Sheet", "at": [200, 200, 0], "distance": 1e-9, "form": 0}),
+        json!({"family": "Direct Model", "face": "x"}),
+        json!({"family": "Direct Model", "face": u64::MAX, "form": 0}),
+        json!({"family": "Direct Model", "at": [1e300, 0, 0]}),
+        json!({"family": "Sweep Sheet", "at": [200, 200, 0]}),
+        json!({"family": "Direct Model", "at": [0, 0, 1000]}),
+        json!({"family": "Direct Model", "at": [1e300, 0, 0], "to": [0, 0, 0], "form": 0}),
+        json!({"family": "Direct Model", "at": [0, 0, 1000], "to": [f64::MAX, 0, 0]}),
         json!({"name": "F", "types": {"A": {}}, "forms": [{"plane": "xz", "profile": [[1, 0], [2, 0], [2, 1]], "axis": [[0, 0], [1e300, 1e300]], "to": 1e300}]}),
         json!({"name": "F", "types": {"A": {}}, "forms": [{"profile": [[1, 0], [2, 0], [2, 1]], "axis": [[0, 0], [0, 0]], "to": 360}]}),
         json!({"name": "F", "types": {"A": {}}, "forms": [{"profile": [[1, 0], [2, 0], [2, 1]], "axis": "x", "to": 360}]}),
@@ -3353,6 +3373,56 @@ fn hostile_params_never_panic_or_break_the_model() {
     // A sheet holding the plan, last so that no id moves, and the exports of it, of the plan and of the project.
     let _ = base.execute("sheet", &json!({"name": "Plans"}));
     let _ = base.execute("place", &json!({"sheet": "A101", "view": "Level 1"}));
+    // A direct-modeling mesh, last so that no id moves: the sweep pushes a face of it, and refuses bad ones.
+    let mesh_made = base.execute("mesh", &box_mesh()).unwrap();
+    let mesh_guid = base.model.guid(mesh_made["component"].as_u64().unwrap());
+    targeted.extend([
+        ("mesh_move", json!({"component": mesh_guid, "by": [0, 0, 0]})),
+        ("mesh_move", json!({"component": mesh_guid, "by": [1e300, 0, 0]})),
+        ("mesh_move", json!({"component": mesh_guid, "by": [f64::NAN, 0, 0]})),
+        ("mesh_move", json!({"component": mesh_guid, "by": ["x", 0, 0]})),
+        ("mesh_move", json!({"component": mesh_guid, "by": [1, 2]})),
+        (
+            "mesh_punch_through",
+            json!({"component": mesh_guid, "at": [100,100,1000], "loop": [[250,250,1000],[750,250,1000],[1e300,750,1000]]}),
+        ),
+        ("mesh_punch_through", json!({"component": mesh_guid, "at": [100,100,1000], "loop": [[250,250,1000],[750,250,1000]]})),
+        (
+            "mesh_punch_through",
+            json!({"component": mesh_guid, "at": [100,100,1000], "loop": [[0,0,1000],[1000,0,1000],[1000,1000,1000],[0,1000,1000]]}),
+        ),
+        ("convert_to_mesh", json!({"id": mesh_guid})),
+        ("convert_to_mesh", json!({"id": 999999})),
+        ("convert_to_mesh", json!({"id": "x"})),
+        ("convert_to_mesh", json!({})),
+        ("convert_to_exact_solid", json!({"id": mesh_guid})),
+        ("convert_to_exact_solid", json!({"id": 999999})),
+        ("convert_to_exact_solid", json!({"id": "x"})),
+        ("convert_to_exact_solid", json!({})),
+        ("dm_create", json!({"kind": "box", "origin": [0, 0, 0], "size": [1e300, 2, 3]})),
+        ("dm_create", json!({"kind": "cylinder", "origin": [0, 0, 0], "radius": -1, "height": 2})),
+        ("dm_create", json!({"kind": "box", "origin": [0, 0, 0], "size": ["x", 2, 3]})),
+        ("dm_create", json!({"kind": "other"})),
+        ("dm_create", json!({})),
+        ("finish_direct", json!({"bodies": []})),
+        ("finish_direct", json!({"bodies": [{"brep": "not base64 !!"}]})),
+        ("finish_direct", json!({"bodies": [{"brep": 123}]})),
+        ("finish_direct", json!({"bodies": "x"})),
+        ("finish_direct", json!({})),
+        ("dm_edit", json!({"op": "push", "target": "bad", "distance": 1e300})),
+        ("dm_edit", json!({"op": "move", "target": "bad", "delta": [0, 0, 0]})),
+        ("dm_edit", json!({"op": "other", "target": "bad"})),
+        ("dm_edit", json!({})),
+        ("dm_make", json!({"kind": "box", "origin": [0, 0, 0], "size": [1e300, 2, 3]})),
+        ("dm_make", json!({"kind": "cylinder", "origin": [0, 0, 0], "radius": -1, "height": 2})),
+        ("dm_make", json!({})),
+    ]);
+    // And a sheet, one triangle with nothing beside it, so a push of it takes the other rule: it rises into a solid rather
+    // than stretching what is round it.
+    let _ = base.execute(
+        "family",
+        &json!({"name": "Sweep Sheet", "types": {"Default": {}}, "forms": [{"mesh": [[[0.0, 0.0, 0.0], [1000.0, 0.0, 0.0], [0.0, 1000.0, 0.0]]]}]}),
+    );
     let exports = temp("sweep-exports");
     targeted.extend(crate::export_tests::sweep_payloads(&exports));
     targeted.extend(crate::survey_tests::sweep_payloads(&exports));
@@ -5673,9 +5743,8 @@ fn a_family_door_flipped_either_way_keeps_its_forms_turned_out_and_the_same_size
     // What each form encloses, from its triangles, in the opening's own axes: positive while they face out.
     let volumes = |s: &Session| -> Vec<f64> {
         let (pieces, _) = s.model.opening_local(&s.model.elements[&100006]).unwrap();
-        let sixth = |p: &crate::family::Piece| {
-            p.tris.iter().map(|[a, b, c]| crate::view3d::dot(*a, crate::view3d::cross(*b, *c))).sum::<f64>() / 6.0
-        };
+        let sixth =
+            |p: &crate::family::Piece| p.tris.iter().map(|[a, b, c]| crate::vec3::dot(*a, crate::vec3::cross(*b, *c))).sum::<f64>() / 6.0;
         pieces.iter().map(sixth).collect()
     };
     let straight = volumes(&s);
@@ -6910,7 +6979,8 @@ fn a_file_from_before_guids_opens_with_guids_and_six_digit_ids() {
 fn a_file_of_the_family_editors_unreleased_formats_past_this_one_up_to_32_is_refused_as_newer() {
     // The Family Editor took the format from 17 to 32 a step at a time before it was released, and none of that was. 0.12's
     // format is 20, which every change since 0.11 shares, so a file of those builds stamped 20 opens as one of 0.12's; 21 is
-    // the next release's, and what is past it, up to 32, is refused as any newer file is.
+    // the next release's, and what is past it, up to 32, is refused as any newer file is. The fork's
+    // exact-solid version is separate (`dm_format`) and deliberately does not bump this number.
     use crate::model::{FORMAT, Model};
     assert_eq!(FORMAT, 21);
     let mut s = Session::new();
@@ -6927,6 +6997,25 @@ fn a_file_of_the_family_editors_unreleased_formats_past_this_one_up_to_32_is_ref
             "{old}: {e}"
         );
     }
+}
+
+#[test]
+fn a_fork_file_with_an_exact_solid_keeps_its_own_version_and_a_newer_one_is_refused() {
+    use crate::model::{CURRENT_DM_FORMAT, FORMAT, Model};
+    let mut s = Session::new();
+    house(&mut s);
+    let mut v = serde_json::to_value(&*s.model).unwrap();
+    assert_eq!(v["format"], FORMAT, "the fork still writes upstream's format");
+    assert!(v.get("dm_format").is_none(), "an official file carries no fork version");
+    v["dm_format"] = json!(CURRENT_DM_FORMAT);
+    let (m, left_out) = Model::read(&v.to_string()).unwrap();
+    assert!(left_out.is_empty(), "{left_out:?}");
+    assert_eq!(m.dm_format, Some(CURRENT_DM_FORMAT));
+    // An older fork build must refuse it, not read a B-rep it does not understand and drop on save.
+    let mut newer = v.clone();
+    newer["dm_format"] = json!(CURRENT_DM_FORMAT + 1);
+    let e = Model::read(&newer.to_string()).unwrap_err();
+    assert!(e.contains("newer direct-modeling build"), "{e}");
 }
 
 #[test]
@@ -7721,6 +7810,623 @@ fn the_exit_tests_window_flexes_as_built_schedules_and_goes_to_ifc() {
     let n = |class: &str| ifc.lines().filter(|l| l.contains(&format!("={class}("))).count();
     assert_eq!((n("IFCWINDOW"), n("IFCOPENINGELEMENT"), n("IFCRELVOIDSELEMENT"), n("IFCRELFILLSELEMENT")), (2, 2, 2, 2));
     assert!(ifc.contains("'Exit Window:1200 x 1500',#") && ifc.contains(",1500.,1200.,.WINDOW."), "the window's OverallHeight and Width");
+}
+
+/// A box a metre each way as `mesh` takes it: eight points and twelve triangles, turned out.
+fn box_mesh() -> Value {
+    json!({
+        "points": [[0, 0, 0], [1000, 0, 0], [1000, 1000, 0], [0, 1000, 0], [0, 0, 1000], [1000, 0, 1000], [1000, 1000, 1000], [0, 1000, 1000]],
+        "triangles": [[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]],
+    })
+}
+
+#[test]
+fn the_mesh_commands_share_one_target_error() {
+    let mut s = Session::new();
+    let guid = s.model.guid(100_000); // the sample's level, not a component
+    let mut errs = Vec::new();
+    for (cmd, extra) in [
+        ("mesh_push_pull", json!({"at": [0,0,0], "distance": 1})),
+        ("mesh_erase", json!({"at": [0,0,0]})),
+        ("mesh_move_edge", json!({"at": [0,0,0], "to": [1,1,1]})),
+        ("mesh_move", json!({"by": [1,1,1]})),
+        ("mesh_punch_through", json!({"at": [0,0,0], "loop": [[0,0,0],[1,0,0],[0,1,0]]})),
+    ] {
+        let mut p = json!({"component": guid});
+        p.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        let e = s.execute(cmd, &p).unwrap_err();
+        errs.push(e.strip_prefix(&format!("{cmd}: ")).unwrap_or(&e).to_string());
+    }
+    assert!(errs[0].contains("must be a component"), "{}", errs[0]);
+    assert_eq!(errs[0], errs[1], "erase and push refuse the same way");
+    assert_eq!(errs[1], errs[2], "move edge and erase refuse the same way");
+    assert!(errs[3].contains("must be a direct-modeled component"), "{}", errs[3]);
+    assert_eq!(errs[4], errs[0], "punch through and push refuse the same way");
+}
+
+#[test]
+fn a_mesh_component_moves_whole_in_three_dimensions_and_its_mesh_stays_put() {
+    let mut s = Session::new();
+    let made = run(&mut s, "mesh", box_mesh());
+    let id = made["component"].as_u64().unwrap();
+    let guid = s.model.guid(id);
+    let mesh = s.model.families["Direct Model"].forms[0].mesh.clone();
+    let moved = run(&mut s, "mesh_move", json!({"component": guid, "by": [500, 300, 250]}));
+    assert_eq!(moved["id"], json!(id));
+    assert_eq!(moved["at"], json!([1000.0, 800.0]), "the box starts at its plan middle, (500, 500)");
+    assert_eq!(moved["offset"], json!(250.0));
+    assert_eq!(moved["by"], json!([500.0, 300.0, 250.0]));
+    assert_eq!(*s.model.families["Direct Model"].forms[0].mesh, *mesh, "a whole-object move never edits the mesh");
+    let place = |s: &Session| match s.model.elements.get(id) {
+        Some(crate::model::Element::Component(c)) => (c.at.0, c.at.1, c.offset),
+        _ => panic!("a mesh component"),
+    };
+    assert_eq!(place(&s), (1000.0, 800.0, 250.0), "the component stands where it was moved to");
+
+    // A step of nothing changes nothing — not even the Arc — so it makes no undo step.
+    let before = Arc::clone(&s.model);
+    let zero = run(&mut s, "mesh_move", json!({"component": guid, "by": [0, 0, 0]}));
+    assert_eq!(zero["by"], json!([0.0, 0.0, 0.0]));
+    assert!(Arc::ptr_eq(&s.model, &before), "a step of zero leaves the model alone");
+
+    run(&mut s, "undo", json!({}));
+    assert_eq!(place(&s), (500.0, 500.0, 0.0), "one undo takes the whole move back");
+    assert_eq!(*s.model.families["Direct Model"].forms[0].mesh, *mesh);
+
+    // Pinned components and steps past the model's reach are refused.
+    run(&mut s, "pin", json!({"ids": [id]}));
+    let e = s.execute("mesh_move", &json!({"component": guid, "by": [1, 0, 0]})).unwrap_err();
+    assert!(e.contains("pinned"), "{e}");
+    let e = s.execute("mesh_move", &json!({"component": guid, "by": [1e300, 0, 0]})).unwrap_err();
+    assert!(e.contains("`by`"), "{e}");
+}
+
+#[test]
+fn a_mesh_is_a_family_of_its_own_and_a_face_of_it_pushes_in_one_undo_step() {
+    let mut s = Session::new();
+    let mut p = box_mesh();
+    p["at"] = json!([2000, 3000]);
+    let made = run(&mut s, "mesh", p);
+    assert_eq!(made["family"], json!("Direct Model"));
+    assert_eq!(made["volume"], json!(1.0), "a cubic metre");
+    // The family stands on its own origin; the component puts it back where the points were.
+    let origin: Vec<f64> = made["origin"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect();
+    assert_eq!(origin, [500.0, 500.0, 0.0]);
+    let id = made["component"].as_u64().expect("the component's id");
+    let placed = match s.model.elements.get(id) {
+        Some(crate::model::Element::Component(c)) => Some((c.at.0, c.at.1, c.offset)),
+        _ => None,
+    };
+    assert_eq!(placed, Some((2500.0, 3500.0, 0.0)));
+    // The top face, half a metre up, along the family's own axes.
+    let at = [500.0 - origin[0], 300.0 - origin[1], 1000.0 - origin[2]];
+    let pushed = run(&mut s, "mesh_push_pull", json!({"family": "Direct Model", "at": at, "distance": 500}));
+    assert_eq!(pushed["normal"], json!([0.0, 0.0, 1.0]));
+    assert_eq!(pushed["triangles"], json!(2), "the top is two triangles");
+    assert_eq!(pushed["volume"], json!(1.5), "half a metre taller");
+    // The model keeps it, and one undo takes it back.
+    run(&mut s, "undo", json!({}));
+    let top = s.model.families["Direct Model"].forms[0].mesh.iter().flatten().map(|q| q[2]).fold(f64::MIN, f64::max);
+    assert_eq!(top, 1000.0, "the top is where it was");
+    // Nothing holds a point off a face, and a push of nothing is refused.
+    let e = s.execute("mesh_push_pull", &json!({"family": "Direct Model", "at": [0.0, 0.0, 5000.0], "distance": 100})).unwrap_err();
+    assert!(e.contains("no flat face"), "{e}");
+    let e = s.execute("mesh_push_pull", &json!({"family": "Direct Model", "at": at, "distance": 0})).unwrap_err();
+    assert!(e.contains("moves no face"), "{e}");
+    // A push through the bottom is clamped to the last distance that still closes, as the drag preview shows: what is
+    // shown is what is made, so a typed distance inherits the same clamp instead of being refused.
+    let clamped = run(&mut s, "mesh_push_pull", json!({"family": "Direct Model", "at": at, "distance": -2000}));
+    let applied = clamped["distance"].as_f64().unwrap();
+    assert!(applied < 0.0 && applied > -1000.0, "a sliver of the box is left: {applied}");
+    assert!(clamped["volume"].as_f64().unwrap() > 0.0, "the clamped push still closes");
+    // A mesh that does not close, or is turned round, is refused before it is made.
+    let mut open = box_mesh();
+    open["triangles"].as_array_mut().unwrap().pop();
+    let e = s.execute("mesh", &open).unwrap_err();
+    assert!(e.contains("no closed solid"), "{e}");
+    let mut turned = box_mesh();
+    turned["triangles"][2] = json!([4, 6, 5]);
+    let e = s.execute("mesh", &turned).unwrap_err();
+    assert!(e.contains("turned round"), "{e}");
+    let e = s.execute("mesh_push_pull", &json!({"family": "No such", "at": [0, 0, 0], "distance": 1})).unwrap_err();
+    assert!(e.contains("no family"), "{e}");
+    // It saves and opens again, which is why no format bump is needed.
+    let path = temp("direct-mesh.bimcraft");
+    run(&mut s, "save", json!({"path": path}));
+    let saved = s.model.clone();
+    run(&mut s, "open", json!({"path": path}));
+    assert_eq!(*s.model, *saved);
+    assert_eq!(s.model.families["Direct Model"].forms[0].mesh.len(), 12, "the mesh comes back whole");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn a_sheet_imported_from_a_file_is_pulled_up_into_a_solid() {
+    let path = temp("sheet.obj");
+    std::fs::write(&path, "o Sheet\nv 0 0 0\nv 1000 0 0\nv 1000 1000 0\nv 0 1000 0\nf 1 2 3\nf 1 3 4\n").unwrap();
+    let mut s = Session::new();
+    let made = run(&mut s, "import_mesh", json!({"path": path, "at": [0, 0], "units": "mm", "up": "z"}));
+    assert_eq!(made["families"], json!(["Sheet"]));
+    assert_eq!(s.model.families["Sheet"].forms[0].mesh.len(), 2, "a sheet, two triangles, no solid yet");
+    // Pulled up half a metre round its own origin: a solid where the sheet was, the sheet its base.
+    let pushed = run(&mut s, "mesh_push_pull", json!({"family": "Sheet", "at": [0, 0, 0], "distance": 500}));
+    assert_eq!(pushed["volume"], json!(0.5), "a metre square, half a metre high");
+    let mesh = &s.model.families["Sheet"].forms[0].mesh;
+    assert_eq!(mesh.len(), 12, "the sheet, its copy, and two walls a side");
+    crate::mesh::sealed(mesh).expect("a solid");
+    run(&mut s, "undo", json!({}));
+    assert_eq!(s.model.families["Sheet"].forms[0].mesh.len(), 2, "one undo is the sheet again");
+    let _ = std::fs::remove_file(path);
+}
+
+#[cfg(feature = "kernel-solidcore")]
+#[test]
+fn a_kernel_refusal_falls_back_to_the_mesh_and_names_the_kernel_s_reason() {
+    let path = temp("sheet-fallback.obj");
+    std::fs::write(&path, "o Sheet\nv 0 0 0\nv 1000 0 0\nv 1000 1000 0\nv 0 1000 0\nf 1 2 3\nf 1 3 4\n").unwrap();
+    let mut s = Session::new();
+    run(&mut s, "import_mesh", json!({"path": path, "at": [0, 0], "units": "mm", "up": "z"}));
+    // The kernel never sews an open sheet, so the sheet-into-solid rule is the mesh path's, and the reply says so.
+    let pushed = run(&mut s, "mesh_push_pull", json!({"family": "Sheet", "at": [0, 0, 0], "distance": 500}));
+    assert_eq!(pushed["backend"], json!("mesh"));
+    assert!(pushed["fallback"].is_string(), "the kernel's reason is named: {}", pushed["fallback"]);
+    assert_eq!(pushed["volume"], json!(0.5), "the mesh path still rises the sheet into a solid");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn a_meshed_component_s_face_is_pushed_by_a_point_of_the_model() {
+    // A box whose plan middle is the origin, so the component stands where the form's own axes are; then turned 30°.
+    let mut p = box_mesh();
+    for q in p["points"].as_array_mut().unwrap() {
+        q[0] = json!(q[0].as_i64().unwrap() - 500);
+        q[1] = json!(q[1].as_i64().unwrap() - 500);
+    }
+    let mut s = Session::new();
+    let made = run(&mut s, "mesh", p);
+    assert_eq!(made["origin"], json!([0.0, 0.0, 0.0]));
+    let id = made["component"].as_u64().expect("the component's id");
+    let guid = s.model.guid(id);
+    run(&mut s, "modify", json!({"id": id, "angle": 30}));
+    // A point on the top face, 300 mm along the family's x, where that stands in the model.
+    let (sin, cos) = 30.0_f64.to_radians().sin_cos();
+    let at = [300.0 * cos, 300.0 * sin, 1000.0];
+    let pushed = run(&mut s, "mesh_push_pull", json!({"component": guid, "at": at, "distance": 500}));
+    assert_eq!(pushed["normal"], json!([0.0, 0.0, 1.0]), "the face is the same one, found through the component's turn");
+    assert_eq!(pushed["volume"], json!(1.5));
+    // A point of the model that no face holds, and a GUID that is no component, are refused with what to give instead.
+    let e = s.execute("mesh_push_pull", &json!({"component": guid, "at": [1e5, 1e5, 1e5], "distance": 1})).unwrap_err();
+    assert!(e.contains("no flat face"), "{e}");
+    let e = s.execute("mesh_push_pull", &json!({"component": s.model.guid(100_000), "at": [0, 0, 0], "distance": 1})).unwrap_err();
+    assert!(e.contains("no `component`") || e.contains("must be a component"), "{e}");
+    let e = s.execute("mesh_push_pull", &json!({"at": [0, 0, 0], "distance": 1})).unwrap_err();
+    assert!(e.contains("`family`") && e.contains("`component`"), "{e}");
+}
+
+#[test]
+fn a_mesh_is_checked_for_what_it_makes_and_what_is_wrong_with_it() {
+    let mut s = Session::new();
+    run(&mut s, "mesh", box_mesh());
+    let m = run(&mut s, "mesh_check", json!({"family": "Direct Model"}));
+    assert_eq!((m["kind"].as_str(), m["solid"].as_bool()), (Some("solid"), Some(true)));
+    assert_eq!((m["volume"].as_f64(), m["area"].as_f64(), m["triangles"].as_u64()), (Some(1.0), Some(6.0), Some(12)));
+    // A sheet is a form a direct model starts from: measured and named, not refused, by the check or the family.
+    run(
+        &mut s,
+        "family",
+        json!({"name": "Sheet", "types": {"Default": {}}, "forms": [{"mesh": [[[0, 0, 0], [1000, 0, 0], [0, 1000, 0]]]}]}),
+    );
+    let m = run(&mut s, "mesh_check", json!({"family": "Sheet"}));
+    assert_eq!((m["kind"].as_str(), m["solid"].as_bool()), (Some("open sheet"), Some(false)));
+    assert_eq!(m["volume"], json!(0.0));
+    // A triangle turned round is no surface, and said so; a mesh that reaches past the model is no form at all.
+    let mut turned = box_mesh();
+    turned["triangles"][2] = json!([4, 6, 5]);
+    run(
+        &mut s,
+        "family",
+        json!({"name": "Turned", "types": {"Default": {}}, "forms": [{"mesh": [[[0, 0, 0], [1000, 0, 0], [1000, 1000, 0]], [[0, 0, 0], [0, 1000, 0], [1000, 1000, 0]]]}]}),
+    );
+    let m = run(&mut s, "mesh_check", json!({"family": "Turned"}));
+    assert_eq!(m["kind"], json!("a triangle turned round"), "two triangles over one edge the same way");
+    let far = json!({"name": "Far", "types": {"Default": {}}, "forms": [{"mesh": [[[0, 0, 0], [1e300, 0, 0], [0, 1000, 0]]]}]});
+    let e = s.execute("family", &far).unwrap_err();
+    assert!(e.contains("past where the model") || e.contains("its mesh"), "{e}");
+    let e = s.execute("mesh_check", &json!({"family": "Direct Model", "form": 0})).unwrap_err();
+    assert!(e.contains("counts a family's forms from 1"), "{e}");
+}
+
+#[test]
+fn a_mesh_s_face_is_named_by_its_id_and_pushed_by_it() {
+    let mut s = Session::new();
+    run(&mut s, "mesh", box_mesh());
+    let checked = run(&mut s, "mesh_check", json!({"family": "Direct Model"}));
+    let faces = checked["faces"].as_array().expect("its faces");
+    assert_eq!(faces.len(), 6, "a box's six faces: {faces:?}");
+    let top = faces.iter().find(|f| f["normal"] == json!([0.0, 0.0, 1.0])).expect("the top");
+    assert_eq!((top["triangles"].as_u64(), top["area"].as_f64()), (Some(2), Some(1.0)), "{top}");
+    let id = top["id"].as_u64().expect("its id");
+    // The face an id names is the face a point on it does: the same push either way.
+    let by_id = run(&mut s, "mesh_push_pull", json!({"family": "Direct Model", "face": id, "distance": 500}));
+    assert_eq!((by_id["face"].as_u64(), by_id["volume"].as_f64()), (Some(id), Some(1.5)));
+    run(&mut s, "undo", json!({}));
+    let by_point = run(&mut s, "mesh_push_pull", json!({"family": "Direct Model", "at": [500, 500, 1000], "distance": 500}));
+    assert_eq!(by_point["face"], json!(id), "the same face, found by a point of it");
+    let e = s.execute("mesh_push_pull", &json!({"family": "Direct Model", "face": 9999, "distance": 1})).unwrap_err();
+    assert!(e.contains("no flat face 9999"), "{e}");
+    let e = s.execute("mesh_push_pull", &json!({"family": "Direct Model", "face": "x", "distance": 1})).unwrap_err();
+    assert!(e.contains("`mesh_check` lists"), "{e}");
+}
+
+#[test]
+fn punching_a_loop_through_a_box_keeps_a_sealed_solid_in_one_undo_step() {
+    let mut s = Session::new();
+    let made = run(&mut s, "mesh", box_mesh());
+    let guid = s.model.guid(made["component"].as_u64().expect("the component"));
+    // `mesh` centres the form in plan: its own axes run -500..500 in x and y, 0..1000 in z.
+    let local_hole = json!([[-250, -250, 1000], [250, -250, 1000], [250, 250, 1000], [-250, 250, 1000]]);
+    let punched = run(&mut s, "mesh_punch_through", json!({"family": "Direct Model", "at": [-400,-400,1000], "loop": local_hole}));
+    assert_eq!(punched["kind"], json!("solid"));
+    assert_eq!(punched["solid"], json!(true));
+    assert_eq!(punched["volume"], json!(0.75), "a 500 mm square through a 1 m cube");
+    assert_eq!(run(&mut s, "mesh_check", json!({"family": "Direct Model"}))["volume"], json!(0.75));
+    run(&mut s, "undo", json!({}));
+    assert_eq!(run(&mut s, "mesh_check", json!({"family": "Direct Model"}))["volume"], json!(1.0));
+
+    // The same command takes a component's GUID, converting the picked points through its placement:
+    // in the model the loop is back at 250..750, the form's -250..250 shifted by its 500 mm origin.
+    let world_hole = json!([[250, 250, 1000], [750, 250, 1000], [750, 750, 1000], [250, 750, 1000]]);
+    let punched = run(&mut s, "mesh_punch_through", json!({"component": guid, "at": [100,100,1000], "loop": world_hole}));
+    assert_eq!(punched["volume"], json!(0.75));
+    let e = s
+        .execute(
+            "mesh_punch_through",
+            &json!({"family": "Direct Model", "at": [100,100,1000], "loop": [[250,250,1000],[750,250,1000],[1e300,750,1000]]}),
+        )
+        .unwrap_err();
+    assert!(e.contains("`loop`"), "{e}");
+    let e =
+        s.execute("mesh_punch_through", &json!({"family": "Direct Model", "at": [-400,-400,1000], "loop": [[250,250,1000]]})).unwrap_err();
+    assert!(e.contains("at least three"), "{e}");
+}
+
+#[test]
+fn a_punch_takes_a_loop_of_the_model_through_a_turned_component() {
+    // The form's own axes run -500..500 in plan: centre it on the component, then turn it 30° so the
+    // world points of the loop are not the local ones the command works in.
+    let mut p = box_mesh();
+    for q in p["points"].as_array_mut().unwrap() {
+        q[0] = json!(q[0].as_i64().unwrap() - 500);
+        q[1] = json!(q[1].as_i64().unwrap() - 500);
+    }
+    let mut s = Session::new();
+    let made = run(&mut s, "mesh", p);
+    assert_eq!(made["origin"], json!([0.0, 0.0, 0.0]));
+    let id = made["component"].as_u64().expect("the component");
+    let guid = s.model.guid(id);
+    run(&mut s, "modify", json!({"id": id, "angle": 30}));
+    let (sin, cos) = 30.0_f64.to_radians().sin_cos();
+    let world = |x: f64, y: f64| json!([x * cos - y * sin, x * sin + y * cos, 1000]);
+    let hole = json!([world(-250.0, -250.0), world(250.0, -250.0), world(250.0, 250.0), world(-250.0, 250.0)]);
+    let at = world(-400.0, -400.0);
+    let punched = run(&mut s, "mesh_punch_through", json!({"component": guid, "at": at, "loop": hole}));
+    assert_eq!(punched["normal"], json!([0.0, 0.0, 1.0]), "the top face is found through the turn");
+    assert_eq!(punched["solid"], json!(true));
+    assert_eq!(punched["volume"], json!(0.75));
+}
+
+#[test]
+fn convert_to_mesh_replaces_a_wall_with_one_editable_component_in_one_undo_step() {
+    let mut s = Session::new();
+    let wall = run(&mut s, "wall", json!({"points": [[0, 0], [4000, 0]]}))["ids"][0].as_u64().unwrap();
+    assert_eq!(count(&mut s, "wall"), 1);
+    let made = run(&mut s, "convert_to_mesh", json!({"id": wall}));
+    let family = made["family"].as_str().expect("the new family");
+    assert!(family.starts_with("Converted "), "{made}");
+    assert_eq!(made["triangles"], json!(12), "a plain wall is one box: {made}");
+    assert_eq!(made["solid"], json!(true));
+    assert_eq!(count(&mut s, "wall"), 0, "the original is gone, not hidden");
+    assert_eq!(count(&mut s, "component"), 1, "one component stands in its place");
+    assert_eq!(run(&mut s, "mesh_check", json!({"family": family}))["volume"], made["volume"]);
+    run(&mut s, "undo", json!({}));
+    assert_eq!(count(&mut s, "wall"), 1, "one undo restores the wall");
+    assert_eq!(count(&mut s, "component"), 0, "and takes the mesh with it");
+}
+
+#[test]
+fn convert_to_exact_solid_keeps_a_watertight_brep_through_a_file_round_trip() {
+    let mut s = Session::new();
+    let wall = run(&mut s, "wall", json!({"points": [[0, 0], [4000, 0]]}))["ids"][0].as_u64().unwrap();
+    let made = run(&mut s, "convert_to_exact_solid", json!({"id": wall}));
+    let family = made["family"].as_str().expect("the new family").to_owned();
+    assert_eq!(made["solid"], json!(true), "{made}");
+    assert_eq!(count(&mut s, "wall"), 0);
+    assert_eq!(count(&mut s, "component"), 1);
+    assert!(s.model.families.get(&family).is_some_and(|f| f.forms.first().is_some_and(|f| f.brep.is_some())));
+    assert_eq!(s.model.dm_format, Some(crate::model::CURRENT_DM_FORMAT));
+    let text = serde_json::to_string(&*s.model).unwrap();
+    let (back, left_out) = crate::model::Model::read(&text).unwrap();
+    assert!(left_out.is_empty(), "{left_out:?}");
+    assert!(
+        back.families.get(&family).is_some_and(|f| f.forms.first().is_some_and(|f| f.brep.is_some())),
+        "the exact solid survives a save"
+    );
+    run(&mut s, "undo", json!({}));
+    assert_eq!(count(&mut s, "wall"), 1, "one undo restores the wall");
+    assert_eq!(count(&mut s, "component"), 0);
+}
+
+#[test]
+fn dm_edit_returns_a_new_exact_solid_without_touching_the_model() {
+    let mut s = Session::new();
+    let made = run(&mut s, "dm_create", json!({"kind": "box", "origin": [0, 0, 0], "size": [1000, 800, 600]}));
+    let family = made["family"].as_str().expect("the family");
+    let target = s.model.families.get(family).expect("the family").forms[0].brep.clone().expect("its brep");
+    let moved = run(&mut s, "dm_edit", json!({"op": "move", "target": target, "delta": [500, 0, 0]}));
+    assert!(moved["brep"].as_str().is_some_and(|b| !b.is_empty()), "{moved}");
+    assert_eq!(count(&mut s, "component"), 1, "an edit of the draft does not add to the project");
+}
+
+#[test]
+fn dm_create_makes_one_exact_box_and_one_undo_takes_it() {
+    let mut s = Session::new();
+    let made = run(&mut s, "dm_create", json!({"kind": "box", "origin": [0, 0, 0], "size": [1000, 800, 600]}));
+    assert_eq!(made["solid"], json!(true), "{made}");
+    assert_eq!(count(&mut s, "component"), 1);
+    let family = made["family"].as_str().expect("the new family");
+    assert!(s.model.families.get(family).is_some_and(|f| f.forms.first().is_some_and(|f| f.brep.is_some())));
+    assert_eq!(s.model.dm_format, Some(crate::model::CURRENT_DM_FORMAT));
+    run(&mut s, "undo", json!({}));
+    assert_eq!(count(&mut s, "component"), 0, "one undo takes the new solid");
+}
+
+#[test]
+fn finish_direct_commits_a_draft_body_and_deletes_its_source_in_one_step() {
+    let mut s = Session::new();
+    let first = run(&mut s, "wall", json!({"points": [[0, 0], [4000, 0]]}))["ids"][0].as_u64().unwrap();
+    let converted = run(&mut s, "convert_to_exact_solid", json!({"id": first}));
+    let family = converted["family"].as_str().expect("the converted family");
+    let brep = s.model.families.get(family).expect("the family").forms[0].brep.clone().expect("its brep");
+    let source = run(&mut s, "wall", json!({"points": [[0, 3000], [4000, 3000]]}))["ids"][0].as_u64().unwrap();
+    let guid = s.model.guid(source);
+
+    let made = run(&mut s, "finish_direct", json!({"bodies": [{"brep": brep, "name": "Draft Box"}], "source": guid}));
+    assert_eq!(made["components"].as_array().map(Vec::len), Some(1), "{made}");
+    assert_eq!(count(&mut s, "component"), 2, "the converted solid and the finished draft");
+    assert_eq!(count(&mut s, "wall"), 0, "the source wall is gone");
+    run(&mut s, "undo", json!({}));
+    assert_eq!(count(&mut s, "component"), 1, "one undo takes the finished draft");
+    assert_eq!(count(&mut s, "wall"), 1, "and restores the source wall");
+}
+
+#[test]
+fn convert_to_mesh_carries_a_diagonal_wall_to_the_same_place() {
+    let mut s = Session::new();
+    let wall = run(&mut s, "wall", json!({"points": [[0, 0], [4000, 3000]]}))["ids"][0].as_u64().unwrap();
+    let tris_of = |m: &Model, id: u64| crate::view3d::solids_of(m, id).into_iter().flat_map(|x| x.triangles()).collect::<Vec<_>>();
+    let bounds = |tris: &[[[f64; 3]; 3]]| {
+        tris.iter().flatten().fold(([f64::MAX; 3], [f64::MIN; 3]), |(lo, hi), q| {
+            ([lo[0].min(q[0]), lo[1].min(q[1]), lo[2].min(q[2])], [hi[0].max(q[0]), hi[1].max(q[1]), hi[2].max(q[2])])
+        })
+    };
+    let (wall_lo, wall_hi) = bounds(&tris_of(&s.model, wall));
+    let made = run(&mut s, "convert_to_mesh", json!({"id": wall}));
+    let component = made["component"].as_u64().unwrap();
+    let (mesh_lo, mesh_hi) = bounds(&tris_of(&s.model, component));
+    for k in 0..3 {
+        assert!(
+            (wall_lo[k] - mesh_lo[k]).abs() < 1.0 && (wall_hi[k] - mesh_hi[k]).abs() < 1.0,
+            "the mesh stands where the wall stood: {wall_lo:?}..{wall_hi:?} vs {mesh_lo:?}..{mesh_hi:?}"
+        );
+    }
+    let origin = made["origin"].as_array().expect("the mesh's axes");
+    assert!((origin[0].as_f64().unwrap() - 2000.0).abs() < 1.0, "{made}");
+    assert!((origin[1].as_f64().unwrap() - 1500.0).abs() < 1.0, "{made}");
+    // 5 m long, 200 mm wide and 3 m tall: the turn is baked into the mesh, not lost at placement.
+    assert!((made["volume"].as_f64().unwrap() - 3.0).abs() < 0.01, "{made}");
+    assert_eq!(made["solid"], json!(true));
+}
+
+#[test]
+fn convert_to_mesh_refuses_a_wall_that_carries_a_door() {
+    let mut s = Session::new();
+    let wall = run(&mut s, "wall", json!({"points": [[0, 0], [4000, 0]]}))["ids"][0].as_u64().unwrap();
+    run(&mut s, "door", json!({"at": [2000, 0]}));
+    let e = s.execute("convert_to_mesh", &json!({"id": wall})).unwrap_err();
+    assert!(e.contains("hosted"), "{e}");
+    assert_eq!(count(&mut s, "wall"), 1, "a refused conversion changed nothing");
+}
+
+#[test]
+fn erasing_a_mesh_face_opens_a_hole_in_one_undo_step() {
+    let mut s = Session::new();
+    run(&mut s, "mesh", box_mesh());
+    let checked = run(&mut s, "mesh_check", json!({"family": "Direct Model"}));
+    let faces = checked["faces"].as_array().expect("its faces");
+    let top = faces.iter().find(|f| f["normal"] == json!([0.0, 0.0, 1.0])).expect("the top");
+    let id = top["id"].as_u64().expect("its id");
+
+    // Erase by id: the top's two triangles go, a hole opens, and the form is now an open sheet.
+    let erased = run(&mut s, "mesh_erase", json!({"family": "Direct Model", "face": id}));
+    assert_eq!(erased["family"], json!("Direct Model"));
+    assert_eq!(erased["face"], json!(id));
+    assert_eq!(erased["normal"], json!([0.0, 0.0, 1.0]));
+    assert_eq!(erased["triangles"], json!(2), "the top's two triangles are gone");
+    assert_eq!(erased["kind"], json!("open sheet"));
+    assert_eq!(erased["solid"], json!(false));
+    // A sheet encloses nothing, so its `volume` (the signed sum over an open surface) is not a solid's 1 m³.
+    assert_ne!(erased["volume"], json!(1.0));
+    assert_eq!(s.model.families["Direct Model"].forms[0].mesh.len(), 10, "twelve less the top's two");
+    let after = run(&mut s, "mesh_check", json!({"family": "Direct Model"}));
+    assert_eq!((after["kind"].as_str(), after["triangles"].as_u64()), (Some("open sheet"), Some(10)));
+
+    // One undo brings the box back.
+    run(&mut s, "undo", json!({}));
+    assert_eq!(s.model.families["Direct Model"].forms[0].mesh.len(), 12, "one undo is the box again");
+    assert_eq!(run(&mut s, "mesh_check", json!({"family": "Direct Model"}))["volume"], json!(1.0));
+
+    // A point on the face finds the same face as its id.
+    let by_point = run(&mut s, "mesh_erase", json!({"family": "Direct Model", "at": [500, 500, 1000]}));
+    assert_eq!(by_point["face"], json!(id), "the same face, found by a point of it");
+    run(&mut s, "undo", json!({}));
+
+    // Refusals, with what to give instead.
+    let e = s.execute("mesh_erase", &json!({"family": "Direct Model", "face": 9999})).unwrap_err();
+    assert!(e.contains("no flat face 9999"), "{e}");
+    let e = s.execute("mesh_erase", &json!({"family": "Direct Model", "face": "x"})).unwrap_err();
+    assert!(e.contains("`mesh_check` lists"), "{e}");
+    let e = s.execute("mesh_erase", &json!({"family": "Direct Model", "at": [0, 0, 5000]})).unwrap_err();
+    assert!(e.contains("no flat face"), "{e}");
+    let e = s.execute("mesh_erase", &json!({"family": "No such", "face": id})).unwrap_err();
+    assert!(e.contains("no family"), "{e}");
+    let e = s.execute("mesh_erase", &json!({"face": id})).unwrap_err();
+    assert!(e.contains("`family`") && e.contains("`component`"), "{e}");
+}
+
+#[test]
+fn erasing_the_only_face_of_a_mesh_is_refused() {
+    let mut s = Session::new();
+    run(
+        &mut s,
+        "family",
+        json!({"name": "Solo", "types": {"Default": {}}, "forms": [{"mesh": [[[0, 0, 0], [1000, 0, 0], [0, 1000, 0]]]}]}),
+    );
+    let checked = run(&mut s, "mesh_check", json!({"family": "Solo"}));
+    let id = checked["faces"][0]["id"].as_u64().expect("its only face");
+    let e = s.execute("mesh_erase", &json!({"family": "Solo", "face": id})).unwrap_err();
+    assert!(e.contains("only face"), "{e}");
+    assert_eq!(s.model.families["Solo"].forms[0].mesh.len(), 1, "the triangle stays");
+}
+
+#[test]
+fn a_meshed_component_s_face_is_erased_by_a_point_of_the_model() {
+    // A box whose plan middle is the origin, so the component stands where the form's own axes are; then turned 30°.
+    let mut p = box_mesh();
+    for q in p["points"].as_array_mut().unwrap() {
+        q[0] = json!(q[0].as_i64().unwrap() - 500);
+        q[1] = json!(q[1].as_i64().unwrap() - 500);
+    }
+    let mut s = Session::new();
+    let made = run(&mut s, "mesh", p);
+    assert_eq!(made["origin"], json!([0.0, 0.0, 0.0]));
+    let id = made["component"].as_u64().expect("the component's id");
+    let guid = s.model.guid(id);
+    run(&mut s, "modify", json!({"id": id, "angle": 30}));
+    let (sin, cos) = 30.0_f64.to_radians().sin_cos();
+    let at = [300.0 * cos, 300.0 * sin, 1000.0];
+    let erased = run(&mut s, "mesh_erase", json!({"component": guid, "at": at}));
+    assert_eq!(erased["normal"], json!([0.0, 0.0, 1.0]), "the face is the same one, found through the component's turn");
+    assert_eq!(erased["solid"], json!(false));
+    assert_eq!(s.model.families["Direct Model"].forms[0].mesh.len(), 10);
+    let e = s.execute("mesh_erase", &json!({"component": guid, "at": [1e5, 1e5, 1e5]})).unwrap_err();
+    assert!(e.contains("no flat face"), "{e}");
+    let e = s.execute("mesh_erase", &json!({"component": s.model.guid(100_000), "at": [0, 0, 0]})).unwrap_err();
+    assert!(e.contains("must be a component"), "{e}");
+}
+
+#[test]
+fn moving_a_gable_ridge_keeps_both_slopes_flat_in_one_undo_step() {
+    let mut s = Session::new();
+    run(
+        &mut s,
+        "family",
+        json!({"name": "Roof", "types": {"Default": {}}, "forms": [{"mesh": [
+            [[0, 0, 1000], [0, 2000, 1000], [-2000, 2000, 0]],
+            [[0, 0, 1000], [-2000, 2000, 0], [-2000, 0, 0]],
+            [[0, 0, 1000], [2000, 2000, 0], [0, 2000, 1000]],
+            [[0, 0, 1000], [2000, 0, 0], [2000, 2000, 0]]
+        ]}]}),
+    );
+    let checked = run(&mut s, "mesh_check", json!({"family": "Roof"}));
+    assert_eq!(
+        (checked["kind"].as_str(), checked["triangles"].as_u64(), checked["faces"].as_array().map(Vec::len)),
+        (Some("open sheet"), Some(4), Some(2)),
+        "two flat slopes sharing a ridge"
+    );
+
+    let moved = run(&mut s, "mesh_move_edge", json!({"family": "Roof", "at": [0, 1000, 1000], "to": [0, 1000, 1500]}));
+    assert_eq!(moved["family"], json!("Roof"));
+    assert_eq!(moved["by"], json!([0.0, 0.0, 500.0]));
+    assert_eq!((moved["kind"].as_str(), moved["triangles"].as_u64()), (Some("open sheet"), Some(4)));
+    let mesh = &s.model.families["Roof"].forms[0].mesh;
+    let zs: Vec<f64> = mesh.iter().flatten().map(|p| p[2]).collect();
+    assert_eq!(zs.iter().filter(|z| **z == 1500.0).count(), 6, "the two ridge corners, as their triangles write them");
+    assert_eq!(zs.iter().filter(|z| **z == 0.0).count(), 6, "the four eave corners stayed");
+    assert_eq!(crate::mesh::faces(mesh).len(), 2, "the two slopes are still two flat faces");
+
+    run(&mut s, "undo", json!({}));
+    assert_eq!(s.model.families["Roof"].forms[0].mesh[0][0][2], 1000.0, "one undo puts the ridge back");
+
+    // A point on a face's diagonal and one off every edge are refused, and so is a move of nothing.
+    let e = s.execute("mesh_move_edge", &json!({"family": "Roof", "at": [-1000, 1000, 500], "to": [-1000, 1000, 600]})).unwrap_err();
+    assert!(e.contains("inside one face"), "{e}");
+    let e = s.execute("mesh_move_edge", &json!({"family": "Roof", "at": [0, 1000, 500], "to": [0, 1000, 600]})).unwrap_err();
+    assert!(e.contains("no edge"), "{e}");
+    let e = s.execute("mesh_move_edge", &json!({"family": "Roof", "at": [0, 1000, 1000], "to": [0, 1000, 1000]})).unwrap_err();
+    assert!(e.contains("move of nothing"), "{e}");
+}
+
+#[test]
+fn moving_a_box_edge_that_would_warp_a_face_is_refused() {
+    let mut s = Session::new();
+    run(&mut s, "mesh", box_mesh());
+    // The form's axes are the box shifted by its origin (500, 500, 0): its top-front edge is y = -500, z = 1000.
+    // Shifting that edge along x takes a corner off the side face x = -500.
+    let e = s.execute("mesh_move_edge", &json!({"family": "Direct Model", "at": [0, -500, 1000], "to": [500, -500, 1000]})).unwrap_err();
+    assert!(e.contains("warp"), "{e}");
+    let e = s.execute("mesh_move_edge", &json!({"family": "Direct Model", "at": [0, 0, 5000], "to": [0, 0, 6000]})).unwrap_err();
+    assert!(e.contains("no edge"), "{e}");
+    let e = s.execute("mesh_move_edge", &json!({"family": "No such", "at": [0, 0, 1000], "to": [0, 0, 1500]})).unwrap_err();
+    assert!(e.contains("no family"), "{e}");
+    let e = s.execute("mesh_move_edge", &json!({"at": [0, 0, 1000], "to": [0, 0, 1500]})).unwrap_err();
+    assert!(e.contains("`family`") && e.contains("`component`"), "{e}");
+    let e = s.execute("mesh_move_edge", &json!({"family": "Direct Model", "at": [0, 0, 1000], "to": [1e300, 0, 1000]})).unwrap_err();
+    assert!(e.contains("[x, y, z]") || e.contains("past"), "{e}");
+}
+
+#[test]
+fn a_component_s_edge_is_moved_by_points_of_the_model() {
+    let mut p = box_mesh();
+    for q in p["points"].as_array_mut().unwrap() {
+        q[0] = json!(q[0].as_i64().unwrap() - 500);
+        q[1] = json!(q[1].as_i64().unwrap() - 500);
+    }
+    let mut s = Session::new();
+    let made = run(&mut s, "mesh", p);
+    let id = made["component"].as_u64().expect("the component's id");
+    let guid = s.model.guid(id);
+    run(&mut s, "modify", json!({"id": id, "angle": 30}));
+    let (sin, cos) = 30.0_f64.to_radians().sin_cos();
+    let turn = |x: f64, y: f64, z: f64| [x * cos - y * sin, x * sin + y * cos, z];
+    let a = turn(-500.0, -500.0, 1000.0);
+    let b = turn(500.0, -500.0, 1000.0);
+    let mid = [(a[0] + b[0]) / 2.0, (a[1] + b[1]) / 2.0, 1000.0];
+    let to = [mid[0], mid[1], 1200.0];
+    let moved = run(&mut s, "mesh_move_edge", json!({"component": guid, "at": mid, "to": to}));
+    assert_eq!(moved["by"], json!([0.0, 0.0, 200.0]), "a world move, taken back through the component's turn");
+    assert_eq!(moved["solid"], json!(true));
+    let e = s.execute("mesh_move_edge", &json!({"component": guid, "at": [1e5, 1e5, 1e5], "to": [1e5, 1e5, 2e5]})).unwrap_err();
+    assert!(e.contains("no edge"), "{e}");
+    let e = s.execute("mesh_move_edge", &json!({"component": s.model.guid(100_000), "at": [0, 0, 0], "to": [0, 0, 1]})).unwrap_err();
+    assert!(e.contains("must be a component"), "{e}");
+}
+
+#[test]
+fn a_mesh_given_world_heights_stands_on_a_level_that_is_not_at_zero() {
+    let mut s = Session::new();
+    let mut p = box_mesh();
+    for q in p["points"].as_array_mut().unwrap() {
+        q[2] = json!(q[2].as_i64().unwrap() + 3000);
+    }
+    p["level"] = json!("Level 2");
+    let made = run(&mut s, "mesh", p);
+    assert_eq!(made["origin"], json!([500.0, 500.0, 3000.0]), "the reply's origin is in the world");
+    let id = made["component"].as_u64().expect("the component's id");
+    let offset = match s.model.elements.get(id) {
+        Some(crate::model::Element::Component(c)) => Some(c.offset),
+        _ => None,
+    };
+    assert_eq!(offset, Some(0.0), "a point at the level's own height stands on it");
 }
 
 #[test]

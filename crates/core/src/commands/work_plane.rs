@@ -4,7 +4,8 @@
 use super::*;
 use crate::family::{Expr, Frame, PlaneRef};
 use crate::model::{FaceRole, HostRef, Hosted, ReferencePlane};
-use crate::view3d::{P3, dot, sub};
+use crate::vec3::{dot, sub};
+use crate::view3d::P3;
 
 /// `[x, y]` (at `z`) or `[x, y, z]` under `key`, mm within [`MAX_COORD`]: which of the two it was given as, and the point.
 fn point2or3(c: &str, p: &Value, key: &str, z: f64) -> Result<Option<(bool, P3)>, String> {

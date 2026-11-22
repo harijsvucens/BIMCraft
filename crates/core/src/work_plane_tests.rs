@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 use crate::engine::Session;
 use crate::model::{Element, FORMAT, Id, Model};
-use crate::view3d::{dot, sub};
+use crate::vec3::{dot, sub};
 
 fn run(s: &mut Session, id: &str, p: Value) -> Value {
     s.execute(id, &p).unwrap_or_else(|e| panic!("{id} {p}: {e}"))

@@ -13,7 +13,7 @@ use super::sketch::{FormCurve, FormLine};
 use super::*;
 use crate::ids::{Guid, Id};
 use crate::model::{Lock, TOL};
-use crate::view3d::{dot, sub};
+use crate::vec3::{dot, sub};
 
 mod pivot;
 mod turn;

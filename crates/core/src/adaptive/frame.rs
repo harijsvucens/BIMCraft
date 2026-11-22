@@ -1,5 +1,6 @@
 //! Right-handed local frames and six local degrees of freedom; millimetres and degrees.
-use crate::view3d::{P3, add, cross, dot, mul, sub};
+use crate::vec3::{add, cross, dot, mul, sub};
+use crate::view3d::P3;
 use serde::{Deserialize, Serialize};
 
 pub const EPS: f64 = 1e-8;

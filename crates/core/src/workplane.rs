@@ -16,7 +16,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::geom::P2;
 use crate::model::{Element, Guid, Id, MAX_COORD, Model, TOL};
-use crate::view3d::{Camera, P3, add, cross, dot, mul, sub, unit};
+use crate::vec3::{add, cross, dot, mul, sub, unit};
+use crate::view3d::{Camera, P3};
 use crate::walls::Plane;
 
 /// A 3D view's work plane: on `level`, through three `points`, on a `surface` picked on the model, or on a reference plane
@@ -347,7 +348,7 @@ pub fn cursor_plane(m: &Model, cam: &Camera, at: (f64, f64), under: Option<crate
     let levels = m.levels();
     let ground = || {
         let (id, l) = levels.first()?;
-        Some(crate::view3d::Surface { id: *id, at: cam.on_plane(at, l.elevation)?, normal: [0.0, 0.0, 1.0] })
+        Some(crate::view3d::Surface { id: *id, at: cam.on_plane(at, l.elevation)?, normal: [0.0, 0.0, 1.0], face: None })
     };
     let s = under.or_else(ground)?;
     let z = s.at[2];
@@ -431,7 +432,7 @@ mod tests {
         let plane = cursor_plane(m, &cam, (3.0, 3.0), None).unwrap();
         assert_eq!((plane.on, plane.level, plane.offset), (one, one, 0.0));
         // Level 2's plane, and a face of nothing in the model (a linked one's) 200 above it: each over Level 2.
-        let (on, up) = (|id, z| Surface { id, at: [1000.0, 1000.0, z], normal: [0.0, 0.0, 1.0] }, m.elevation(two));
+        let (on, up) = (|id, z| Surface { id, at: [1000.0, 1000.0, z], normal: [0.0, 0.0, 1.0], face: None }, m.elevation(two));
         let plane = cursor_plane(m, &cam, (0.0, 0.0), Some(on(two, up))).unwrap();
         assert_eq!((plane.level, plane.offset), (two, 0.0));
         let plane = cursor_plane(m, &cam, (0.0, 0.0), Some(on(1, up + 200.0))).unwrap();
