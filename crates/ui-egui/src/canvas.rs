@@ -3237,6 +3237,10 @@ impl BimApp {
                 self.run("room", p);
             }
             Tool::Level => {}
+            // Direct Model takes its corners on a face in the 3D view; a plan click has nothing to put them on.
+            Tool::DirectModel(_) => {}
+            // Push/Pull, Move Mesh and Punch Through pick mesh faces in the 3D view; a plan has none.
+            Tool::PushPull(_) | Tool::MoveMesh(_) | Tool::PunchThrough(_) => {}
             Tool::Elevation => match hovered {
                 Some(id) => {
                     self.run("elevation", json!({"on": id, "at": point(round(v.mm(at)))}));

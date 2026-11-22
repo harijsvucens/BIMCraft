@@ -30,6 +30,7 @@ pub mod cowork;
 mod curtain;
 mod dialog;
 mod dimtypes;
+mod direct_mode;
 mod display;
 mod dock;
 mod draw;
@@ -49,6 +50,7 @@ mod publisher;
 mod stairgrips;
 mod stairtype;
 pub use gpu::limits_for;
+mod drag;
 mod graphics;
 mod gridtypes;
 mod groups;
@@ -64,10 +66,12 @@ mod mep;
 mod mesh;
 mod minimap;
 mod motion;
+mod move_mesh;
 mod notes;
 mod objectstyles;
 mod opening;
 mod orbit;
+mod overlay;
 pub mod pacing;
 mod panelsched;
 mod paper;
@@ -80,6 +84,7 @@ pub mod project_templates;
 mod projectinfo;
 mod properties;
 mod purge;
+mod pushpull;
 mod pyaddins;
 pub mod recent;
 mod reinforce;
@@ -130,6 +135,7 @@ use bimcraft_core::geom::P2;
 use bimcraft_core::model::{CEILING_HEIGHT, DimKind, Element, Id, Justify, LeaderKind, Location, Model, Reference, RoomArea, STAIR_WIDTH};
 use bimcraft_core::snap::{Kind as Snap, Snaps};
 use bimcraft_core::units::Units;
+use bimcraft_core::view3d::P3;
 use bimcraft_core::{element_json, render, schedule, stairs};
 use egui::containers::menu::{MenuButton, SubMenuButton};
 use egui::{
@@ -329,6 +335,17 @@ pub enum Tool {
     Shaft(Option<P2>),
     /// A mass: the corners of its footprint, as clicked so far.
     Mass(Vec<P2>),
+    /// A free-form mesh box drawn in the 3D view from two opposite corners on the plane its first corner was clicked
+    /// on: the first corner and that plane, once clicked. Direct Model's first creation path.
+    DirectModel(Option<(P2, bimcraft_core::workplane::CursorPlane)>),
+    /// Push/Pull on a mesh face in the 3D view: the component and the world point picked, waiting for a typed distance.
+    PushPull(Option<(Id, P3)>),
+    /// Move a whole mesh component in the 3D view: the component and the point of it the pointer grabbed, once grabbed.
+    /// The grab follows the pointer (snapping to other elements' points and edges); letting go puts the component there.
+    MoveMesh(Option<(Id, P3)>),
+    /// Punch a loop through a mesh in the 3D view: the component and the point of the face picked first, then the loop's
+    /// points in `Orbit::chain`. Enter, or clicking the first point again, cuts the loop through to the parallel face.
+    PunchThrough(Option<(Id, P3)>),
     /// A detail line in the Options Bar's line style: its points, as clicked so far.
     DetailLine(Vec<P2>),
     /// The selected floor's slope arrow: its tail, once clicked.
@@ -632,6 +649,8 @@ pub struct BimApp {
     /// The active view, which takes the tools: a tab of `views`, or one of `floating`.
     pub sheet: Sheet,
     pub tool: Tool,
+    /// The Plasticity studio, when Direct Mode is active. `None` is the normal Revit shell.
+    pub direct: Option<direct_mode::DirectMode>,
     /// The selected elements, in the order they were picked.
     pub selection: Vec<Id>,
     pub status: Status,
@@ -1677,6 +1696,7 @@ impl BimApp {
             classification: None,
             sheet: first,
             tool: Tool::Modify,
+            direct: None,
             selection: Vec::new(),
             status: Status::default(),
             views: vec![first],
@@ -2183,6 +2203,10 @@ impl BimApp {
             Tool::Ceiling => Some(msg!("Place Ceiling")),
             Tool::Shaft(_) => Some(msg!("Create Shaft Opening")),
             Tool::Mass(_) => Some(msg!("Create Mass")),
+            Tool::DirectModel(_) => Some(msg!("Create Direct Model")),
+            Tool::PushPull(_) => Some(msg!("Push/Pull")),
+            Tool::MoveMesh(_) => Some("Move Mesh"),
+            Tool::PunchThrough(_) => Some("Punch Through"),
         };
         if let Some(what) = place {
             return Some(format!("{} | {}", t("Modify"), t(what)));
@@ -2372,15 +2396,21 @@ impl BimApp {
         // The ribbon is Rev's: BIMCraft's tools are a palette (`Palette::Tools`), which Rev never shows. A family document (an
         // adaptive family open) has a ribbon, palettes and a view of its own, as Revit's family editor, in either profile.
         let family = self.family_doc();
-        if style::rev() {
-            self.docking.show(dock::Palette::Tools, false);
-        }
-        if style::rev() || family {
-            let card = style::card([true, true, true, false]);
-            Panel::top("ribbon")
-                .frame(card)
-                .show_separator_line(false)
-                .show(ui, |ui| if family { self.family_ribbon(ui) } else { self.ribbon(ui) });
+        if self.direct.is_some() {
+            // Direct Mode: the studio replaces the Revit ribbon and the docked palettes. The view
+            // and every BIM element stay live underneath; nothing here writes project settings.
+            self.studio_ui(ui);
+        } else {
+            if style::rev() {
+                self.docking.show(dock::Palette::Tools, false);
+            }
+            if style::rev() || family {
+                let card = style::card([true, true, true, false]);
+                Panel::top("ribbon")
+                    .frame(card)
+                    .show_separator_line(false)
+                    .show(ui, |ui| if family { self.family_ribbon(ui) } else { self.ribbon(ui) });
+            }
         }
         if self.has_update_banner() {
             Panel::top("update").frame(Frame::NONE).show_separator_line(false).show(ui, |ui| self.update_banner(ui));
@@ -2390,7 +2420,9 @@ impl BimApp {
         }
         let status = style::card([true, true, false, true]).inner_margin(Margin::symmetric(10, 2));
         Panel::bottom("status").frame(status).show_separator_line(false).show(ui, |ui| self.status_bar(ui));
-        self.docks(ui);
+        if self.direct.is_none() {
+            self.docks(ui);
+        }
         CentralPanel::default().frame(Frame::NONE).show(ui, |ui| {
             if family {
                 self.family_central(ui);
@@ -2639,6 +2671,20 @@ impl BimApp {
             || egui::Popup::is_any_open(ctx)
     }
 
+    /// Finish a Punch Through loop: the picked component's face plus the three or more world points clicked on it.
+    /// The command takes the points back through the component's placement, so a turned mesh works as a level one.
+    fn punch_finish(&mut self) {
+        if let Tool::PunchThrough(Some((id, at))) = &self.tool {
+            let chain = self.orbit.chain.clone();
+            if chain.len() >= 3 {
+                self.run("mesh_punch_through", json!({"component": id, "at": at, "loop": chain}));
+            }
+        }
+        self.tool = Tool::PunchThrough(None);
+        self.orbit.chain.clear();
+        self.orbit.chain_done = None;
+    }
+
     fn keys(&mut self, ctx: &Context) {
         // A note being written takes the keys, but for a field's that has them; another tool finishes it.
         if self.note_edit.is_some() {
@@ -2726,7 +2772,17 @@ impl BimApp {
         }
         // Esc while a custom fill pattern is picked brings its dialog back.
         // And while Underlay Settings' Move or Rotate picks, it stops them and brings the dialog back.
-        if pressed(Modifiers::NONE, Key::Escape) && !self.cancel_pattern_pick() && !self.cancel_underlay_edit() {
+        // `pressed` consumes the event, so evaluate it once: a second call would see nothing.
+        let escape = pressed(Modifiers::NONE, Key::Escape);
+        if escape && self.direct.is_some() {
+            if self.direct.as_ref().is_some_and(|d| d.op.is_some()) {
+                if let Some(d) = self.direct.as_mut() {
+                    d.op = None;
+                }
+            } else {
+                self.exit_direct_mode(false);
+            }
+        } else if escape && !self.cancel_pattern_pick() && !self.cancel_underlay_edit() {
             self.escape();
         }
         // Enter ends the 3D view's measured chain where it is.
@@ -2746,6 +2802,26 @@ impl BimApp {
         }
         if enter && self.dimension_refs_edit.is_some() {
             self.commit_dimension_refs();
+            enter = false;
+        }
+        // Push/Pull works in the 3D view, where there is no plan level: a picked face takes a typed distance.
+        if enter && let Tool::PushPull(Some((id, at))) = &self.tool {
+            let text = std::mem::take(&mut self.typed_length);
+            if text.trim().is_empty() {
+                // Bare Enter keeps the picked face, as other tools keep their chain.
+                self.typed_length = text;
+            } else if let Some(distance) = self.session.model.units.parse(&text).filter(|d| d.is_finite() && *d != 0.0) {
+                self.run("mesh_push_pull", json!({"component": id, "at": at, "distance": distance}));
+                self.tool = Tool::PushPull(None);
+            } else {
+                self.status = Status { text: tf("`{}` is not a distance to push", &[&text]), error: true };
+                self.tool = Tool::PushPull(None);
+            }
+            enter = false;
+        }
+        // Punch Through ends its loop with Enter; a bare Enter with fewer than three points keeps the loop.
+        if enter && matches!(self.tool, Tool::PunchThrough(Some(_))) && self.orbit.chain.len() >= 3 {
+            self.punch_finish();
             enter = false;
         }
         if enter && let Some(level) = self.plan_level() {
@@ -2870,9 +2946,12 @@ impl BimApp {
         // without Ctrl are no shortcut.
         for ch in typed.chars() {
             let listening = self.base().is_some() || self.filleting() || self.rotating();
-            // A bearing west of east is negative, so the angle field takes its sign; Rotate always has.
+            // A bearing west of east is negative, so the angle field takes its sign; Rotate always has, and Push/Pull's
+            // distance field, where a negative pull shrinks.
             let negative_angle = self.drawing.field == 1 && self.line_angle_field();
-            let sign = ch == '-' && (self.rotating() || negative_angle) && self.typed_length.is_empty();
+            let sign = ch == '-'
+                && (self.rotating() || negative_angle || matches!(self.tool, Tool::PushPull(Some(_))))
+                && self.typed_length.is_empty();
             if listening && (ch.is_ascii_digit() || ch == '.' || sign || !self.typed_length.is_empty()) {
                 // The field `Tab` armed holds what is selected, so the first digit replaces it instead of appending.
                 if self.drawing.selected {
@@ -3538,6 +3617,229 @@ impl BimApp {
         Some(self.paint_material.clone()).filter(|n| m.materials.contains_key(n)).or_else(|| m.materials.keys().next().cloned())
     }
 
+    /// Enter the Plasticity studio: open a 3D view, hold the previous place to restore, and keep
+    /// the BIM model live underneath. No `Tool::*` arm and no project setting is changed.
+    pub fn enter_direct_mode(&mut self) {
+        if self.direct.is_some() {
+            return;
+        }
+        if self.sheet != Sheet::View3D {
+            self.open_sheet(Sheet::View3D);
+        }
+        let hidden = self.selection.first().copied();
+        self.direct = Some(direct_mode::DirectMode { hidden, ..direct_mode::DirectMode::new() });
+    }
+
+    /// `Finish` commits the draft through one command; `Cancel` drops it with no model mutation.
+    pub fn exit_direct_mode(&mut self, finish: bool) {
+        if finish
+            && let Some(studio) = self.direct.as_ref()
+            && !studio.draft.is_empty()
+        {
+            let bodies = studio.bodies_json();
+            let source = studio.hidden;
+            let level = self.first_level_json();
+            let reply = self.run("finish_direct", json!({"bodies": bodies, "level": level, "source": source}));
+            if reply.is_none() {
+                // A refused Finish keeps the draft and the error on screen: no work is lost.
+                return;
+            }
+        }
+        self.direct = None;
+        self.tool = Tool::Modify;
+        self.status = Status::default();
+    }
+
+    /// The whole studio chrome: five thin panels, no Revit ribbon and no docks. Each panel only
+    /// reports an intent; the commands still go through `Session::execute`.
+    fn studio_ui(&mut self, ui: &mut Ui) {
+        let Some(studio) = self.direct.clone() else { return };
+        use direct_mode::Intent;
+        let mut intents = Vec::new();
+        let card = style::card([true, true, true, false]);
+        intents.push(Panel::top("studio-bar").frame(card).show(ui, |ui| direct_mode::panels::top_bar(ui, &studio)).inner);
+        intents.push(Panel::left("studio-rail").default_size(160.0).show(ui, |ui| direct_mode::panels::rail(ui, &studio)).inner);
+        Panel::right("studio-hud").default_size(170.0).show(ui, |ui| direct_mode::panels::keymap(ui, &studio));
+        intents.push(Panel::bottom("studio-pill").show(ui, |ui| direct_mode::panels::pill(ui, &studio)).inner);
+        intents.push(
+            Panel::bottom("studio-card")
+                .show(ui, |ui| {
+                    direct_mode::panels::card(ui, &studio);
+                    direct_mode::panels::outliner(ui, &studio);
+                    Intent::None
+                })
+                .inner,
+        );
+        for intent in intents {
+            self.apply_studio_intent(intent);
+        }
+    }
+
+    fn apply_studio_intent(&mut self, intent: direct_mode::Intent) {
+        use direct_mode::Intent;
+        match intent {
+            Intent::None => {}
+            Intent::Cancel => self.exit_direct_mode(false),
+            Intent::Finish => self.exit_direct_mode(true),
+            Intent::CancelOp => {
+                if let Some(d) = self.direct.as_mut() {
+                    d.op = None;
+                }
+            }
+            Intent::SetKind(k) => {
+                if let Some(d) = self.direct.as_mut() {
+                    d.selection.kind = k;
+                }
+            }
+            Intent::SetOp(op) => {
+                if let Some(d) = self.direct.as_mut() {
+                    d.begin(op);
+                }
+            }
+            Intent::SetContext(c) => {
+                if let Some(d) = self.direct.as_mut() {
+                    d.context = c;
+                }
+            }
+            Intent::Undo => {
+                if let Some(d) = self.direct.as_mut()
+                    && !d.undo()
+                {
+                    self.status = Status { text: "nothing left to undo".into(), error: true };
+                }
+            }
+            Intent::Redo => {
+                if let Some(d) = self.direct.as_mut()
+                    && !d.redo()
+                {
+                    self.status = Status { text: "nothing left to redo".into(), error: true };
+                }
+            }
+            Intent::Field(key, value) => {
+                if let Some(d) = self.direct.as_mut() {
+                    direct_mode::panels::apply_field(&mut d.op, &key, value);
+                }
+            }
+            Intent::SetMode(mode) => {
+                if let Some(d) = self.direct.as_mut()
+                    && let Some(op) = d.op.as_mut()
+                {
+                    op.mode = mode;
+                }
+            }
+            Intent::Confirm => {
+                let next = self.direct.as_mut().and_then(|d| d.op.take()).map(Intent::Run);
+                if let Some(next) = next {
+                    self.apply_studio_intent(next);
+                }
+            }
+            Intent::Run(op) => self.run_studio_op(op),
+        }
+    }
+
+    /// Run one studio operation. Primitive creation lands in the draft; edits return a new brep
+    /// that replaces their target, and booleans consume the tool body.
+    fn run_studio_op(&mut self, op: direct_mode::ActiveOp) {
+        use bimcraft_core::dm::brep;
+        use bimcraft_core::dm::kernel::Kernel;
+        let Some(studio) = self.direct.clone() else { return };
+        let params = if let Some(kind) = op.kind.primitive() {
+            let mut p = json!({"kind": kind, "origin": studio.origin});
+            if kind == "box" {
+                p["size"] = json!([
+                    op.number("Length").unwrap_or(1000.0),
+                    op.number("Width").unwrap_or(800.0),
+                    op.number("Height").unwrap_or(600.0)
+                ]);
+            } else {
+                p["radius"] = json!(op.number("Radius").unwrap_or(500.0));
+                p["height"] = json!(op.number("Height").unwrap_or(600.0));
+            }
+            Some(("dm_make", p))
+        } else {
+            let slug = match op.kind {
+                direct_mode::OpKind::PushPull => "push",
+                direct_mode::OpKind::Bevel => "bevel",
+                direct_mode::OpKind::Move => "move",
+                direct_mode::OpKind::Union => "union",
+                direct_mode::OpKind::Cut => "cut",
+                direct_mode::OpKind::Intersect => "intersect",
+                _ => return,
+            };
+            let target_id = studio.selection.first_body().or_else(|| studio.draft.bodies().first().map(|b| b.id));
+            let Some(id) = target_id else {
+                self.status = Status { text: "make or select a body first".into(), error: true };
+                return;
+            };
+            let Some(body) = studio.draft.body(id) else { return };
+            let mut p = json!({"op": slug, "target": brep::encode(&body.data)});
+            match slug {
+                "push" => {
+                    p["faces"] = json!(studio.selection.first_face().map(|f| [f.0]).unwrap_or_default());
+                    p["distance"] = json!(op.number("Distance").unwrap_or(0.0));
+                }
+                "bevel" => {
+                    p["radius"] = json!(op.number("Radius").unwrap_or(50.0));
+                    p["chamfer"] = json!(op.number("Segments").unwrap_or(1.0) <= 1.0);
+                }
+                "move" => p["delta"] = json!([op.number("Distance").unwrap_or(0.0), 0.0, 0.0]),
+                _ => {
+                    let tool_id = studio
+                        .selection
+                        .items
+                        .iter()
+                        .filter_map(|q| match q {
+                            direct_mode::SelItem::Body(b) => Some(b),
+                            _ => None,
+                        })
+                        .find(|b| **b != id.0)
+                        .copied();
+                    let Some(tool) = tool_id.and_then(|b| studio.draft.body(bimcraft_core::dm::draft::BodyId(b))) else {
+                        self.status = Status { text: "select two bodies: target first, tool second".into(), error: true };
+                        return;
+                    };
+                    p["tool"] = json!(brep::encode(&tool.data));
+                }
+            }
+            Some(("dm_edit", p))
+        };
+        let Some((command, params)) = params else { return };
+        let reply = self.run(command, params);
+        if let Some(text) = reply.as_ref().and_then(|r| r.get("brep")).and_then(Value::as_str)
+            && let Ok(data) = brep::decode(text)
+            && let Ok(k) = Kernel::from_data(&data)
+            && let Ok(committed) = k.commit()
+        {
+            let target = studio.selection.first_body().or_else(|| studio.draft.bodies().first().map(|b| b.id));
+            if let Some(id) = target {
+                let _ = self.direct.as_mut().map(|d| d.draft.replace(id, committed.data, committed.cache));
+                if matches!(op.kind, direct_mode::OpKind::Union | direct_mode::OpKind::Cut | direct_mode::OpKind::Intersect) {
+                    let tool = studio
+                        .selection
+                        .items
+                        .iter()
+                        .filter_map(|q| match q {
+                            direct_mode::SelItem::Body(b) => Some(b),
+                            _ => None,
+                        })
+                        .find(|b| **b != id.0)
+                        .copied();
+                    if let Some(tool) = tool {
+                        let _ = self.direct.as_mut().map(|d| d.draft.remove(bimcraft_core::dm::draft::BodyId(tool)));
+                    }
+                }
+            } else if let Some(d) = self.direct.as_mut() {
+                // The card's first creation has no target yet: the new exact solid is the first body.
+                let name = reply.as_ref().and_then(|r| r.get("family")).and_then(Value::as_str).unwrap_or("Direct Solid");
+                d.draft.add(name, committed.data, committed.cache);
+            }
+        }
+    }
+
+    fn first_level_json(&self) -> serde_json::Value {
+        json!(self.session.model.levels().first().map(|(g, _)| g.to_string()).unwrap_or_default())
+    }
+
     fn set_tool(&mut self, mut tool: Tool) {
         self.adaptive_clicks.clear();
         if !matches!(tool, Tool::Paste | Tool::PickLevel) {
@@ -3557,6 +3859,12 @@ impl BimApp {
         }
         // Paint works in the 3D view: open it, as the tool asks.
         if matches!(tool, Tool::Paint | Tool::Unpaint) && self.sheet != Sheet::View3D {
+            self.open_sheet(Sheet::View3D);
+        }
+        // Direct Model takes its corners on a level face in the 3D view: the Massing tab's tool opens it too.
+        if matches!(tool, Tool::DirectModel(_) | Tool::PushPull(_) | Tool::MoveMesh(_) | Tool::PunchThrough(_))
+            && self.sheet != Sheet::View3D
+        {
             self.open_sheet(Sheet::View3D);
         }
         // Move, Copy, Rotate and Mirror take the selection; Align, Trim, Split and Offset pick walls, Demolish anything.
@@ -3627,7 +3935,10 @@ impl BimApp {
         if let Tool::Run(category, _) = &tool {
             self.keep_run_options(category);
         }
-        if !matches!(tool, Tool::Measure(_)) {
+        // A chain belongs to the tool that began it. Leaving Punch Through must drop its loop even when the next
+        // tool is Measure, which would otherwise inherit three world points and append to them on the first click.
+        let punch_ended = matches!(&self.tool, Tool::PunchThrough(Some(_)));
+        if !matches!(tool, Tool::Measure(_)) || punch_ended {
             self.measured = None;
             (self.orbit.chain, self.orbit.chain_done) = (Vec::new(), None);
         }
@@ -3937,6 +4248,8 @@ impl BimApp {
         match &self.tool {
             Tool::Wall(chain) => chain.last().copied(),
             Tool::Run(_, start) => *start,
+            // A picked mesh face takes a typed distance, as a chain's point takes a typed length.
+            Tool::PushPull(Some((_, at))) => Some(P2(at[0], at[1])),
             Tool::Grid(start)
             | Tool::ReferencePlane(start)
             | Tool::RoomSeparator(start)
@@ -4063,6 +4376,21 @@ impl BimApp {
             Tool::Ramp(pts) if !pts.is_empty() => Tool::Ramp(Vec::new()),
             Tool::Railing(pts) if !pts.is_empty() => Tool::Railing(Vec::new()),
             Tool::Mass(pts) if !pts.is_empty() => Tool::Mass(Vec::new()),
+            Tool::DirectModel(Some(_)) => Tool::DirectModel(None),
+            Tool::PushPull(Some(_)) => {
+                // A drag under way goes with the pick: neither its preview nor its release survives the key.
+                self.orbit.push_drag = None;
+                Tool::PushPull(None)
+            }
+            Tool::MoveMesh(Some(_)) => {
+                self.orbit.move_drag = None;
+                Tool::MoveMesh(None)
+            }
+            Tool::PunchThrough(Some(_)) => {
+                self.orbit.chain.clear();
+                self.orbit.chain_done = None;
+                Tool::PunchThrough(None)
+            }
             Tool::DetailLine(pts) if !pts.is_empty() => Tool::DetailLine(Vec::new()),
             Tool::Shaft(Some(_)) => Tool::Shaft(None),
             Tool::SlopeArrow(Some(_)) => Tool::SlopeArrow(None),
@@ -5154,6 +5482,12 @@ impl BimApp {
         panel(ui, msg!("Conceptual Mass"), |ui| {
             if big_button(ui, Icon::Mass, "Mass", structure::same_tool(&self.tool, &Tool::Mass(Vec::new())), tip).clicked() {
                 self.set_tool(Tool::Mass(Vec::new()));
+            }
+            let tip = msg!(
+                "Direct Model: open the selection-first studio; 1/2/3/4 pick a vertex, edge, face or body, the left rail runs an operation, Esc cancels and Finish commits"
+            );
+            if big_button(ui, Icon::Mass, "Direct Model", self.direct.is_some(), tip).clicked() {
+                self.enter_direct_mode();
             }
             let tip = msg!("Show Mass (MH): hides the masses in this view, or shows them again");
             if big_button(ui, Icon::Visibility, "Show Mass", shown, tip).clicked() {
@@ -6395,6 +6729,10 @@ impl BimApp {
                         height_options(ui, &self.session.model, level, &mut self.column_top, &mut self.column_height, "column-top");
                     }
                 }
+                Tool::DirectModel(_) => {
+                    let label = ui.label(t("Height:"));
+                    ui.add(egui::TextEdit::singleline(&mut self.column_height).desired_width(64.0)).labelled_by(label.id);
+                }
                 Tool::Run(category, _) => self.run_options(ui, category),
                 Tool::Stand(category) => self.stand_options(ui, category),
                 Tool::Shaft(_) => {
@@ -6897,6 +7235,8 @@ impl BimApp {
             (Sheet::View3D, Tool::Paste) => return msg!("Click on the work plane where the pasted elements go. Esc cancels."),
             // A paste follows the cursor in these views as in a plan; a section's level lines are picked.
             (Sheet::Section(_) | Sheet::Paper(_), Tool::Paste) | (Sheet::Section(_), Tool::PickLevel) => {}
+            // The Massing tab's 3D tools are the 3D view's own; their prompts are below.
+            (Sheet::View3D, Tool::DirectModel(_) | Tool::PushPull(_) | Tool::MoveMesh(_) | Tool::PunchThrough(_)) => {}
             (Sheet::View3D | Sheet::Section(_) | Sheet::Paper(_), _) => {
                 return msg!("This tool works in plan views: open one from the Project Browser.");
             }
@@ -7080,6 +7420,20 @@ impl BimApp {
             Tool::Mass(pts) if pts.is_empty() => msg!("Click the first corner of the mass's footprint."),
             Tool::Mass(pts) if pts.len() < 3 => msg!("Click the footprint's next corner. Esc cancels."),
             Tool::Mass(_) => msg!("Click the next corner; Enter, or the first corner again, finishes the mass. Esc cancels."),
+            Tool::DirectModel(None) => msg!("Click the first corner of the box on a level face."),
+            Tool::DirectModel(Some(_)) => msg!("Click the opposite corner of the box; Esc cancels."),
+            Tool::PushPull(None) => msg!("Click a face of a mesh component to push or pull it."),
+            Tool::PushPull(Some(_)) => msg!("Type a distance (negative to shrink) and press Enter; Esc picks another face."),
+            Tool::MoveMesh(None) => msg!("Click a point or an edge of a mesh component to take hold of it."),
+            Tool::MoveMesh(Some(_)) => {
+                msg!("Drag to where it goes: the grabbed point snaps to other parts' points and edges. Let go to place it; Esc cancels.")
+            }
+            Tool::PunchThrough(None) => msg!("Click a face of a mesh component to cut a loop through it."),
+            Tool::PunchThrough(Some(_)) => {
+                msg!(
+                    "Click three or more points on that face; Enter, or the first point again, cuts the loop through to the parallel face. Esc cancels."
+                )
+            }
             Tool::DetailLine(pts) if pts.is_empty() => msg!("Click where the detail line starts; Q pins a guide there."),
             Tool::DetailLine(_) => msg!(
                 "Click its next point; Enter finishes it, the first point again closes it; Tab steps length and angle; Backspace or Ctrl+Z takes back the last point and line; Q pins a guide. Esc cancels."

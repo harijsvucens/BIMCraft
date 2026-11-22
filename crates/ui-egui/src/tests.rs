@@ -7897,3 +7897,19 @@ mod select_instances;
 mod sheet_fit;
 
 mod window_drag;
+
+#[test]
+fn the_context_menu_converts_one_selected_wall_into_a_direct_mesh() {
+    let mut h = app(BOX);
+    click(&mut h, P2(4000.0, 0.0));
+    assert_eq!(h.state().selection.len(), 1, "one wall picked");
+    let offered: Vec<Action> = h.state().context_items().concat().into_iter().filter(|i| i.enabled).map(|i| i.action).collect();
+    assert!(offered.contains(&Action::ConvertToMesh), "{offered:?}");
+    let before = h.state().session.model.elements.values().filter(|e| matches!(e, Element::Wall(_))).count();
+    h.state_mut().act(Action::ConvertToMesh);
+    h.run();
+    let m = &h.state().session.model;
+    assert_eq!(m.elements.values().filter(|e| matches!(e, Element::Wall(_))).count(), before - 1, "the wall is gone, not hidden");
+    assert!(m.families.keys().any(|n| n.starts_with("Converted ")), "a mesh family was made");
+    assert_eq!(h.state().selection.len(), 1, "the new component is selected");
+}

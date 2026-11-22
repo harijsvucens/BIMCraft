@@ -2127,6 +2127,8 @@ impl BimApp {
             dragged: None,
             cut: None,
             caps: None,
+            draft: None,
+            hidden: None,
         };
         if let Some(status) = ed.orbit.paint(ui.ctx(), &p, &mut self.card, mesh.as_ref(), shot) {
             self.status = status;

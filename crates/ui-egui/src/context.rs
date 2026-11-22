@@ -75,6 +75,12 @@ pub(crate) enum Action {
     OpenView,
     /// The 3D view's Work Plane dialog.
     WorkPlane,
+    /// The one built element selected turned into a direct mesh, replacing it.
+    ConvertToMesh,
+    /// The selection opened in the Plasticity-style Direct Mode studio.
+    EditInDirectMode,
+    /// The one built element selected turned into one watertight exact solid.
+    ConvertToExactSolid,
     /// The selected walls' and runs' joins refused (Revit's Disallow Join), or taken up again.
     DisallowJoin,
     AllowJoin,
@@ -123,6 +129,9 @@ impl Action {
             Action::AllowJoin => msg!("Allow Join"),
             Action::Pin => msg!("Pin"),
             Action::Unpin => msg!("Unpin"),
+            Action::ConvertToMesh => msg!("Convert to Mesh"),
+            Action::EditInDirectMode => msg!("Edit in Direct Mode"),
+            Action::ConvertToExactSolid => msg!("Convert to Exact Solid"),
             Action::EditDimensionReferences => msg!("Edit Dimension References"),
             Action::SelectAlongGrid => msg!("Select Along Grid"),
             Action::Cut => msg!("Cut to Clipboard"),
@@ -226,6 +235,37 @@ impl BimApp {
                 let mut edits = Vec::new();
                 if family {
                     edits.push(Item::new(Action::EditFamily, true));
+                }
+                // One built element can become a direct mesh. The command names what it will not convert.
+                let convertible = self.selection.len() == 1
+                    && !m.is_pinned(self.selection[0])
+                    && m.elements.get(self.selection[0]).is_some_and(|e| {
+                        if let bimcraft_core::model::Element::Component(cp) = e
+                            && m.families.get(&cp.family).is_some_and(|f| f.first_mesh().is_some())
+                        {
+                            return false;
+                        }
+                        matches!(
+                            e,
+                            bimcraft_core::model::Element::Wall(_)
+                                | bimcraft_core::model::Element::Floor(_)
+                                | bimcraft_core::model::Element::Ceiling(_)
+                                | bimcraft_core::model::Element::Roof(_)
+                                | bimcraft_core::model::Element::Column(_)
+                                | bimcraft_core::model::Element::StructuralColumn(_)
+                                | bimcraft_core::model::Element::Footing(_)
+                                | bimcraft_core::model::Element::Beam(_)
+                                | bimcraft_core::model::Element::Component(_)
+                                | bimcraft_core::model::Element::Stair(_)
+                                | bimcraft_core::model::Element::Ramp(_)
+                                | bimcraft_core::model::Element::Mass(_)
+                                | bimcraft_core::model::Element::Toposolid(_)
+                        )
+                    });
+                if convertible {
+                    edits.push(Item::new(Action::ConvertToMesh, true));
+                    edits.push(Item::new(Action::ConvertToExactSolid, true));
+                    edits.push(Item::new(Action::EditInDirectMode, !self.selection.is_empty()));
                 }
                 edits.extend([
                     Item::new(Action::EditType, self.type_subject().is_some()),
@@ -348,6 +388,16 @@ impl BimApp {
             Action::ExcludeMember => self.exclude_selected(),
             Action::RestoreExcluded => self.restore_excluded(),
             Action::Delete => self.delete(),
+            Action::ConvertToMesh => self.convert_selection_to_mesh(),
+            Action::ConvertToExactSolid => {
+                let id = self.selection.first();
+                if let Some(id) = id
+                    && let Some(guid) = self.session.model.elements.get(*id).map(|_| self.session.model.guid(*id))
+                {
+                    self.run("convert_to_exact_solid", serde_json::json!({"id": guid}));
+                }
+            }
+            Action::EditInDirectMode => self.enter_direct_mode(),
             Action::WorkPlane => self.open_work_plane(),
             Action::SelectAlongGrid => self.select_along_grid(),
             Action::ReloadCad => {
@@ -365,6 +415,15 @@ impl BimApp {
             Action::Pin => self.set_pinned(true),
             Action::Unpin => self.set_pinned(false),
             Action::EditDimensionReferences => self.start_dimension_refs_edit(),
+        }
+    }
+
+    /// Turn the one selected built element into a direct mesh and select what replaced it.
+    pub(crate) fn convert_selection_to_mesh(&mut self) {
+        let [id] = self.selection.as_slice() else { return };
+        let Some(made) = self.run("convert_to_mesh", serde_json::json!({"id": id})) else { return };
+        if let Some(component) = made["component"].as_u64() {
+            self.selection = vec![component];
         }
     }
 

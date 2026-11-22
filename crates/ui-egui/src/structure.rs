@@ -62,6 +62,40 @@ pub(crate) fn same_tool(a: &Tool, b: &Tool) -> bool {
     }
 }
 
+/// The Direct Model box's two corners, from the footprint the hand picks, its base `z0` and the Options Bar's height:
+/// one definition the preview and the commit both use, so what is drawn is what is made.
+pub(crate) fn direct_box(a: P2, b: P2, z0: f64, height: f64) -> ([f64; 3], [f64; 3]) {
+    ([a.0.min(b.0), a.1.min(b.1), z0], [a.0.max(b.0), a.1.max(b.1), z0 + height])
+}
+
+/// The eight corners and twelve triangles of that box, in the order the `mesh` command takes them.
+pub(crate) fn direct_mesh((lo, hi): ([f64; 3], [f64; 3])) -> (Vec<[f64; 3]>, Vec<[usize; 3]>) {
+    let x = [lo[0], hi[0], hi[0], lo[0], lo[0], hi[0], hi[0], lo[0]];
+    let y = [lo[1], lo[1], hi[1], hi[1], lo[1], lo[1], hi[1], hi[1]];
+    let z = [lo[2], lo[2], lo[2], lo[2], hi[2], hi[2], hi[2], hi[2]];
+    let points = (0..8).map(|i| [x[i], y[i], z[i]]).collect();
+    let triangles = vec![
+        [0, 2, 1],
+        [0, 3, 2],
+        [4, 5, 6],
+        [4, 6, 7],
+        [0, 1, 5],
+        [0, 5, 4],
+        [1, 2, 6],
+        [1, 6, 5],
+        [2, 3, 7],
+        [2, 7, 6],
+        [3, 0, 4],
+        [3, 4, 7],
+    ];
+    (points, triangles)
+}
+
+/// The Options Bar's height for that box, in mm: the one guard for the text the preview, the drag and the commit share.
+pub(crate) fn direct_height(m: &Model, text: &str) -> Option<f64> {
+    m.units.parse(text).filter(|h| h.is_finite() && *h > 0.0)
+}
+
 impl BimApp {
     /// Switching to the run tool of `category`: the justification and the offset on the Options Bar are the last that tool had,
     /// or its usual.
@@ -294,6 +328,23 @@ impl BimApp {
             }
             Err(e) => self.status = Status { text: tf("column: {}", &[&e]), error: true },
         }
+    }
+
+    /// A box from two opposite corners `a` and `b` on `level`, its base `base` mm over it and as high as the Options Bar says:
+    /// Direct Model's first creation path, one `mesh` command and one undo step.
+    pub(crate) fn place_box(&mut self, a: P2, b: P2, level: Id, base: f64) {
+        if a == b {
+            self.status = Status { text: t("Pick two different corners for the box.").into(), error: false };
+            return;
+        }
+        let model = &self.session.model;
+        let Some(height) = direct_height(model, &self.column_height) else {
+            self.status = Status { text: tf("`{}` is not a height", &[&self.column_height]), error: true };
+            return;
+        };
+        let z0 = model.elevation(level) + base;
+        let (points, triangles) = direct_mesh(direct_box(a, b, z0, height));
+        self.run("mesh", json!({ "points": points, "triangles": triangles, "level": level }));
     }
 
     /// What a click would make with the run's tool, its start picked, the end at `b`; none while the Options Bar says what
