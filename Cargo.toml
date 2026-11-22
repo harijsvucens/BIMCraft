@@ -18,6 +18,8 @@ bimcraft-plugin = { path = "crates/plugin" }
 bimcraft-i18n = { path = "crates/i18n", default-features = false }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = { version = "1", features = ["raw_value"] }
+# The exact solid on a form is stored as base64 of SCBREP05 bytes, not a JSON byte array.
+base64 = "0.22"
 tiny-skia = { version = "0.11", default-features = false, features = ["std", "simd", "png-format"] }
 # Deflates PDF streams; png, under tiny-skia, already builds it.
 flate2 = "1"
@@ -76,6 +78,22 @@ dbg_macro = "warn"
 
 # The 3D view renders in software: build the core optimised in debug builds too, so it orbits smoothly.
 [profile.dev.package.bimcraft-core]
+opt-level = 2
+
+# The solidcore kernel behind the Direct Model push (feature kernel-solidcore): the release commit
+# sews, offsets and tessellates through these crates, and at the dev profile's default opt-level 0 a
+# push whose release run measured ~150 ms lagged about a second. The tessellator under them too.
+[profile.dev.package.solidcore]
+opt-level = 2
+[profile.dev.package.solidcore-ops]
+opt-level = 2
+[profile.dev.package.solidcore-tess]
+opt-level = 2
+[profile.dev.package.solidcore-convert]
+opt-level = 2
+[profile.dev.package.solidcore-record]
+opt-level = 2
+[profile.dev.package.spade]
 opt-level = 2
 
 # The Revit reader inflates and scans tens of megabytes per file, which its real-file tests do over and over.

@@ -13,6 +13,7 @@ workspace = true
 bimcraft-i18n = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+base64 = { workspace = true }
 tiny-skia = { workspace = true }
 flate2 = { workspace = true }
 krilla = { workspace = true }
@@ -27,6 +28,18 @@ rayon = { workspace = true }
 ttf-parser = { workspace = true }
 proj4rs = { workspace = true }
 crs-definitions = { workspace = true }
+# The solidcore kernel behind the Direct Model push, fork-only and experimental
+# (feature `kernel-solidcore`); pinned to the rev the K spike measured.
+solidcore = { git = "https://github.com/tangency-labs/solidcore", rev = "b995a9561e31fc5b8b1c211ced5e933459b03077", optional = true }
+solidcore-ops = { git = "https://github.com/tangency-labs/solidcore", rev = "b995a9561e31fc5b8b1c211ced5e933459b03077", optional = true }
+solidcore-record = { git = "https://github.com/tangency-labs/solidcore", rev = "b995a9561e31fc5b8b1c211ced5e933459b03077", optional = true }
+solidcore-tess = { git = "https://github.com/tangency-labs/solidcore", rev = "b995a9561e31fc5b8b1c211ced5e933459b03077", optional = true }
+
+[features]
+# 100% solidcore-first: the exact kernel is part of the product, not an optional experiment.
+# No workspace crate builds core with --no-default-features (plugin-sdk does not depend on core).
+default = ["kernel-solidcore"]
+kernel-solidcore = ["dep:solidcore", "dep:solidcore-ops", "dep:solidcore-record", "dep:solidcore-tess"]
 
 [build-dependencies]
 bimcraft-i18n = { workspace = true, features = ["catalog"] }

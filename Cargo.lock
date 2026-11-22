@@ -524,6 +524,7 @@ dependencies = [
 name = "bimcraft-core"
 version = "0.12.0"
 dependencies = [
+ "base64 0.22.1",
  "bimcraft-i18n",
  "cap",
  "crs-definitions",
@@ -537,6 +538,10 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
+ "solidcore",
+ "solidcore-ops",
+ "solidcore-record",
+ "solidcore-tess",
  "tempfile",
  "tiny-skia",
  "ttf-parser",
@@ -3452,6 +3457,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "robust"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e27ee8bb91ca0adcf0ecb116293afa12d393f9c2b9b9cd54d33e8078fe19839"
+
+[[package]]
 name = "rustc-hash"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3809,6 +3820,71 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd538fb6910ac1099850255cf94a94df6551fbdd602454387d0adb2d1ca6dead"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "solidcore"
+version = "1.0.1"
+source = "git+https://github.com/tangency-labs/solidcore?rev=b995a9561e31fc5b8b1c211ced5e933459b03077#b995a9561e31fc5b8b1c211ced5e933459b03077"
+dependencies = [
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "solidcore-convert"
+version = "0.1.0"
+source = "git+https://github.com/tangency-labs/solidcore?rev=b995a9561e31fc5b8b1c211ced5e933459b03077#b995a9561e31fc5b8b1c211ced5e933459b03077"
+dependencies = [
+ "solidcore",
+ "solidcore-record",
+]
+
+[[package]]
+name = "solidcore-ops"
+version = "0.1.0"
+source = "git+https://github.com/tangency-labs/solidcore?rev=b995a9561e31fc5b8b1c211ced5e933459b03077#b995a9561e31fc5b8b1c211ced5e933459b03077"
+dependencies = [
+ "serde",
+ "solidcore",
+ "solidcore-convert",
+ "solidcore-record",
+]
+
+[[package]]
+name = "solidcore-record"
+version = "0.1.0"
+source = "git+https://github.com/tangency-labs/solidcore?rev=b995a9561e31fc5b8b1c211ced5e933459b03077#b995a9561e31fc5b8b1c211ced5e933459b03077"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "solidcore-tess"
+version = "0.1.0"
+source = "git+https://github.com/tangency-labs/solidcore?rev=b995a9561e31fc5b8b1c211ced5e933459b03077#b995a9561e31fc5b8b1c211ced5e933459b03077"
+dependencies = [
+ "rayon",
+ "serde",
+ "solidcore",
+ "solidcore-convert",
+ "solidcore-record",
+ "spade",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "spade"
+version = "2.15.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9699399fd9349b00b184f5635b074f9ec93afffef30c853f8c875b32c0f8c7fa"
+dependencies = [
+ "hashbrown 0.16.1",
+ "num-traits",
+ "robust",
+ "smallvec",
 ]
 
 [[package]]
