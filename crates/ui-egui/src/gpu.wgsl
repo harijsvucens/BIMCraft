@@ -9,7 +9,8 @@
 //      the view shows its edges) and a silhouette as wide as the view says, else the shaded colour (in ambient shadow where the
 //      view shows them, read off the opaque depth round the pixel; tinted halfway where selected), else the ground; and over it
 //      what is seen through, blended.
-//   4. vs_line / fs_line: each level's plane and name as lines, where nothing opaque nearer hides them.
+//   4. vs_line / fs_line: each level's plane and name as lines, where nothing opaque nearer hides them; vs_draft uses the
+//      same shader to put a preview's shaded triangles into the picture, as the processor's `Image::draft_shaded` does.
 //   5. vs_full / fs_marks: the work plane and its patch (core `PlaneMark`), each pixel's ray met with the plane, blended over
 //      the picture where nothing opaque is nearer, as the processor's `Image::draw_marks` lays them.
 //   In wireframe, passes 1 and 2 have nothing to draw and pass 3 only paper, and vs_wire / fs_wire draw every edge over it; then
@@ -43,8 +44,12 @@ struct Globals {
     // The section box from the mesh's origin: its least corner (w: 1 where there is one) and its greatest.
     cut_lo: vec4<f32>,
     cut_hi: vec4<f32>,
+    // x: the one-based owner left out of the picture (0 for none) — the component a Push/Pull drag replaces.
+    hidden_owner: vec4<f32>,
     // The work plane and its patch, drawn over the picture (pass 5).
     marks: array<Mark, 2>,
+    // x: first draft triangle's vertices in `segs`; y: how many there are (pass 4).
+    draft: vec4<f32>,
 }
 
 // A rectangle of a plane drawn over the picture, as the core's `PlaneMark`.
@@ -277,6 +282,9 @@ fn shaded(in: SceneOut, front: bool) -> vec3<f32> {
 }
 
 fn scene_targets(in: SceneOut, front: bool) -> SceneTargets {
+    if g.hidden_owner.x > 0.0 && in.ids.y == u32(g.hidden_owner.x) {
+        discard;
+    }
     var out: SceneTargets;
     out.color = vec4<f32>(shaded(in, front) / 255.0, 1.0);
     out.ids = in.ids;
@@ -311,6 +319,9 @@ struct ClearTargets {
 // so as near is within a sixty-fourth of how far the depth runs across a pixel, and a few of f32's steps.
 @fragment
 fn fs_clear(in: SceneOut, @builtin(front_facing) front: bool) -> ClearTargets {
+    if g.hidden_owner.x > 0.0 && in.ids.y == u32(g.hidden_owner.x) {
+        discard;
+    }
     let tie = max(fwidth(in.clip.z) / 64.0, 2.5e-7);
     if in.clip.z <= textureLoad(scene_depth, vec2<i32>(in.clip.xy), 0) + tie || (g.cut_lo.w > 0.5 && cut_away(in.world)) {
         discard;
@@ -576,6 +587,9 @@ fn vs_dot(v: DotIn, @builtin(vertex_index) i: u32) -> DotOut {
 
 @fragment
 fn fs_dot(in: DotOut) -> SceneTargets {
+    if g.hidden_owner.x > 0.0 && in.ids.y == u32(g.hidden_owner.x) {
+        discard;
+    }
     var out: SceneTargets;
     out.color = vec4<f32>(in.color / 255.0, 1.0);
     out.ids = in.ids;
@@ -631,6 +645,19 @@ fn vs_line(@builtin(vertex_index) i: u32, @builtin(instance_index) k: u32) -> Li
     return o;
 }
 
+// A draft's shaded triangle, in the same buffer as the level lines: three `Seg`s hold its vertices, painted far to
+// near so the front one wins without a depth pass of its own. `fs_line` hides it behind the picture as it hides a line.
+@vertex
+fn vs_draft(@builtin(vertex_index) i: u32) -> LineOut {
+    let v = segs[u32(g.draft.x) + i];
+    let p = to_pixel(v.a.xyz);
+    var o: LineOut;
+    o.clip = vec4<f32>(p.x / g.size.x * 2.0 - 1.0, 1.0 - p.y / g.size.y * 2.0, p.z, 1.0);
+    o.color = v.color.rgb;
+    o.depth = p.z;
+    return o;
+}
+
 @fragment
 fn fs_line(in: LineOut) -> @location(0) vec4<f32> {
     let behind = textureLoad(scene_depth, vec2<i32>(in.clip.xy), 0);
@@ -678,6 +705,9 @@ fn narrowed(t: vec2<f32>, p: f32, q: f32) -> vec2<f32> {
 fn wire_quad(w: WireIn, i: u32) -> WireOut {
     var o: WireOut;
     o.clip = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+    if g.hidden_owner.x > 0.0 && w.owner == u32(g.hidden_owner.x) {
+        return o;
+    }
     var a = w.a;
     var b = w.b;
     if g.cut_lo.w > 0.5 {

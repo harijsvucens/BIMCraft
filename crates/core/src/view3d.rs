@@ -31,7 +31,8 @@ fn render_pool() -> Option<&'static rayon::ThreadPool> {
 }
 
 /// A model point in mm: x east, y north, z up.
-pub type P3 = [f64; 3];
+pub use crate::vec3::P3;
+use crate::vec3::{add, cross, dot, mul, sub, unit};
 
 /// Revit's default 3D view looks from the south-east, from above.
 pub const AZIMUTH: f64 = -45.0;
@@ -56,8 +57,12 @@ const RAIL: Rgb = Rgb(120, 122, 128);
 const STRUCTURE: Rgb = Rgb(182, 184, 190);
 /// Steel, darker than the concrete round it.
 const REBAR: Rgb = Rgb(92, 96, 104);
-/// A component's form made of nothing the library has.
-const COMPONENT: Rgb = Rgb(214, 204, 188);
+/// A component's form made of nothing the library has, and the preview's fallback with it: one colour, two homes.
+pub const COMPONENT: Rgb = Rgb(214, 204, 188);
+/// The picture's ambient share and its lit share of the light's facing: a face turned from the light keeps the first,
+/// the rest is `dot(n, light)`. The one home of the pair, so a picture and a preview of it shade alike.
+const LIGHT_AMBIENT: f64 = 0.62;
+const LIGHT_DIFFUSE: f64 = 0.38;
 /// Room around a fitted model, px.
 const MARGIN: f64 = 30.0;
 
@@ -108,26 +113,6 @@ const AMBIENT: [(i32, i32); 8] = [(12, 0), (0, 12), (8, 8), (8, -8), (6, 0), (0,
 const AMBIENT_REACH: f64 = 4.0;
 /// How dark the deepest ambient shadow is: the share of the light it takes.
 const AMBIENT_DARK: f64 = 0.6;
-
-pub(crate) fn add(a: P3, b: P3) -> P3 {
-    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
-}
-pub(crate) fn sub(a: P3, b: P3) -> P3 {
-    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
-}
-pub(crate) fn mul(a: P3, k: f64) -> P3 {
-    [a[0] * k, a[1] * k, a[2] * k]
-}
-pub(crate) fn dot(a: P3, b: P3) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-pub(crate) fn cross(a: P3, b: P3) -> P3 {
-    [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
-}
-pub(crate) fn unit(a: P3) -> P3 {
-    let l = dot(a, a).sqrt();
-    if l > 0.0 { mul(a, 1.0 / l) } else { [0.0; 3] }
-}
 
 /// A triangle of an element's surface; on a curved one, which (its element's, and which of its
 /// curved surfaces: a wall's outside or inside, a component's by its first triangle's place in the
@@ -358,8 +343,7 @@ impl Solid {
         }
     }
 
-    /// Its triangles, as the scene would take them.
-    #[cfg(test)]
+    /// Its triangles, as the scene would take them. Also the source a command converts to a mesh.
     pub(crate) fn triangles(&self) -> Vec<[P3; 3]> {
         let mut made = Vec::new();
         self.tris(&mut made);
@@ -599,7 +583,7 @@ impl Solid {
                 let (surfaces, faces) = if *round {
                     ((0..tris.len()).map(|i| (i >= *caps).then_some(*caps)).collect(), vec![None; tris.len()])
                 } else {
-                    facets(tris)
+                    crate::mesh::facets(tris)
                 };
                 for ((p, s), f) in tris.iter().zip(surfaces).zip(faces) {
                     out.push(Tri {
@@ -721,105 +705,6 @@ pub(crate) fn slice(tris: &[[P3; 3]], p: P2, u: P2, len: f64) -> Option<Vec<Vec<
     Some(out)
 }
 
-/// How far, in degrees, two triangles may turn at the edge they share and still be one surface:
-/// the facets a curve is cut into turn less, a crease like a seat's rim more.
-const SMOOTH: f64 = 20.0;
-
-/// The curved surfaces and the flat faces a mesh's triangles make: those that share an edge and turn less than
-/// [`SMOOTH`] degrees there are one. A surface with a bend in it is a curve, each triangle's as its first triangle's
-/// index; one with none is a face, numbered the same way, so two faces in one plane that do not touch are two. None for a
-/// triangle with no area, which has no plane to be one.
-fn facets(tris: &[[P3; 3]]) -> (Vec<Option<usize>>, Vec<Option<usize>>) {
-    /// The first triangle of `i`'s surface, as `up` links them, shortening the way as it goes.
-    fn first(up: &mut [usize], mut i: usize) -> usize {
-        while let Some(&p) = up.get(i)
-            && p != i
-        {
-            let grand = up.get(p).copied().unwrap_or(p);
-            if let Some(slot) = up.get_mut(i) {
-                *slot = grand;
-            }
-            i = grand;
-        }
-        i
-    }
-    let limit = SMOOTH.to_radians().cos();
-    let normals: Vec<P3> = tris.iter().map(|[a, b, c]| unit(cross(sub(*b, *a), sub(*c, *a)))).collect();
-    let normal = |i: usize| normals.get(i).copied().unwrap_or_default();
-    let mut up: Vec<usize> = (0..tris.len()).collect();
-    // The first triangle on each side, whose corners a micron's grid names and [`welded`] joins to a twin in the cells
-    // around it.
-    // ponytail: a third triangle on a side meets only the first; pair them all if facet lines show.
-    let mut edges: HashMap<([i64; 3], [i64; 3]), usize> = HashMap::new();
-    let mut canon: HashMap<[i64; 3], [i64; 3]> = HashMap::new();
-    let mut bent = Vec::new();
-    for (i, t) in tris.iter().enumerate() {
-        let mut corner = |k: usize| {
-            let p = t.get(k % 3).copied().unwrap_or_default();
-            welded(&mut canon, p.map(|x| (x * 1e3).round() as i64), p)
-        };
-        let corners = [corner(0), corner(1), corner(2)];
-        for k in 0..3 {
-            let (a, b) = (corners[k], corners[(k + 1) % 3]);
-            let j = *edges.entry((a.min(b), a.max(b))).or_insert(i);
-            // A triangle with no area has no normal, so it turns 90° from every other.
-            let turn = dot(normal(i), normal(j));
-            // One plane, whichever way round each triangle is wound, is one face; turning little the same way is one
-            // surface. A fold (normals near opposite, so `turn` near -1) is neither.
-            let flat = turn.abs() >= 1.0 - 1e-9;
-            if j != i && a != b && (turn > limit || flat) {
-                let (ri, rj) = (first(&mut up, i), first(&mut up, j));
-                if let Some(slot) = up.get_mut(ri.max(rj)) {
-                    *slot = ri.min(rj);
-                }
-                if !flat {
-                    bent.push(i);
-                }
-            }
-        }
-    }
-    let curved: HashSet<usize> = bent.into_iter().map(|i| first(&mut up, i)).collect();
-    let mut curves = Vec::with_capacity(tris.len());
-    let mut faces = Vec::with_capacity(tris.len());
-    for (i, n) in normals.iter().enumerate() {
-        let root = first(&mut up, i);
-        let (curve, face) = if curved.contains(&root) { (Some(root), None) } else { (None, (dot(*n, *n) > 0.5).then_some(root)) };
-        curves.push(curve);
-        faces.push(face);
-    }
-    (curves, faces)
-}
-
-/// The corner a rounded `q` stands for: itself, or the first corner already met within the weld, which a cell's edge may
-/// have put next door. `p` is `q` before it was rounded: a corner within a micron of another can land either side of a
-/// cell's edge, and the two are one point.
-fn welded(canon: &mut HashMap<[i64; 3], [i64; 3]>, q: [i64; 3], p: P3) -> [i64; 3] {
-    if let Some(c) = canon.get(&q) {
-        return *c;
-    }
-    for dx in -1..=1 {
-        for dy in -1..=1 {
-            for dz in -1..=1 {
-                if dx == 0 && dy == 0 && dz == 0 {
-                    continue;
-                }
-                // Saturated: a corner of 1e300 (or an infinity) rounds to the key's end, where `+` would overflow.
-                let next = [q[0].saturating_add(dx), q[1].saturating_add(dy), q[2].saturating_add(dz)];
-                if let Some(&c) = canon.get(&next) {
-                    // The weld, and the half micron the cell's own rounding may add.
-                    let at = c.map(|v| v as f64 * 1e-3);
-                    if sub(p, at).iter().all(|v| v.abs() <= 1.5e-3) {
-                        canon.insert(q, c);
-                        return c;
-                    }
-                }
-            }
-        }
-    }
-    canon.insert(q, q);
-    q
-}
-
 /// The corner normals of each triangle of a curved surface, for it to shade smoothly across its
 /// facets: the unit normals of that surface's triangles that meet at a corner, averaged by the angle
 /// each makes there (so a quad cut into two triangles weighs the same at every corner). A crease keeps
@@ -894,6 +779,11 @@ fn slab_tex(m: &Model, category: &str, type_name: &str) -> u32 {
 /// ceilings, columns, stairs' steps and roofs' slopes.
 pub(crate) fn solids(m: &Model) -> Vec<Solid> {
     solids_cancellable(m, &|| false).unwrap_or_default()
+}
+
+/// One element's solids, made against the whole model: the geometry a command turns into a mesh.
+pub(crate) fn solids_of(m: &Model, id: Id) -> Vec<Solid> {
+    solids_among_cancellable(m, Some(&std::collections::BTreeSet::from([id])), &|| false).unwrap_or_default()
 }
 
 fn solids_cancellable(m: &Model, cancelled: &(dyn Fn() -> bool + Sync)) -> Option<Vec<Solid>> {
@@ -3573,9 +3463,9 @@ impl Scene {
         // The side of a face the camera sees: in perspective, the side the eye is on.
         let eye = cam.eye();
         let toward = |p: P3| eye.map_or(back, |e| sub(e, p));
-        // Lit from over the viewer's left shoulder; a face turned away from the light keeps 62%.
+        // Lit from over the viewer's left shoulder; a face turned away from the light keeps its ambient share.
         let light = unit(add(add(mul(right, -0.35), mul(up, 0.55)), mul(back, 0.75)));
-        let lit = |n: P3| 0.62 + 0.38 * dot(n, light).max(0.0);
+        let lit = |n: P3| LIGHT_AMBIENT + LIGHT_DIFFUSE * dot(n, light).max(0.0);
         let paint = |color: Rgb, k: f64| {
             let c = |v: u8| (f64::from(v) * k).round() as u8;
             Rgb(c(color.0), c(color.1), c(color.2))
@@ -3638,7 +3528,7 @@ impl Scene {
                 lit(if dot(n, toward(t.p[0])) < 0.0 { mul(n, -1.0) } else { n })
             })
             .collect();
-        let shade: Vec<Rgb> = self.tris.iter().zip(&light).map(|(t, l)| if flat { PAPER } else { paint(colour(t), *l) }).collect();
+        let face_shade: Vec<Rgb> = self.tris.iter().zip(&light).map(|(t, l)| if flat { PAPER } else { paint(colour(t), *l) }).collect();
         // A textured triangle's colour at pixel `k`, where its surface lies `z` toward the camera: the texture at that point of
         // its plane, for a pixel's width of it. None for any other, or where the view colours it its own way, or in a section.
         let texturing = !flat && self.skins.iter().any(Option::is_some);
@@ -3670,7 +3560,7 @@ impl Scene {
                 (Some(c), Some(l)) => paint(c, f64::from(*l)),
                 (Some(c), None) => paint(c, *light.get(t)?),
                 (None, Some(l)) => paint(colour(tri), f64::from(*l)),
-                (None, None) => *shade.get(t)?,
+                (None, None) => *face_shade.get(t)?,
             })
         };
         let tints: BTreeMap<Id, Rgb> = tints.iter().copied().collect();
@@ -3976,6 +3866,26 @@ fn levels_in(levels: &[(Id, String, [P3; 4])], (lo, hi): (P3, P3)) -> Vec<(Id, S
         .filter(|(.., c)| (lo[2]..=hi[2]).contains(&c[0][2]))
         .map(|(id, name, c)| (*id, name.clone(), c.map(|p| [p[0].clamp(lo[0], hi[0]), p[1].clamp(lo[1], hi[1]), p[2]])))
         .collect()
+}
+
+/// The colour a world-space triangle is shaded in the view, as the picture paints it: the material under `look`, turned
+/// to the same light from the same side the eye is on. What a preview of the picture shades with, so the two cannot
+/// drift — the one home of the view's shading, beside the picture's own loop above.
+pub fn shade(t: &[P3; 3], cam: &Camera, id: Id, base: Rgb, look: &Look) -> Rgb {
+    let (back, right, up) = cam.axes();
+    let light = unit(add(add(mul(right, -0.35), mul(up, 0.55)), mul(back, 0.75)));
+    let n = cross(sub(t[1], t[0]), sub(t[2], t[0]));
+    let m = dot(n, n).sqrt();
+    let mut n = if m > 0.0 { mul(n, 1.0 / m) } else { [0.0; 3] };
+    let eye = cam.eye();
+    let toward = |p: P3| eye.map_or(back, |e| sub(e, p));
+    if dot(n, toward(t[0])) < 0.0 {
+        n = mul(n, -1.0);
+    }
+    let k = LIGHT_AMBIENT + LIGHT_DIFFUSE * dot(n, light).max(0.0);
+    let Rgb(r, g, b) = look.surface(id, base);
+    let c = |v: u8| (f64::from(v) * k).round() as u8;
+    Rgb(c(r), c(g), c(b))
 }
 
 /// The middle of each face of section box `(lo, hi)`, where its grips are: west, east, south, north, bottom and top.
@@ -4557,6 +4467,13 @@ impl Camera {
     /// at the camera.
     pub fn along(&self, axis: usize, at: P3, from: (f64, f64), to: (f64, f64)) -> Option<f64> {
         let unit: P3 = std::array::from_fn(|i| if i == axis { 1.0 } else { 0.0 });
+        self.along_dir(unit, at, from, to)
+    }
+
+    /// The same for any unit direction `dir`, not only the model's axes: how far, mm, the drag moves `at` along it, as the
+    /// picture shows it there. None where the direction points at the camera.
+    pub fn along_dir(&self, dir: P3, at: P3, from: (f64, f64), to: (f64, f64)) -> Option<f64> {
+        let unit = dir;
         // In perspective, a mm along the axis shows shorter the further off it is: the point on the axis through `at` nearest
         // the line from the eye through each pixel, so what is dragged stays under the pointer.
         if let Some(eye) = self.eye() {
@@ -4564,7 +4481,7 @@ impl Camera {
                 let ray = sub(self.unproject(q), eye);
                 let (b, c, w) = (dot(unit, ray), dot(ray, ray), sub(at, eye));
                 let square = c - b * b;
-                (axis < 3 && square > 1e-9 * c).then(|| (b * dot(ray, w) - c * dot(unit, w)) / square)
+                (square > 1e-9 * c).then(|| (b * dot(ray, w) - c * dot(unit, w)) / square)
             };
             return Some(on_axis(to)? - on_axis(from)?).filter(|d| d.is_finite());
         }
@@ -4572,7 +4489,7 @@ impl Camera {
         let (dx, dy) = (e.0 - o.0, e.1 - o.1);
         let shown = dx * dx + dy * dy;
         // Less than a twentieth of a pixel for 100 m: square to the picture.
-        (axis < 3 && shown > (0.05 / 1e5f64).powi(2)).then(|| ((to.0 - from.0) * dx + (to.1 - from.1) * dy) / shown)
+        (shown > (0.05 / 1e5f64).powi(2)).then(|| ((to.0 - from.0) * dx + (to.1 - from.1) * dy) / shown)
     }
 
     fn project_xy(&self, p: P3) -> (f64, f64) {
@@ -4796,6 +4713,14 @@ impl Image {
     /// green, blue and alpha, laid over what is there), where no opaque surface stands nearer than it by more than
     /// [`MARK_SLACK`] pixels' worth: a line a form stands in front of is hidden there, as a mark is.
     pub fn draw_line(&mut self, cam: &Camera, [a, b]: [P3; 2], width: f64, color: [u8; 4]) {
+        let mut rgba = std::mem::take(&mut self.rgba);
+        self.line_on(&mut rgba, &self.depth, cam, [a, b], width, color);
+        self.rgba = rgba;
+    }
+
+    /// The line [`draw_line`](Self::draw_line) draws, over `rgba` against the depths `depth` keeps: a draft's edges,
+    /// tested against the depths its own faces just made as much as the picture's own.
+    pub fn line_on(&self, rgba: &mut [u8], depth: &[f32], cam: &Camera, [a, b]: [P3; 2], width: f64, color: [u8; 4]) {
         let (w, h) = (self.width as usize, self.height as usize);
         let Some([a, b]) = cam.in_front(a, b) else { return };
         let (pa, pb) = (cam.project(a), cam.project(b));
@@ -4821,16 +4746,85 @@ impl Image {
                     if done[k] || (cx - x).abs() > reach || (cy - y).abs() > reach {
                         continue;
                     }
-                    if self.depth.get(k).is_some_and(|s| s.is_finite() && f64::from(*s) > z + cam.slack(MARK_SLACK, z)) {
+                    if depth.get(k).is_some_and(|s| s.is_finite() && f64::from(*s) > z + cam.slack(MARK_SLACK, z)) {
                         continue;
                     }
                     done[k] = true;
                     let keep = 1.0 - f32::from(color[3]) / 255.0;
-                    for (v, c) in self.rgba[4 * k..4 * k + 3].iter_mut().zip(color) {
+                    for (v, c) in rgba[4 * k..4 * k + 3].iter_mut().zip(color) {
                         *v = (f32::from(c) + f32::from(*v) * keep).round().min(255.0) as u8;
                     }
                 }
             }
+        }
+    }
+
+    /// A draft's shaded faces and their edges drawn over `rgba` (red, green, blue and alpha, as big as this picture),
+    /// as the picture itself would show them: hidden where an opaque surface of this picture stands nearer the camera
+    /// by more than [`MARK_SLACK`] pixels' worth, and the draft's own back edges behind its front faces, whose depths
+    /// a working copy keeps. Nothing is picked: `hit` and `owners` are untouched, a draft is a preview, not an element.
+    /// The edges are the one rule's (`mesh::edges`), as the card's wire pass takes them.
+    pub fn draft(&self, rgba: &mut [u8], cam: &Camera, tris: &[[P3; 3]], face: Rgb, edge_ink: [u8; 4], look: &Look) {
+        let shaded: Vec<([P3; 3], [u8; 3])> = tris
+            .iter()
+            .map(|t| {
+                let Rgb(r, g, b) = shade(t, cam, 0, face, look);
+                (*t, [r, g, b])
+            })
+            .collect();
+        let edges: Vec<([P3; 2], [u8; 4])> = crate::mesh::edges(tris).into_iter().map(|e| (e, edge_ink)).collect();
+        self.draft_shaded(rgba, cam, &shaded, &edges);
+    }
+
+    /// The same picture paint for a preview that already carries its own colour and edges: Push/Pull's drag hands over
+    /// the triangles it shaded with the view's light and the front edges it chose, so a form in front of them hides
+    /// them as it hides a Direct Model box's. The depths of the draft's own faces are kept while its edges are laid.
+    pub fn draft_shaded(&self, rgba: &mut [u8], cam: &Camera, shaded: &[([P3; 3], [u8; 3])], edges: &[([P3; 2], [u8; 4])]) {
+        let (w, h) = (self.width as usize, self.height as usize);
+        if rgba.len() < w * h * 4 {
+            return;
+        }
+        let mut depth = (*self.depth).clone();
+        let project = cam.projector();
+        for (t, ink) in shaded {
+            let (parts, count) = project.in_front(t);
+            for part in parts.iter().take(count) {
+                let [a, b, c] = weighed(t, part).map(|p| project.at(p));
+                let area = (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0);
+                if area.is_nan() || area.abs() <= 1e-12 {
+                    continue;
+                }
+                let (x0, x1) = (a.0.min(b.0).min(c.0), a.0.max(b.0).max(c.0));
+                let (y0, y1) = (a.1.min(b.1).min(c.1), a.1.max(b.1).max(c.1));
+                if !(x1 >= 0.0 && x0 < w as f64 && y1 >= 0.0 && y0 < h as f64) {
+                    continue;
+                }
+                let (x0, x1) = ((x0.max(0.0) as usize).min(w - 1), (x1.min(w as f64 - 1.0) as usize));
+                let (y0, y1) = ((y0.max(0.0) as usize).min(h - 1), (y1.min(h as f64 - 1.0) as usize));
+                for py in y0..=y1 {
+                    for px in x0..=x1 {
+                        let (x, y) = (px as f64 + 0.5, py as f64 + 0.5);
+                        let wa = ((b.0 - x) * (c.1 - y) - (b.1 - y) * (c.0 - x)) / area;
+                        let wb = ((c.0 - x) * (a.1 - y) - (c.1 - y) * (a.0 - x)) / area;
+                        let wc = 1.0 - wa - wb;
+                        if wa < -1e-9 || wb < -1e-9 || wc < -1e-9 {
+                            continue;
+                        }
+                        let z = wa * a.2 + wb * b.2 + wc * c.2;
+                        let k = py * w + px;
+                        if let Some(d) = depth.get_mut(k) {
+                            if d.is_finite() && f64::from(*d) > z + cam.slack(MARK_SLACK, z) {
+                                continue;
+                            }
+                            *d = z as f32;
+                        }
+                        rgba[4 * k..4 * k + 3].copy_from_slice(ink);
+                    }
+                }
+            }
+        }
+        for (e, ink) in edges {
+            self.line_on(rgba, &depth, cam, *e, 1.0, *ink);
         }
     }
 
@@ -5065,11 +5059,14 @@ pub fn shape_pick_3d(m: &Model, f: &crate::model::Floor, cam: &Camera, at: (f64,
 
 /// A surface the line of sight through a pixel meets: the element it is of, the point it meets it at, and the surface's unit
 /// normal, turned toward the camera. What the 3D view orbits about and zooms toward, and what its tools draw on (`workplane`).
+/// `face` carries the id of the flat mesh face under the pick, when it is on one, so a gesture never has to re-derive which
+/// face it holds from the point alone.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Surface {
     pub id: Id,
     pub at: P3,
     pub normal: P3,
+    pub face: Option<u32>,
 }
 
 /// Where the line of sight through pixel `at` meets the plane of triangle `p`, element `id`'s: in perspective, in front of the eye.
@@ -5084,7 +5081,12 @@ pub(crate) fn surface_of(cam: &Camera, at: (f64, f64), id: Id, p: &[P3; 3]) -> O
     let facing = dot(along, n);
     let t = dot(sub(p[0], from), n) / facing;
     let normal = if facing > 0.0 { mul(n, -1.0) } else { n };
-    (facing.abs() > 1e-9 && t.is_finite() && (eye.is_none() || t > 0.0)).then(|| Surface { id, at: add(from, mul(along, t)), normal })
+    (facing.abs() > 1e-9 && t.is_finite() && (eye.is_none() || t > 0.0)).then(|| Surface {
+        id,
+        at: add(from, mul(along, t)),
+        normal,
+        face: None,
+    })
 }
 
 /// Where the line of sight through pixel `at` meets level `id`'s plane, of `levels` (each a level, its name and its plane's corners).
@@ -5099,7 +5101,10 @@ impl Scene {
     pub fn surface_in(&self, image: &Image, cam: &Camera, at: (f64, f64)) -> Option<Surface> {
         let t = *image.hit.get(image.index(at.0, at.1)?)? as usize;
         match self.tris.get(t) {
-            Some(tri) => surface_of(cam, at, tri.owner, &tri.p),
+            Some(tri) => surface_of(cam, at, tri.owner, &tri.p).map(|mut s| {
+                s.face = tri.face;
+                s
+            }),
             None => on_level(&self.levels, cam, at, *image.owners.get(t)?),
         }
     }
@@ -5198,6 +5203,38 @@ mod tests {
             // The furniture behind the facade, and the rooms' services, are left out.
             assert!(lean.tris.len() * 4 < whole.tris.len(), "{name}: {} of {} triangles", lean.tris.len(), whole.tris.len());
         }
+    }
+
+    #[test]
+    fn a_preview_shades_a_face_as_the_picture_paints_it() {
+        let mut s = crate::engine::Session::new();
+        let box_json = serde_json::json!({
+            "points": [[-500, -500, 0], [500, -500, 0], [500, 500, 0], [-500, 500, 0],
+                       [-500, -500, 1000], [500, -500, 1000], [500, 500, 1000], [-500, 500, 1000]],
+            "triangles": [[0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4],
+                          [1, 2, 6], [1, 6, 5], [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]]
+        });
+        s.execute("mesh", &box_json).unwrap();
+        let scene = Scene::new(&s.model);
+        let cam = scene.fit(AZIMUTH, ELEVATION, 200, 150);
+        let look = Look::of_3d(&s.model);
+        let img = scene.picture(&cam, None, &[], &look);
+        // An interior pixel of one triangle: its right and lower neighbours hold the same triangle, so no edge or
+        // silhouette ink sits on it, and its colour is the face's shade alone.
+        let (w, h) = (img.width as usize, img.height as usize);
+        let k = (0..w * (h - 1))
+            .find(|&k| {
+                let t = img.hit[k] as usize;
+                t < scene.tris.len() && img.hit[k + 1] == img.hit[k] && img.hit[k + w] == img.hit[k]
+            })
+            .expect("a face fills some pixels of the fit view");
+        let tri = &scene.tris[img.hit[k] as usize];
+        let want = shade(&tri.p, &cam, tri.owner, tri.color, &look);
+        assert_eq!(
+            &img.rgba[k * 4..k * 4 + 3],
+            &[want.0, want.1, want.2],
+            "the picture paints the face the shade a preview of it must match"
+        );
     }
 
     #[test]
@@ -5369,7 +5406,7 @@ mod tests {
         assert_eq!(normals.iter().flatten().count(), 50_000, "its sides, and not its caps");
         // Corners that aren't numbers, and triangles with no area, join nothing, and don't crash it.
         let odd = [[[f64::NAN; 3]; 3], [[f64::INFINITY; 3]; 3], [[1e300, 0.0, 0.0], [-1e300, 1e300, 0.0], [0.0; 3]], [[0.0; 3]; 3]];
-        let (curves, faces) = facets(&odd);
+        let (curves, faces) = crate::mesh::facets(&odd);
         assert!(curves.iter().all(Option::is_none));
         assert_eq!(faces, vec![None; 4]);
     }
@@ -5381,7 +5418,7 @@ mod tests {
         let b = [[0.0, 0.0, 0.0], [1000.0, 1000.0, 0.0], [0.0, 1000.0, 0.0]];
         let c = [[5000.0, 0.0, 0.0], [6000.0, 0.0, 0.0], [6000.0, 1000.0, 0.0]];
         let d = [[5000.0, 0.0, 0.0], [6000.0, 1000.0, 0.0], [5000.0, 1000.0, 0.0]];
-        let (curves, faces) = facets(&[a, b, c, d]);
+        let (curves, faces) = crate::mesh::facets(&[a, b, c, d]);
         assert!(curves.iter().all(Option::is_none), "no bend, no curved surface");
         assert_eq!(faces[0], faces[1], "the halves of one square are one face");
         assert_eq!(faces[2], faces[3]);
@@ -5395,19 +5432,19 @@ mod tests {
         let over = [[0.0, 0.0, 0.0], [1000.0, 1000.0, 0.0], [0.0, 1000.0, 0.0]];
         let flipped = [[0.0, 0.0, 0.0], [0.0, 1000.0, 0.0], [1000.0, 1000.0, 0.0]];
         for half in [over, flipped] {
-            let (curves, faces) = facets(&[up, half]);
+            let (curves, faces) = crate::mesh::facets(&[up, half]);
             assert!(curves.iter().all(Option::is_none), "no bend, no curved surface");
             assert_eq!(faces[0], faces[1], "{half:?} is the square's other half, not a face of its own");
         }
         // A corner a cell's edge falls between, within the weld: one face.
         let a = [[0.0005, 0.0005, 0.0], [1000.0005, 0.0005, 0.0], [1000.0005, 1000.0005, 0.0]];
         let b = [[0.0004, 0.0004, 0.0], [1000.0004, 0.0004, 0.0], [500.0, 1000.0004, 0.0]];
-        let (_, faces) = facets(&[a, b]);
+        let (_, faces) = crate::mesh::facets(&[a, b]);
         assert_eq!(faces[0], faces[1], "within a micron the corner is one: {faces:?}");
         // Five times the weld apart: two faces, as the wire pass draws the crack too.
         let c = [[0.005, 0.005, 0.0], [1000.005, 0.005, 0.0], [1000.005, 1000.005, 0.0]];
         let d = [[0.0, 0.0, 0.0], [1000.0, 0.0, 0.0], [500.0, 1000.0, 0.0]];
-        let (_, faces) = facets(&[c, d]);
+        let (_, faces) = crate::mesh::facets(&[c, d]);
         assert_ne!(faces[0], faces[1], "a crack wider than the weld is two faces: {faces:?}");
     }
 
@@ -6010,6 +6047,12 @@ mod tests {
         assert!((moved + 2500.0).abs() < 1e-6, "{moved}");
         let moved = cam.along(1, a, at(&cam, a), at(&cam, [8000.0, 4000.0, 3000.0])).unwrap();
         assert!((moved - 4000.0).abs() < 1e-6, "{moved}");
+        // The same drag along a diagonal direction, not an axis: the direction's own part of the move, as a face's
+        // normal asks when Push/Pull drags it.
+        let diag = [std::f64::consts::FRAC_1_SQRT_2, std::f64::consts::FRAC_1_SQRT_2, 0.0];
+        let moved = cam.along_dir(diag, a, at(&cam, a), at(&cam, [11000.0, 3000.0, 3000.0])).unwrap();
+        assert!((moved - 3000.0 * std::f64::consts::SQRT_2).abs() < 1e-6, "{moved}");
+        assert_eq!(cam.along_dir(diag, a, at(&cam, a), at(&cam, a)), Some(0.0), "no drag, no distance");
     }
 
     #[test]
@@ -6390,6 +6433,97 @@ mod tests {
         assert_eq!(tinted.color(x, y), Rgb(255, 0, 0), "a selected wall's edges in the selection's colour");
         let colours = plain.rgba.chunks(4).filter(|c| c[..3] != [255, 255, 255]).map(|c| (c[0], c[1], c[2])).collect::<BTreeSet<_>>();
         assert_eq!(colours, BTreeSet::from([(EDGE.0, EDGE.1, EDGE.2)]), "lines in the edge colour, nothing else");
+    }
+
+    /// A box's 12 triangles, one per side split along a diagonal: the faces a draft draws.
+    fn box_draft((lo, hi): (P3, P3)) -> Vec<[P3; 3]> {
+        let [x0, y0, z0] = lo;
+        let [x1, y1, z1] = hi;
+        let c = |x: bool, y: bool, z: bool| [if x { x1 } else { x0 }, if y { y1 } else { y0 }, if z { z1 } else { z0 }];
+        vec![
+            // bottom, top
+            [c(false, false, false), c(true, false, false), c(true, true, false)],
+            [c(false, false, false), c(true, true, false), c(false, true, false)],
+            [c(false, false, true), c(false, true, true), c(true, true, true)],
+            [c(false, false, true), c(true, true, true), c(true, false, true)],
+            // south, north
+            [c(false, false, false), c(false, false, true), c(true, false, true)],
+            [c(false, false, false), c(true, false, true), c(true, false, false)],
+            [c(true, true, false), c(true, true, true), c(false, true, true)],
+            [c(true, true, false), c(false, true, true), c(false, true, false)],
+            // west, east
+            [c(false, true, false), c(false, true, true), c(false, false, true)],
+            [c(false, true, false), c(false, false, true), c(false, false, false)],
+            [c(true, false, false), c(true, false, true), c(true, true, true)],
+            [c(true, false, false), c(true, true, true), c(true, true, false)],
+        ]
+    }
+
+    /// The pixels of `after` that differ from `was` where the box `lo`–`hi` covers the screen.
+    fn changed_over(after: &[u8], was: &Image, cam: &Camera, (lo, hi): (P3, P3)) -> usize {
+        let mut xs = Vec::new();
+        let mut ys = Vec::new();
+        for x in [lo[0], hi[0]] {
+            for y in [lo[1], hi[1]] {
+                for z in [lo[2], hi[2]] {
+                    let (px, py) = at(cam, [x, y, z]);
+                    xs.push(px);
+                    ys.push(py);
+                }
+            }
+        }
+        let (w, h) = (was.width as usize, was.height as usize);
+        let x0 = (xs.iter().copied().fold(f64::MAX, f64::min).floor() as usize).min(w);
+        let x1 = (xs.iter().copied().fold(f64::MIN, f64::max).ceil() as usize).min(w);
+        let y0 = (ys.iter().copied().fold(f64::MAX, f64::min).floor() as usize).min(h);
+        let y1 = (ys.iter().copied().fold(f64::MIN, f64::max).ceil() as usize).min(h);
+        (x0..x1)
+            .flat_map(|x| (y0..y1).map(move |y| (x, y)))
+            .filter(|&(x, y)| after[4 * (y * w + x)..][..3] != was.rgba[4 * (y * w + x)..][..3])
+            .count()
+    }
+
+    #[test]
+    fn a_draft_hides_behind_an_opaque_surface_and_nothing_of_it_is_picked() {
+        let s = house();
+        let scene = Scene::new(&s.model);
+        let cam = scene.fit(AZIMUTH, ELEVATION, 400, 300);
+        let img = scene.render(&cam, &[]);
+        // South of the house, in the open, it draws; north of it, behind the walls, it draws nothing.
+        let open = box_draft(([1500.0, -4000.0, 0.0], [3500.0, -2000.0, 2500.0]));
+        let behind = box_draft(([3500.0, 6300.0, 0.0], [4500.0, 6900.0, 800.0]));
+        let mut shown = img.rgba.clone();
+        img.draft(&mut shown, &cam, &open, Rgb(255, 0, 0), [0, 0, 0, 255], &Look::default());
+        assert!(changed_over(&shown, &img, &cam, ([1500.0, -4000.0, 0.0], [3500.0, -2000.0, 2500.0])) > 100, "the draft in the open drew");
+        img.draft(&mut shown, &cam, &behind, Rgb(255, 0, 0), [0, 0, 0, 255], &Look::default());
+        assert_eq!(
+            changed_over(&shown, &img, &cam, ([3500.0, 6300.0, 0.0], [4500.0, 6900.0, 800.0])),
+            0,
+            "nothing of the box behind the walls drew"
+        );
+        // A draft is preview, not an element: what it covers still picks as it did.
+        let (x, y) = at(&cam, [2500.0, -3000.0, 1250.0]);
+        assert_eq!(img.pick(x, y), None, "the draft's face changed no picking");
+    }
+
+    #[test]
+    fn a_shaded_draft_keeps_its_own_colours_and_hides_behind_the_picture() {
+        let s = house();
+        let scene = Scene::new(&s.model);
+        let cam = scene.fit(AZIMUTH, ELEVATION, 400, 300);
+        let img = scene.render(&cam, &[]);
+        // Push/Pull hands the picture a preview already shaded and sorted: the colour must survive, and the
+        // picture's depths must hide the part of it behind the walls exactly as they hide a box's.
+        let green = |tris: Vec<[P3; 3]>| -> Vec<([P3; 3], [u8; 3])> { tris.into_iter().map(|t| (t, [0, 255, 0])).collect() };
+        let open = ([1500.0, -4000.0, 0.0], [3500.0, -2000.0, 2500.0]);
+        let edges = crate::mesh::edges(&box_draft(open)).into_iter().map(|e| (e, [0, 0, 0, 255])).collect::<Vec<_>>();
+        let mut shown = img.rgba.clone();
+        img.draft_shaded(&mut shown, &cam, &green(box_draft(open)), &edges);
+        let (w, h) = (img.width as usize, img.height as usize);
+        assert!((0..w * h).any(|k| shown[4 * k..4 * k + 3] == [0, 255, 0]), "the shaded draft drew in a colour of its own");
+        let behind = ([3500.0, 6300.0, 0.0], [4500.0, 6900.0, 800.0]);
+        img.draft_shaded(&mut shown, &cam, &green(box_draft(behind)), &[]);
+        assert_eq!(changed_over(&shown, &img, &cam, behind), 0, "nothing of the shaded draft behind the walls drew");
     }
 
     #[test]

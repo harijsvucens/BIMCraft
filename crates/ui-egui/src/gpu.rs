@@ -12,9 +12,11 @@ use std::sync::Arc;
 use bimcraft_core::model::Id;
 use bimcraft_core::render::Rgb;
 use bimcraft_core::view3d::gpu::{Instance, Mesh, Vertex, Visible};
-use bimcraft_core::view3d::{Camera, Caps, MAX_SIDE, PlaneMark};
+use bimcraft_core::view3d::{Camera, Caps, MAX_SIDE, P3, PlaneMark};
 use eframe::egui_wgpu::{RenderState, wgpu};
 use egui::TextureId;
+
+use crate::overlay::{Edged, Painted};
 
 const COLOR: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 /// The plane a pixel shows and its element.
@@ -25,12 +27,20 @@ const DEPTH: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// A vertex (see [`Vertex`]) as the card takes it: its position as three floats, its two normals as four 16-bit signed fractions
 /// each (the fourth 0), and its four words. 44 bytes, not the 52 of floats.
 const STRIDE: u64 = 44;
-/// The view's 11 vec4s, and its two marks' 7 each.
-const GLOBALS: u64 = (11 + MARKS as u64 * 7) * 16;
+/// The view's 12 vec4s, and its two marks' 7 each.
+const GLOBALS: u64 = (12 + MARKS as u64 * 7 + 1) * 16;
 /// How many marks a picture has room for: the work plane and its patch.
 pub(crate) const MARKS: usize = 2;
 /// A section box: its least corner and its greatest, in the model.
 type Cut = Option<([f64; 3], [f64; 3])>;
+/// What else the picture lays over or leaves out of the scene: the cut's caps and, while a Push/Pull drag runs,
+/// the component whose place the shaded preview takes.
+pub(crate) struct Overlay<'a> {
+    pub(crate) caps: Option<&'a Arc<Caps>>,
+    pub(crate) hidden: Option<Id>,
+    /// A preview's shaded faces and front edges, drawn into the picture as the processor's draft is.
+    pub(crate) draft: Option<(&'a Painted, &'a Edged)>,
+}
 /// An owner's edge, tint and pattern frame, a skin's parts and a segment's ends and colour: 3, 3 and 3 vec4s.
 const OWNER: u64 = 48;
 const SKIN: u64 = 48;
@@ -155,8 +165,10 @@ struct Uploaded {
     seen_shapes: Vec<std::ops::Range<u32>>,
     /// The boxes standing in, in a frame of a moving view, and how many it has room for.
     stand_ins: Option<(wgpu::Buffer, u64)>,
-    /// The camera and section box the surfaces in the targets are of, and how far they are drawn.
+    /// The camera and section box the surfaces in the targets are of, and how far they are drawn, and the owner
+    /// the picture left out: the shaders read it on every pass, so a change redraws the surfaces and the wires.
     progress: Option<(Camera, Cut, Stage)>,
+    hidden: Option<Id>,
     planes: wgpu::Buffer,
     owners: wgpu::Buffer,
     skins: wgpu::Buffer,
@@ -478,6 +490,8 @@ pub struct Gpu {
     pub(crate) marks: Vec<PlaneMark>,
     /// Pass 5: the marks, blended over the picture.
     marking: wgpu::RenderPipeline,
+    /// Pass 4: a draft's shaded triangles, depth tested as the level lines are.
+    draft: wgpu::RenderPipeline,
 }
 
 /// The most bytes a buffer of vertices holds, whatever the card allows: some drivers place a very large buffer badly.
@@ -560,6 +574,54 @@ enum Frame {
     Picture,
     Exact(usize),
     Moving,
+}
+
+/// A change of the owner the picture leaves out: every pass reads the uniform, so the targets cannot stand as they
+/// are. Drop the surfaces' progress (the wire stream goes with it at the call) when it changes, either way.
+fn hidden_changed(hidden: &mut Option<Id>, progress: &mut Option<(Camera, Cut, Stage)>, now: Option<Id>) -> bool {
+    if *hidden == now {
+        return false;
+    }
+    *hidden = now;
+    *progress = None;
+    true
+}
+
+/// The frame the targets already hold, by camera, cut and the drawing's progress; what the picture is made from
+/// again only when this says `Picture`. Kept apart from the mesh's budget so a change of the hidden owner can be
+/// tested without a card.
+fn progress_frame(progress: &Option<(Camera, Cut, Stage)>, cam: &Camera, cut: Cut) -> Option<Frame> {
+    match progress {
+        Some((c, k, Stage::Exact { done, total })) if c == cam && *k == cut && done >= total => Some(Frame::Picture),
+        Some((c, k, Stage::Exact { done, .. })) if c == cam && *k == cut => Some(Frame::Exact(*done)),
+        Some((c, k, Stage::Moving)) if c == cam && *k == cut => Some(Frame::Exact(0)),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod progress_tests {
+    use super::*;
+
+    #[test]
+    fn a_change_of_hidden_owner_redraws_the_surfaces_both_ways() {
+        let cam = Camera { azimuth: -45.0, elevation: 30.0, scale: 0.5, target: [0.0; 3], width: 640, height: 480, lens: None };
+        let settled = || Some((cam, None, Stage::Exact { done: 9, total: 9 }));
+        let mut hidden = None;
+        let mut progress = settled();
+        assert_eq!(progress_frame(&progress, &cam, None), Some(Frame::Picture));
+        assert!(hidden_changed(&mut hidden, &mut progress, Some(100000)));
+        assert_eq!(progress, None, "the drag's start drops the picture the targets hold");
+        assert_eq!(progress_frame(&progress, &cam, None), None, "nothing is held: encode starts Exact(0) when it fits");
+        progress = settled();
+        assert_eq!(progress_frame(&progress, &cam, None), Some(Frame::Picture));
+        assert!(hidden_changed(&mut hidden, &mut progress, None), "release changes it back");
+        assert_eq!(progress_frame(&progress, &cam, None), None);
+        assert_eq!(progress, None);
+        progress = settled();
+        assert!(!hidden_changed(&mut hidden, &mut progress, None), "an unchanged owner keeps the picture");
+        assert_eq!(progress, settled());
+    }
 }
 
 /// Where a draw's copies are read from: the buffers the mesh went up in (by their place in [`Mesh::instances`]), those a view
@@ -979,6 +1041,7 @@ impl Gpu {
         });
         let post = pipeline("bimcraft-3d-post", &picture_layout, "vs_full", "fs_post", &[], &[target(COLOR)], false);
         let lines = pipeline("bimcraft-3d-lines", &targets_layout, "vs_line", "fs_line", &[], &[target(COLOR)], false);
+        let draft = pipeline("bimcraft-3d-draft", &targets_layout, "vs_draft", "fs_line", &[], &[target(COLOR)], false);
         let wire_attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Uint32];
         let wire_layout =
             wgpu::VertexBufferLayout { array_stride: WIRE, step_mode: wgpu::VertexStepMode::Instance, attributes: &wire_attributes };
@@ -1044,6 +1107,7 @@ impl Gpu {
             swapped_ink: false,
             marks: Vec::new(),
             marking,
+            draft,
         })
     }
 
@@ -1075,7 +1139,7 @@ impl Gpu {
     /// [`draw_cut`](Self::draw_cut), to the mesh's own section box.
     #[cfg(test)]
     pub(crate) fn draw(&mut self, mesh: &Arc<Mesh>, cam: &Camera, tints: &[(Id, Rgb)], ground: Rgb) -> Result<bool, String> {
-        self.draw_capped(mesh, cam, tints, ground, mesh.section_box, None)
+        self.draw_capped(mesh, cam, tints, ground, mesh.section_box, Overlay { caps: None, hidden: None, draft: None })
     }
 
     /// Draws `mesh` as `cam` sees it, `tints` colouring (halfway, and the edges whole) what they name, on `ground` where nothing is,
@@ -1085,10 +1149,11 @@ impl Gpu {
     /// next frame, until it is.
     #[cfg(test)]
     pub fn draw_cut(&mut self, mesh: &Arc<Mesh>, cam: &Camera, tints: &[(Id, Rgb)], ground: Rgb, cut: Cut) -> Result<bool, String> {
-        self.draw_capped(mesh, cam, tints, ground, cut, None)
+        self.draw_capped(mesh, cam, tints, ground, cut, Overlay { caps: None, hidden: None, draft: None })
     }
 
-    /// [`draw_cut`](Self::draw_cut), with the caps of section box `cut`: what it cuts, filled.
+    /// [`draw_cut`](Self::draw_cut), with `overlay` filling what the section box cuts and leaving out the component a
+    /// Push/Pull drag replaces with its shaded preview.
     pub fn draw_capped(
         &mut self,
         mesh: &Arc<Mesh>,
@@ -1096,10 +1161,10 @@ impl Gpu {
         tints: &[(Id, Rgb)],
         ground: Rgb,
         cut: Cut,
-        caps: Option<&Arc<Caps>>,
+        overlay: Overlay<'_>,
     ) -> Result<bool, String> {
         let guard = scopes(&self.device);
-        let drawn = self.encode(mesh, cam, tints, ground, cut, caps);
+        let drawn = self.encode(mesh, cam, tints, ground, cut, overlay);
         let full = out_of_memory(guard);
         if let Some(up) = &self.mesh {
             self.card_bytes = self.card_bytes.min(up.room.saturating_add(self.parked_bytes()));
@@ -1276,8 +1341,9 @@ impl Gpu {
         tints: &[(Id, Rgb)],
         ground: Rgb,
         cut: Cut,
-        caps: Option<&Arc<Caps>>,
+        overlay: Overlay<'_>,
     ) -> Result<bool, String> {
+        let Overlay { caps, hidden, draft } = overlay;
         let (w, h) = (cam.width.clamp(1, MAX_SIDE), cam.height.clamp(1, MAX_SIDE));
         if w.max(h) > self.device.limits().max_texture_dimension_2d {
             return Err("the picture is bigger than the card draws".into());
@@ -1326,6 +1392,11 @@ impl Gpu {
             }
         };
         let (Some(up), Some(targets)) = (&mut self.mesh, &self.targets) else { return Err("nothing to draw on".into()) };
+        // The hidden owner is read by the surface, see-through, dot and wire shaders, not only by the uniform: the
+        // targets still hold its pixels otherwise. The caps' own invalidation above does the same for their buffer.
+        if hidden_changed(&mut up.hidden, &mut up.progress, hidden) {
+            up.wire_stream = None;
+        }
         // Each owner's edge, how much of it shows, and its tint: written again only when the tints change.
         if up.tints.as_deref() != Some(tints) {
             let tinted: BTreeMap<Id, Rgb> = tints.iter().copied().collect();
@@ -1379,11 +1450,35 @@ impl Gpu {
         }
         // The caps' outlines and patterns, in their colours or their elements' tints.
         for ([a, b], c, owner) in self.caps.as_ref().map_or(&[][..], |up| &up.caps.lines[..]) {
+            if Some(*owner) == hidden {
+                continue;
+            }
             let c = rgb(tints.iter().find(|(id, _)| id == owner).map_or(*c, |(_, t)| *t));
             let rel = |p: &[f64; 3]| std::array::from_fn::<f32, 3, _>(|i| (p[i] - mesh.origin[i]) as f32);
             let (a, b) = (rel(a), rel(b));
             put(&mut lines, &[a[0], a[1], a[2], 1.0, b[0], b[1], b[2], 0.0, c[0], c[1], c[2], 0.0]);
             count += 1;
+        }
+        // The draft shares this buffer with the level lines: each triangle is three `Seg`s holding a vertex's place
+        // (from the mesh's origin) and its 0..255 rgb, painted far to near so the last one drawn is the front one.
+        let draft_base = count;
+        let (mut draft_count, mut draft_edge_count) = (0u32, 0u32);
+        if let Some((painted, edged)) = draft {
+            for (t, c) in painted {
+                let [r, g, b, _] = c.to_array();
+                for p in t {
+                    let p = std::array::from_fn::<f32, 3, _>(|i| (p[i] - mesh.origin[i]) as f32);
+                    put(&mut lines, &[p[0], p[1], p[2], 0.0, 0.0, 0.0, 0.0, 0.0, r as f32, g as f32, b as f32, 0.0]);
+                    draft_count += 1;
+                }
+            }
+            for ([a, b], c) in edged {
+                let [r, g, bl, _] = c.to_array();
+                let rel = |p: P3| std::array::from_fn::<f32, 3, _>(|i| (p[i] - mesh.origin[i]) as f32);
+                let (a, b) = (rel(*a), rel(*b));
+                put(&mut lines, &[a[0], a[1], a[2], 1.0, b[0], b[1], b[2], 0.0, r as f32, g as f32, bl as f32, 0.0]);
+                draft_edge_count += 1;
+            }
         }
         if lines.len() as u64 > self.segments.1 {
             self.segments = (Gpu::storage(device, lines.len() as u64), lines.len() as u64);
@@ -1419,6 +1514,10 @@ impl Gpu {
         let (lo, hi) = (from(lo), from(hi));
         put(&mut globals, &[lo[0], lo[1], lo[2], if cut.is_some() { 1.0 } else { 0.0 }]);
         put(&mut globals, &[hi[0], hi[1], hi[2], 0.0]);
+        // The owner left out of the picture, as its one-based index in the mesh: zero when none is hidden. Every
+        // vertex carries that index, so a shader discards it rather than the buffers being rewritten each frame.
+        let owner = hidden.and_then(|id| mesh.owners.iter().position(|o| o.id == id)).map_or(0.0, |i| (i + 1) as f32);
+        put(&mut globals, &[owner, 0.0, 0.0, 0.0]);
         // The marks, from the mesh's origin; a mark not there is drawn nowhere.
         for k in 0..MARKS {
             match self.marks.get(k) {
@@ -1438,6 +1537,7 @@ impl Gpu {
                 None => put(&mut globals, &[0.0; 28]),
             }
         }
+        put(&mut globals, &[draft_base as f32, draft_count as f32, 0.0, 0.0]);
         let marked = !self.marks.is_empty();
         write(&self.globals, &globals);
         // What this frame draws of the surfaces: nothing where they are drawn already for this camera (a tint changes only the
@@ -1446,17 +1546,15 @@ impl Gpu {
         let budget = self.budget.max(1);
         // A picture's points are few enough that they are all drawn: what is left of a frame is the surfaces'.
         let dots = mesh.dots.len();
-        let frame = match &up.progress {
-            Some((c, k, Stage::Exact { done, total })) if c == cam && *k == cut && done >= total => Frame::Picture,
-            Some((c, k, Stage::Exact { done, .. })) if c == cam && *k == cut => Frame::Exact(*done),
-            Some((c, k, Stage::Moving)) if c == cam && *k == cut => Frame::Exact(0),
-            _ if mesh.cost(&seen).saturating_add(dots) <= budget
+        let frame = match progress_frame(&up.progress, cam, cut) {
+            Some(frame) => frame,
+            None if mesh.cost(&seen).saturating_add(dots) <= budget
                 && seen.vertices.iter().all(|r| up.vertices.holds(r))
                 && up.dots.holds(&(0..mesh.dots.len())) =>
             {
                 Frame::Exact(0)
             }
-            _ => Frame::Moving,
+            None => Frame::Moving,
         };
         let limit = self.vertex_bytes.min(device.limits().max_buffer_size);
         let (draws, first) = match frame {
@@ -1760,6 +1858,30 @@ impl Gpu {
             // The edges are one triangle over the whole picture; the levels' lines two to a segment.
             pass.draw(0..if name == "edges" { 3 } else { 6 }, 0..instances);
         }
+        // The draft is composed over the finished picture, not before the edges pass (which clears it): its faces first,
+        // then its front edges, both depth tested against the picture's depths by the same `fs_line` the levels use.
+        if draft_count > 0 {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("draft"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &targets.picture_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_bind_group(0, &bind, &[]);
+            pass.set_bind_group(1, &targets.bind, &[]);
+            pass.set_pipeline(&self.draft);
+            pass.draw(0..draft_count, 0..1);
+            pass.set_pipeline(&self.lines);
+            let edge_base = draft_base + draft_count;
+            pass.draw(0..6, edge_base..(edge_base + draft_edge_count));
+        }
         // A wireframe's edges over the paper, in their order, and then those tinted over them.
         if mesh.wireframe && !mesh.wires.is_empty() {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -1955,6 +2077,7 @@ impl Gpu {
             seen_shapes: Vec::new(),
             stand_ins: None,
             progress: None,
+            hidden: None,
             planes,
             tints: None,
             lookups: Vec::new(),
@@ -2118,6 +2241,7 @@ mod tests {
     use bimcraft_core::graphics::Look;
     use bimcraft_core::render::PAPER;
     use bimcraft_core::view3d::{AZIMUTH, ELEVATION, Scene};
+    use egui::Color32;
 
     #[test]
     fn only_a_software_card_may_differ_by_a_few_pixels_and_a_real_one_must_match_to_the_byte() {
@@ -2262,6 +2386,34 @@ mod tests {
     }
 
     #[test]
+    fn a_draft_is_painted_into_the_cards_picture_depth_tested_as_the_processors_is() {
+        let Some(mut gpu) = headless() else { return };
+        let s = sample();
+        let (scene, look) = (Scene::new(&s.model), Look::of_3d(&s.model));
+        let cam = scene.fit_in(AZIMUTH, ELEVATION, 640, 480, &look);
+        let mesh = Arc::new(Mesh::new(&scene, &look).unwrap());
+        gpu.draw_capped(&mesh, &cam, &[], PAPER, mesh.section_box, Overlay { caps: None, hidden: None, draft: None }).unwrap();
+        let bare = read(&gpu);
+        let c = cam.target;
+        let triangle = |z| [[c[0] - 2000.0, c[1] - 2000.0, z], [c[0] + 2000.0, c[1] - 2000.0, z], [c[0], c[1] + 2000.0, z]];
+        let painted: Painted = vec![(triangle(c[2] + 2000.0), Color32::RED)];
+        let edged: Edged = Vec::new();
+        gpu.draw_capped(&mesh, &cam, &[], PAPER, mesh.section_box, Overlay { caps: None, hidden: None, draft: Some((&painted, &edged)) })
+            .unwrap();
+        let drawn = read(&gpu);
+        let count_red = |pixels: &[u8]| pixels.chunks(4).filter(|p| p[0] > 200 && p[1] < 60 && p[2] < 60).count();
+        assert_eq!(count_red(&bare), 0, "the bare picture is red already");
+        let red = count_red(&drawn);
+        assert!(red > 20, "the card's picture has no red draft: {red} pixels");
+        // The same triangle far behind the model: the depth test the level lines use hides it.
+        let behind: Painted = vec![(triangle(c[2] - 200000.0), Color32::RED)];
+        gpu.draw_capped(&mesh, &cam, &[], PAPER, mesh.section_box, Overlay { caps: None, hidden: None, draft: Some((&behind, &edged)) })
+            .unwrap();
+        let hidden = count_red(&read(&gpu));
+        assert!(hidden * 4 < red, "a draft behind the model drew {hidden} of {red} pixels");
+    }
+
+    #[test]
     fn two_views_take_turns_on_the_card_each_finding_its_own_mesh_where_it_left_it() {
         let Some(mut gpu) = headless() else { return };
         let s = sample();
@@ -2306,7 +2458,7 @@ mod tests {
         let differ = |a: &[u8], b: &[u8]| (0..a.len() / 4).filter(|&k| far(&a[4 * k..4 * k + 4], &b[4 * k..4 * k + 4])).count();
         let capped = differ(&hollow.rgba, &cpu.rgba);
         assert!(capped > 500, "the caps change {capped} pixels");
-        gpu.draw_capped(&mesh, &cam, &[], PAPER, mesh.section_box, Some(&caps)).unwrap();
+        gpu.draw_capped(&mesh, &cam, &[], PAPER, mesh.section_box, Overlay { caps: Some(&caps), hidden: None, draft: None }).unwrap();
         let card = read(&gpu);
         // What differs lies along the outlines and the patterns' lines, a pixel either way: a pixel whose four neighbours differ
         // too is a cap filled otherwise.
@@ -2315,7 +2467,7 @@ mod tests {
         let wrong = (w..w * 479).filter(|&k| [k, k - 1, k + 1, k - w, k + w].iter().all(|&n| off(n))).count();
         assert!(wrong * 50 < capped, "{wrong} pixels of caps differ from the processor's, of {capped} the caps change");
         // Without them, the card's picture is hollow again: the same camera and box draw anew.
-        gpu.draw_capped(&mesh, &cam, &[], PAPER, mesh.section_box, None).unwrap();
+        gpu.draw_capped(&mesh, &cam, &[], PAPER, mesh.section_box, Overlay { caps: None, hidden: None, draft: None }).unwrap();
         assert!(differ(&read(&gpu), &hollow.rgba) * 10 < capped);
     }
 
